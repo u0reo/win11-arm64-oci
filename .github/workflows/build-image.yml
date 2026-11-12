@@ -53,7 +53,9 @@ concurrency:
 
 jobs:
   build:
-    runs-on: [self-hosted, linux, x64, tcg]
+    # Any Linux host with qemu-system-aarch64, wimlib and ~100 GB free.
+    # Register the runner with the labels self-hosted,linux,tcg.
+    runs-on: [self-hosted, linux, tcg]
     timeout-minutes: 720
     environment: release
     env:
@@ -73,10 +75,21 @@ jobs:
       MEGA_2FA_SECRET: ${{ secrets.MEGA_2FA_SECRET }}
       MEGA_REMOTE_PATH: ${{ vars.MEGA_REMOTE_PATH || 'win11-arm64' }}
       AGE_RECIPIENT: ${{ secrets.AGE_RECIPIENT }}
-      SKIP_UPLOAD: ${{ github.event_name == 'workflow_dispatch' && inputs.upload == false && '1' || '0' }}
+      # `inputs.upload` is a boolean on workflow_dispatch and empty on tag
+      # pushes.  It is resolved to SKIP_UPLOAD by the first step instead of
+      # relying on loose equality in an expression.
+      UPLOAD_INPUT: ${{ inputs.upload }}
 
     steps:
       - uses: actions/checkout@v4
+
+      - name: Resolve upload flag
+        run: |
+          if [ "${GITHUB_EVENT_NAME}" = "workflow_dispatch" ] && [ "${UPLOAD_INPUT}" != "true" ]; then
+            echo "SKIP_UPLOAD=1" >> "$GITHUB_ENV"
+          else
+            echo "SKIP_UPLOAD=0" >> "$GITHUB_ENV"
+          fi
 
       - name: Mask credentials
         run: |

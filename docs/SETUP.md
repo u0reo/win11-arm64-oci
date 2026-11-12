@@ -60,7 +60,7 @@ curl -fsSL -o runner.tar.gz \
   https://github.com/actions/runner/releases/latest/download/actions-runner-linux-x64.tar.gz
 tar xzf runner.tar.gz
 ./config.sh --url https://github.com/<OWNER>/<REPO> --token <TOKEN> \
-  --labels self-hosted,linux,x64,tcg
+  --labels self-hosted,linux,tcg
 ./run.sh
 ```
 
