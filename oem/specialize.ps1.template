@@ -1,0 +1,86 @@
+$ErrorActionPreference = "Continue"
+$Oem = "C:\OEM"
+New-Item -ItemType Directory -Force -Path $Oem | Out-Null
+$Log = "$Oem\specialize.log"
+function Log($m) {
+    ((Get-Date -Format "o") + " " + $m) | Out-File -Append -Encoding ascii $Log
+}
+
+# Rendered by scripts/render.py from oem/specialize.ps1.template.
+$User = "{{WIN_USERNAME}}"
+$Pw   = "{{WIN_PASSWORD}}"
+
+Log "=== specialize start ==="
+Log ("whoami=" + (whoami))
+Log ("hostname=" + $env:COMPUTERNAME)
+
+# Keep a copy of all OEM scripts locally.  The USB stick will not exist on the
+# native OCI boot, so nothing may depend on it after this point.
+try {
+    if ($PSScriptRoot -and ($PSScriptRoot.TrimEnd([char]92) -ne $Oem.TrimEnd([char]92))) {
+        Copy-Item -Path "$PSScriptRoot\*" -Destination $Oem -Recurse -Force -ErrorAction Stop
+    }
+    Log "oem-copy-ok"
+} catch {
+    Log ("oem-copy-fail " + $_.Exception.Message)
+}
+if (-not (Test-Path "$Oem\net.cfg")) {
+    @"
+ip=10.0.0.192
+prefix=24
+gw=10.0.0.1
+dns=169.254.169.254,1.1.1.1
+"@ | Out-File -Encoding ascii "$Oem\net.cfg"
+}
+
+# Built-in Administrator: same credential as the normal account.
+& net.exe user Administrator $Pw 2>&1 | Out-File -Append -Encoding ascii $Log
+& net.exe user Administrator /active:yes 2>&1 | Out-File -Append -Encoding ascii $Log
+Log "administrator-configured"
+
+# RDP: enable.  NLA is off for lab compatibility; do not expose this port
+# directly to the internet.
+$ts = "HKLM:\SYSTEM\CurrentControlSet\Control\Terminal Server"
+$rdp = "$ts\WinStations\RDP-Tcp"
+Set-ItemProperty -Path $ts -Name fDenyTSConnections -Type DWord -Value 0 -ErrorAction SilentlyContinue
+Set-ItemProperty -Path $rdp -Name UserAuthentication -Type DWord -Value 0 -ErrorAction SilentlyContinue
+Set-ItemProperty -Path $rdp -Name SecurityLayer -Type DWord -Value 0 -ErrorAction SilentlyContinue
+Set-ItemProperty -Path $rdp -Name MinEncryptionLevel -Type DWord -Value 1 -ErrorAction SilentlyContinue
+Set-Service -Name TermService -StartupType Automatic -ErrorAction SilentlyContinue
+Start-Service TermService -ErrorAction SilentlyContinue
+Log "rdp-configured"
+
+# WinRM: automatic, Basic + unencrypted for lab use.
+Set-Service -Name WinRM -StartupType Automatic -ErrorAction SilentlyContinue
+Start-Service WinRM -ErrorAction SilentlyContinue
+try { Enable-PSRemoting -Force -SkipNetworkProfileCheck -ErrorAction Stop } catch { Log ("psremoting-fail " + $_.Exception.Message) }
+& winrm.exe quickconfig -q 2>&1 | Out-File -Append -Encoding ascii $Log
+& winrm.exe set winrm/config/service/auth '@{Basic="true"}' 2>&1 | Out-File -Append -Encoding ascii $Log
+& winrm.exe set winrm/config/service '@{AllowUnencrypted="true"}' 2>&1 | Out-File -Append -Encoding ascii $Log
+try { Set-Item WSMan:\localhost\Service\Auth\Basic -Value $true -Force -ErrorAction Stop } catch { Log ("wsman-basic-fail " + $_.Exception.Message) }
+try { Set-Item WSMan:\localhost\Service\AllowUnencrypted -Value $true -Force -ErrorAction Stop } catch { Log ("wsman-unenc-fail " + $_.Exception.Message) }
+Log "winrm-configured"
+
+# Lab network: firewall off.  This is convenient and unsafe on a public
+# network; the image is intended for a private OCI VCN / VPN.
+& netsh.exe advfirewall set allprofiles state off 2>&1 | Out-File -Append -Encoding ascii $Log
+& netsh.exe advfirewall firewall add rule name="RDP 3389" dir=in action=allow protocol=TCP localport=3389 2>&1 | Out-File -Append -Encoding ascii $Log
+& netsh.exe advfirewall firewall add rule name="WinRM 5985" dir=in action=allow protocol=TCP localport=5985 2>&1 | Out-File -Append -Encoding ascii $Log
+try { Get-NetConnectionProfile -ErrorAction Stop | Set-NetConnectionProfile -NetworkCategory Private -ErrorAction SilentlyContinue } catch {}
+Log "firewall-configured"
+
+# No hibernation; AC power never sleeps.
+& powercfg.exe /h off 2>&1 | Out-File -Append -Encoding ascii $Log
+& powercfg.exe /change standby-timeout-ac 0 2>&1 | Out-File -Append -Encoding ascii $Log
+
+# Startup fallback task.  The service route used previously was killed by the
+# SCM 45-second timeout; a scheduled task plus a detached PowerShell avoids it.
+$tr = "cmd.exe /c C:\OEM\bootstrap.cmd"
+& schtasks.exe /create /tn "OEM Bootstrap" /tr $tr /sc onstart /ru SYSTEM /rl HIGHEST /f 2>&1 | Out-File -Append -Encoding ascii $Log
+Log "startup-task-created"
+
+# Start one detached pass now.  It is harmless if OOBE is still running.
+try { Start-Process -FilePath "C:\OEM\bootstrap.cmd" -WindowStyle Hidden -ErrorAction Stop } catch { Log ("bootstrap-start-fail " + $_.Exception.Message) }
+
+Log "=== specialize done ==="
+exit 0

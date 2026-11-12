@@ -1,0 +1,263 @@
+<?xml version="1.0" encoding="utf-8"?>
+<unattend xmlns="urn:schemas-microsoft-com:unattend"
+          xmlns:wcm="http://schemas.microsoft.com/WMIConfig/2002/State"
+          xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+
+  <!-- ============================================================
+       Windows 11 ARM64 unattended install for OCI A1 / QEMU virt.
+
+       This file is a TEMPLATE.  Do not edit a rendered copy by hand.
+       scripts/render.py substitutes the account name, password,
+       computer name and time zone placeholders.
+       pipeline/make_oemdrv.sh packages the rendered copy.
+
+       SECURITY: the rendered file contains the account password in
+       clear text.  It is written with mode 0600 and must never be
+       committed.  The password is embedded in the resulting image.
+       ============================================================ -->
+
+  <settings pass="windowsPE">
+
+    <!-- Do NOT use Microsoft-Windows-PnpCustomizationsWinPE here.  It tries
+         to install every INF in the DriverPaths and returns 0x80070103
+         (ERROR_NO_MORE_ITEMS) for drivers with no matching device (viostor,
+         balloon, ...).  Setup treats that as fatal.  Instead, the
+         RunSynchronous command below installs only vioscsi into the running
+         WinPE with pnputil. -->
+    <component name="Microsoft-Windows-Setup"
+               processorArchitecture="arm64"
+               publicKeyToken="31bf3856ad364e35"
+               language="neutral"
+               versionScope="nonSxS">
+
+      <!-- Bypass Windows 11 TPM/SecureBoot/RAM/CPU checks in WinPE. -->
+      <RunSynchronous>
+        <RunSynchronousCommand wcm:action="add">
+          <Order>1</Order>
+          <Path>reg add HKLM\SYSTEM\Setup\LabConfig /v BypassTPMCheck /t REG_DWORD /d 1 /f</Path>
+        </RunSynchronousCommand>
+        <RunSynchronousCommand wcm:action="add">
+          <Order>2</Order>
+          <Path>reg add HKLM\SYSTEM\Setup\LabConfig /v BypassSecureBootCheck /t REG_DWORD /d 1 /f</Path>
+        </RunSynchronousCommand>
+        <RunSynchronousCommand wcm:action="add">
+          <Order>3</Order>
+          <Path>reg add HKLM\SYSTEM\Setup\LabConfig /v BypassRAMCheck /t REG_DWORD /d 1 /f</Path>
+        </RunSynchronousCommand>
+        <RunSynchronousCommand wcm:action="add">
+          <Order>4</Order>
+          <Path>reg add HKLM\SYSTEM\Setup\LabConfig /v BypassCPUCheck /t REG_DWORD /d 1 /f</Path>
+        </RunSynchronousCommand>
+        <RunSynchronousCommand wcm:action="add">
+          <Order>5</Order>
+          <Path>reg add HKLM\SYSTEM\Setup\LabConfig /v BypassStorageCheck /t REG_DWORD /d 1 /f</Path>
+        </RunSynchronousCommand>
+        <RunSynchronousCommand wcm:action="add">
+          <Order>6</Order>
+          <Path>reg add HKLM\SYSTEM\Setup\LabConfig /v BypassDiskCheck /t REG_DWORD /d 1 /f</Path>
+        </RunSynchronousCommand>
+        <!-- The OEMDRV is a USB CD-ROM so WinPE always assigns it a letter.
+             Install vioscsi directly into the running WinPE before Setup
+             enumerates installation targets.  X: is the WinPE ramdisk. -->
+        <RunSynchronousCommand wcm:action="add">
+          <Order>7</Order>
+          <Path>cmd /c for %d in (C D E F G H I J K L M N O P Q R S T U V W Y Z) do if exist %d:\drivers\vioscsi.inf (pnputil /add-driver %d:\drivers\vioscsi.inf /install &gt;&gt; X:\pnputil-auto.log 2&gt;&amp;1)</Path>
+        </RunSynchronousCommand>
+        <RunSynchronousCommand wcm:action="add">
+          <Order>8</Order>
+          <Path>cmd /c pnputil /scan-devices &amp; ping -n 6 127.0.0.1 &gt;nul</Path>
+        </RunSynchronousCommand>
+      </RunSynchronous>
+
+      <!-- 100M ESP + 16M MSR + rest NTFS, matching the native layout. -->
+      <DiskConfiguration>
+        <WillShowUI>OnError</WillShowUI>
+        <Disk wcm:action="add">
+          <DiskID>0</DiskID>
+          <WillWipeDisk>true</WillWipeDisk>
+          <CreatePartitions>
+            <CreatePartition wcm:action="add">
+              <Order>1</Order>
+              <Type>EFI</Type>
+              <Size>100</Size>
+            </CreatePartition>
+            <CreatePartition wcm:action="add">
+              <Order>2</Order>
+              <Type>MSR</Type>
+              <Size>16</Size>
+            </CreatePartition>
+            <CreatePartition wcm:action="add">
+              <Order>3</Order>
+              <Type>Primary</Type>
+              <Extend>true</Extend>
+            </CreatePartition>
+          </CreatePartitions>
+          <ModifyPartitions>
+            <ModifyPartition wcm:action="add">
+              <Order>1</Order>
+              <PartitionID>1</PartitionID>
+              <Format>FAT32</Format>
+              <Label>System</Label>
+            </ModifyPartition>
+            <ModifyPartition wcm:action="add">
+              <Order>2</Order>
+              <PartitionID>3</PartitionID>
+              <Format>NTFS</Format>
+              <Label>Windows</Label>
+              <Letter>C</Letter>
+            </ModifyPartition>
+          </ModifyPartitions>
+        </Disk>
+      </DiskConfiguration>
+
+      <ImageInstall>
+        <OSImage>
+          <InstallFrom>
+            <MetaData wcm:action="add">
+              <Key>/IMAGE/INDEX</Key>
+              <Value>{{IMAGE_INDEX}}</Value>
+            </MetaData>
+          </InstallFrom>
+          <InstallTo>
+            <DiskID>0</DiskID>
+            <PartitionID>3</PartitionID>
+          </InstallTo>
+          <WillShowUI>OnError</WillShowUI>
+        </OSImage>
+      </ImageInstall>
+
+      <UserData>
+        <AcceptEula>true</AcceptEula>
+        <FullName>{{WIN_USERNAME}}</FullName>
+        <Organization>{{WIN_USERNAME}}</Organization>
+{{PRODUCT_KEY_BLOCK}}
+      </UserData>
+    </component>
+  </settings>
+
+  <!-- Add the boot-critical drivers to the offline image before the first
+       boot.  PnpCustomizationsNonWinPE is an offlineServicing component; if
+       it is placed in specialize it is not processed, and the installed OS
+       would fail to boot from the virtio-scsi disk (INACCESSIBLE_BOOT_DEVICE).
+       Only vioscsi + netkvm are staged in OEMDRV\drivers; viogpudo lives in
+       drivers-extra\ and is added only by the manual DISM path, so OCI A1
+       (no virtio-gpu) cannot fail with 0x80070103 here. -->
+  <settings pass="offlineServicing">
+    <component name="Microsoft-Windows-PnpCustomizationsNonWinPE"
+               processorArchitecture="arm64"
+               publicKeyToken="31bf3856ad364e35"
+               language="neutral"
+               versionScope="nonSxS">
+      <DriverPaths>
+        <PathAndCredentials wcm:action="add" wcm:keyValue="1"><Path>C:\drivers</Path></PathAndCredentials>
+        <PathAndCredentials wcm:action="add" wcm:keyValue="2"><Path>D:\drivers</Path></PathAndCredentials>
+        <PathAndCredentials wcm:action="add" wcm:keyValue="3"><Path>E:\drivers</Path></PathAndCredentials>
+        <PathAndCredentials wcm:action="add" wcm:keyValue="4"><Path>F:\drivers</Path></PathAndCredentials>
+        <PathAndCredentials wcm:action="add" wcm:keyValue="5"><Path>G:\drivers</Path></PathAndCredentials>
+        <PathAndCredentials wcm:action="add" wcm:keyValue="6"><Path>H:\drivers</Path></PathAndCredentials>
+        <PathAndCredentials wcm:action="add" wcm:keyValue="7"><Path>I:\drivers</Path></PathAndCredentials>
+        <PathAndCredentials wcm:action="add" wcm:keyValue="8"><Path>J:\drivers</Path></PathAndCredentials>
+        <PathAndCredentials wcm:action="add" wcm:keyValue="9"><Path>K:\drivers</Path></PathAndCredentials>
+        <PathAndCredentials wcm:action="add" wcm:keyValue="10"><Path>L:\drivers</Path></PathAndCredentials>
+        <PathAndCredentials wcm:action="add" wcm:keyValue="11"><Path>M:\drivers</Path></PathAndCredentials>
+        <PathAndCredentials wcm:action="add" wcm:keyValue="12"><Path>N:\drivers</Path></PathAndCredentials>
+        <PathAndCredentials wcm:action="add" wcm:keyValue="13"><Path>O:\drivers</Path></PathAndCredentials>
+        <PathAndCredentials wcm:action="add" wcm:keyValue="14"><Path>P:\drivers</Path></PathAndCredentials>
+        <PathAndCredentials wcm:action="add" wcm:keyValue="15"><Path>Q:\drivers</Path></PathAndCredentials>
+        <PathAndCredentials wcm:action="add" wcm:keyValue="16"><Path>R:\drivers</Path></PathAndCredentials>
+        <PathAndCredentials wcm:action="add" wcm:keyValue="17"><Path>S:\drivers</Path></PathAndCredentials>
+        <PathAndCredentials wcm:action="add" wcm:keyValue="18"><Path>T:\drivers</Path></PathAndCredentials>
+        <PathAndCredentials wcm:action="add" wcm:keyValue="19"><Path>U:\drivers</Path></PathAndCredentials>
+        <PathAndCredentials wcm:action="add" wcm:keyValue="20"><Path>V:\drivers</Path></PathAndCredentials>
+        <PathAndCredentials wcm:action="add" wcm:keyValue="21"><Path>W:\drivers</Path></PathAndCredentials>
+        <PathAndCredentials wcm:action="add" wcm:keyValue="22"><Path>X:\drivers</Path></PathAndCredentials>
+        <PathAndCredentials wcm:action="add" wcm:keyValue="23"><Path>Y:\drivers</Path></PathAndCredentials>
+        <PathAndCredentials wcm:action="add" wcm:keyValue="24"><Path>Z:\drivers</Path></PathAndCredentials>
+      </DriverPaths>
+    </component>
+  </settings>
+
+  <settings pass="specialize">
+    <component name="Microsoft-Windows-Shell-Setup"
+               processorArchitecture="arm64"
+               publicKeyToken="31bf3856ad364e35"
+               language="neutral"
+               versionScope="nonSxS">
+      <ComputerName>{{COMPUTER_NAME}}</ComputerName>
+      <TimeZone>{{TIMEZONE}}</TimeZone>
+      <RegisteredOwner>{{WIN_USERNAME}}</RegisteredOwner>
+      <RegisteredOrganization>{{WIN_USERNAME}}</RegisteredOrganization>
+    </component>
+
+    <!-- Run the OEM script as SYSTEM after PnP, before OOBE. -->
+    <component name="Microsoft-Windows-Deployment"
+               processorArchitecture="arm64"
+               publicKeyToken="31bf3856ad364e35"
+               language="neutral"
+               versionScope="nonSxS">
+      <RunSynchronous>
+        <RunSynchronousCommand wcm:action="add">
+          <Order>1</Order>
+          <Path>cmd /c for %d in (C D E F G H I J K L M N O P Q R S T U V W Y Z) do if exist %d:\oem\specialize.cmd call %d:\oem\specialize.cmd</Path>
+        </RunSynchronousCommand>
+      </RunSynchronous>
+    </component>
+  </settings>
+
+  <settings pass="oobeSystem">
+    <component name="Microsoft-Windows-Shell-Setup"
+               processorArchitecture="arm64"
+               publicKeyToken="31bf3856ad364e35"
+               language="neutral"
+               versionScope="nonSxS">
+      <OOBE>
+        <HideEULAPage>true</HideEULAPage>
+        <HideLocalAccountScreen>true</HideLocalAccountScreen>
+        <HideOEMRegistrationScreen>true</HideOEMRegistrationScreen>
+        <HideOnlineAccountScreens>true</HideOnlineAccountScreens>
+        <HideWirelessSetupInOOBE>true</HideWirelessSetupInOOBE>
+        <NetworkLocation>Work</NetworkLocation>
+        <ProtectYourPC>3</ProtectYourPC>
+      </OOBE>
+
+      <UserAccounts>
+        <AdministratorPassword>
+          <Value>{{WIN_PASSWORD}}</Value>
+          <PlainText>true</PlainText>
+        </AdministratorPassword>
+        <LocalAccounts>
+          <LocalAccount wcm:action="add">
+            <Name>{{WIN_USERNAME}}</Name>
+            <DisplayName>{{WIN_USERNAME}}</DisplayName>
+            <Group>Administrators</Group>
+            <Password>
+              <Value>{{WIN_PASSWORD}}</Value>
+              <PlainText>true</PlainText>
+            </Password>
+          </LocalAccount>
+        </LocalAccounts>
+      </UserAccounts>
+
+      <AutoLogon>
+        <Password>
+          <Value>{{WIN_PASSWORD}}</Value>
+          <PlainText>true</PlainText>
+        </Password>
+        <Enabled>true</Enabled>
+        <Username>{{WIN_USERNAME}}</Username>
+        <LogonCount>2</LogonCount>
+      </AutoLogon>
+
+      <FirstLogonCommands>
+        <SynchronousCommand wcm:action="add">
+          <Order>1</Order>
+          <Description>OEM first logon configuration</Description>
+          <CommandLine>cmd /c for %d in (C D E F G H I J K L M N O P Q R S T U V W Y Z) do if exist %d:\oem\firstlogon.cmd call %d:\oem\firstlogon.cmd</CommandLine>
+          <RequiresUserInput>false</RequiresUserInput>
+        </SynchronousCommand>
+      </FirstLogonCommands>
+
+      <TimeZone>{{TIMEZONE}}</TimeZone>
+    </component>
+  </settings>
+</unattend>

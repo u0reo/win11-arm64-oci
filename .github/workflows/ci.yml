@@ -1,0 +1,56 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y shellcheck libxml2-utils
+
+      - name: shellcheck
+        run: shellcheck -S warning scripts/*.sh pipeline/*.sh
+
+      - name: python syntax
+        run: python3 -m py_compile scripts/*.py
+
+      - name: XML well-formedness
+        run: xmllint --noout autounattend/autounattend.template.xml
+
+      - name: render with defaults
+        run: python3 scripts/render.py --out build/media --check
+
+      - name: render with overrides
+        env:
+          WIN_USERNAME: CIUser
+          WIN_PASSWORD: "ci-pass-123"
+          COMPUTER_NAME: CI-WIN
+        run: |
+          python3 scripts/render.py --out build/media --image-index 1
+          grep -q '<ComputerName>CI-WIN</ComputerName>' build/media/autounattend.xml
+          grep -q 'ci-pass-123' build/media/autounattend.xml
+          grep -q 'CIUser' build/media/oem/firstlogon.ps1
+
+      - name: no known secrets committed
+        run: |
+          if grep -rInE 'ocid1\.|BEGIN [A-Z ]*PRIVATE KEY|AKIA[0-9A-Z]{16}' \
+              --exclude-dir=.git --exclude-dir=build .; then
+            echo "possible secret in repository" >&2
+            exit 1
+          fi
+
+      - name: gitleaks
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

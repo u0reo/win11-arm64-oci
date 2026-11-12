@@ -1,0 +1,44 @@
+# build output
+build/
+media/
+
+# images and archives
+*.qcow2
+*.raw
+*.img
+*.iso
+*.wim
+*.esd
+*.zst
+*.age
+*.gz
+*.xz
+
+# runtime state
+*.log
+*.pid
+*.qmp
+*.mon
+*.fd
+logs/
+shots/
+
+# secrets
+.env
+*.env.local
+age-key.txt
+key.txt
+rclone.conf
+*.pem
+*.key
+
+# editors / OS
+.DS_Store
+Thumbs.db
+*.swp
+.idea/
+.vscode/
+
+# python
+__pycache__/
+*.pyc

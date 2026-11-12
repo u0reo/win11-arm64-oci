@@ -1,0 +1,119 @@
+name: build-image
+
+# This job MUST run on a self-hosted runner.
+#
+# GitHub-hosted runners cannot build this image:
+#   - no /dev/kvm (ARM64 guest runs under TCG on x86)
+#   - ~14 GB free disk (the qcow2 alone is ~28 GB)
+#   - 6 hour job limit
+#   - ISO licensing and artifact size limits
+#
+# Never add a `pull_request` trigger to this workflow: fork PRs would run
+# arbitrary code on the self-hosted machine.
+
+on:
+  workflow_dispatch:
+    inputs:
+      iso_path:
+        description: "Path to the Windows 11 ARM64 ISO on the runner"
+        required: true
+        default: "/srv/iso/Win11_ARM64_26H2.iso"
+      iso_sha256:
+        description: "Optional expected SHA256 of the ISO"
+        required: false
+        default: ""
+      image_index:
+        description: "WIM image index"
+        required: true
+        default: "1"
+      virtio_iso:
+        description: "Optional path to virtio-win.iso (or set the VIRTIO_ISO variable)"
+        required: false
+        default: ""
+      size:
+        description: "qcow2 virtual size"
+        required: true
+        default: "50G"
+      upload:
+        description: "Upload the compressed image to MEGA"
+        type: boolean
+        required: true
+        default: true
+
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: build-image
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: [self-hosted, linux, x64, tcg]
+    timeout-minutes: 720
+    environment: release
+    env:
+      # Secrets override the defaults in config/defaults.env.
+      WIN_USERNAME: ${{ secrets.WIN_USERNAME || 'User' }}
+      WIN_PASSWORD: ${{ secrets.WIN_PASSWORD || 'oci-a1' }}
+      COMPUTER_NAME: ${{ secrets.COMPUTER_NAME || vars.COMPUTER_NAME || 'OCI-WIN' }}
+
+      ISO: ${{ inputs.iso_path || vars.ISO_PATH }}
+      ISO_SHA256: ${{ inputs.iso_sha256 || vars.ISO_SHA256 }}
+      IMAGE_INDEX: ${{ inputs.image_index || '1' }}
+      VIRTIO_ISO: ${{ inputs.virtio_iso || vars.VIRTIO_ISO }}
+      SIZE: ${{ inputs.size || '50G' }}
+
+      MEGA_USER: ${{ secrets.MEGA_USER }}
+      MEGA_PASS_OBSCURED: ${{ secrets.MEGA_PASS_OBSCURED }}
+      MEGA_2FA_SECRET: ${{ secrets.MEGA_2FA_SECRET }}
+      MEGA_REMOTE_PATH: ${{ vars.MEGA_REMOTE_PATH || 'win11-arm64' }}
+      AGE_RECIPIENT: ${{ secrets.AGE_RECIPIENT }}
+      SKIP_UPLOAD: ${{ github.event_name == 'workflow_dispatch' && inputs.upload == false && '1' || '0' }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Mask credentials
+        run: |
+          echo "::add-mask::$WIN_PASSWORD"
+          echo "::add-mask::$MEGA_PASS_OBSCURED"
+          echo "::add-mask::$MEGA_2FA_SECRET"
+
+      - name: Show resolved settings
+        run: |
+          echo "runner=$(uname -m) cpus=$(nproc)"
+          echo "iso=$ISO"
+          echo "image_index=$IMAGE_INDEX"
+          echo "computer_name=$COMPUTER_NAME"
+          echo "user=$WIN_USERNAME"
+          echo "upload=$([ "$SKIP_UPLOAD" = 1 ] && echo no || echo yes)"
+
+      - name: Verify ISO checksum
+        if: env.ISO_SHA256 != ''
+        run: |
+          actual=$(sha256sum "$ISO" | awk '{print $1}')
+          [ "$actual" = "$ISO_SHA256" ] || {
+            echo "ISO sha256 mismatch: $actual" >&2
+            exit 1
+          }
+
+      - name: Build
+        run: scripts/build-image.sh
+
+      - name: Write build summary
+        if: always()
+        run: |
+          {
+            echo "### build-image"
+            echo
+            echo "- runner: $(uname -m), $(nproc) cpus"
+            echo "- iso: $ISO"
+            echo "- image index: $IMAGE_INDEX"
+            echo "- computer name: $COMPUTER_NAME"
+            echo "- upload: $([ "$SKIP_UPLOAD" = 1 ] && echo no || echo yes)"
+          } >> "$GITHUB_STEP_SUMMARY"
