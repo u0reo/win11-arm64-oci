@@ -5299,3 +5299,22 @@ winload(1742) が別世代 (≒8036) の ntoskrnl.exe を拒否している。
   バックアップは `backup/sdb_20261112_142740/`（GPT/ESP/ハイブ）。
   GRUB は ESP UUID 2760-2671 に更新、UEFI は Boot0003 を先頭に設定。
 - 書き戻し後の初回ネイティブ起動はユーザーがホスト再起動して確認する。
+
+### live ISO の cloud-init / SSH 検証（2026-11-14）
+
+- Ubuntu 24.04.5 live-server arm64 ISO を QEMU の TCG で起動し、
+  `prepare.sh --ssh` と同じ seed（`mkfs.vfat -n CIDATA` + `user-data` /
+  `meta-data`）を virtio-scsi のディスクとして渡した。
+- cloud-init は `CIDATA` を自動検出し、`ubuntu` ユーザー
+  （`uid=1001`, `shell=/bin/bash`, `sudo NOPASSWD`）を作成した。
+- live ISO には openssh-server と `ssh.socket` が入っており、seed の
+  `systemctl enable --now ssh` が無くても 22 番は listen する。
+- `ssh -i <key> ubuntu@<host>` でログインでき、`sudo -n true` も通った。
+- TCG では systemd の起動完了まで実時間で 15 分ほどかかった。シリアルは
+  `[ 176s] Received client request to flush runtime journal` の後、
+  cloud-init の `runcmd` が終わるまで数分沈黙する。
+- QEMU の起動には `-machine virt,gic-version=3 -accel tcg,thread=multi
+  -cpu neoverse-n1` と AAVMF（`AAVMF_CODE.no-secboot.fd`）が必要。
+  `-cpu max` だけでは `PC=0x5200` で止まる。
+- `meta-data` の `local-hostname` は live では反映されず、ホスト名は
+  `ubuntu-server` のままだった。動作への影響はない。

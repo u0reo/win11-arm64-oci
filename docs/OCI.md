@@ -21,15 +21,17 @@ OCI のカスタムイメージ取り込みは Object Storage 経由です。
 
 ## どの組み合わせが可能か
 
-起動方法は **`--to-ram`（live Ubuntu を RAM に載せる）一択**です。
+起動方法は **live Ubuntu を `toram` で RAM に載せる一択**です。
 OCI の標準 Ubuntu は p2 が 46 GiB の root で、マウント中の ext4 は縮小
 できないため、インストーラで p2 を作り直す経路は取りません。
-live 環境で、仕上がりだけを選びます。
+live 環境で、仕上がりだけを選びます。`build.sh` は、実行中のルートや
+live ISO が対象ディスク上にある場合は実行を拒否します（`--reuse-ubuntu`
+を除く）。
 
 | 仕上がり | コマンド | p2 |
 |---|---|---|
-| Windows のみ | `--to-ram` | 消える（Windows が全体を使う） |
-| Windows + 4 GiB Ubuntu | `--to-ram --keep-ubuntu` | 4 GiB で作り直す |
+| Windows のみ | `--disk /dev/sda` | 消える（Windows が全体を使う） |
+| Windows + 4 GiB Ubuntu | `--keep-ubuntu --disk /dev/sda` | 4 GiB で作り直す |
 
 Windows ISO と virtio-win の置き場所は 2 通りです。
 
@@ -40,17 +42,17 @@ Windows ISO と virtio-win の置き場所は 2 通りです。
 
 ```bash
 # RAM に置く（データボリュームなし）
-sudo ./scripts/build.sh --to-ram --disk /dev/sda \
+sudo ./scripts/build.sh --disk /dev/sda \
   --iso /dev/shm/Win11.iso --virtio /dev/shm/virtio-win.iso \
   --mem 6144 --yes
 
 # 10 GB のデータボリュームから読む（/mnt/data の例は下の注意を参照）
-sudo ./scripts/build.sh --to-ram --disk /dev/sda \
+sudo ./scripts/build.sh --disk /dev/sda \
   --iso /mnt/data/Win11.iso --virtio /mnt/data/virtio-win.iso \
   --mem 6144 --yes
 
 # 4 GiB の Ubuntu 復旧環境も残す
-sudo ./scripts/build.sh --to-ram --keep-ubuntu --disk /dev/sda \
+sudo ./scripts/build.sh --keep-ubuntu --disk /dev/sda \
   --iso /dev/shm/Win11.iso --virtio /dev/shm/virtio-win.iso \
   --mem 6144 --yes
 ```
@@ -126,9 +128,12 @@ sudo ./scripts/build.sh \
 `scripts/build.sh` は次を確認してから `internal/build-image.sh` を呼びます。
 
 - ブロックデバイスであること（`--image` のときは qcow2 を作る）
-- マウントされていないこと
-- 実行中のルートデバイスでないこと
+- 実行中のルートが対象デバイスでないこと（`--reuse-ubuntu` を除く）
+- live ISO の loop が対象デバイス上にないこと（`toram` 起動か）
 - 40 GiB 以上あること
+
+`--yes` の後、対象デバイス上に残っている Windows ISO / virtio-win を
+`/dev/shm` にコピーし、対象デバイスのマウントをすべて解除します。
 
 `--yes` を付けないと、対象デバイスの model / serial / size を表示して止まります。
 
@@ -193,7 +198,7 @@ virtio-win（0.7 GB）を `/dev/shm`（RAM）に置いても、24 GB に収ま�
 
    ```bash
    sudo ./scripts/prepare.sh \
-     /srv/iso/ubuntu-24.04-live-server-arm64.iso --write --ssh
+     /srv/iso/ubuntu-24.04.5-live-server-arm64.iso --write --ssh
    ```
 
    `--write` は `/etc/grub.d/40_custom` に追記して `update-grub` まで
@@ -215,27 +220,24 @@ virtio-win（0.7 GB）を `/dev/shm`（RAM）に置いても、24 GB に収ま�
    git clone https://github.com/<OWNER>/win11-arm64-oci.git
    cd win11-arm64-oci
    sudo ./scripts/setup.sh
-   sudo ./scripts/build.sh --to-ram --disk /dev/sda \
+   sudo ./scripts/build.sh --disk /dev/sda \
      --iso /dev/shm/Win11_ARM64_26H2.iso \
      --virtio /dev/shm/virtio-win.iso --mem 6144 --yes
    ```
 
    `--keep-ubuntu` を足すと 4 GiB の Ubuntu 復旧環境も一緒に作ります。
 
-`--to-ram` は `internal/live-ram.sh` に引き継がれ、次を行います。
+`--yes` を付けると、`build.sh` は次を行います。
 
-1. 実行中の環境が `/dev/sda` に依存していないか確認（していなければ中止。
-   ルート、ライブメディア（`/run/live/medium` か `/cdrom`）、ISO の
-   いずれかが `/dev/sda` 上にあり、かつ `losetup -a` に RAM 上の
-   loop が無ければ中止します）
-2. `MemAvailable` と `/dev/shm` の空きを確認し、足りなければ中止
-3. Windows ISO と virtio-win.iso を `/dev/shm` にコピー（まだそこに
-   無い場合だけ）
-4. `/dev/sda` のマウントをすべて解除し、`scripts/build.sh` に引き継ぐ
+1. 実行中の環境が `/dev/sda` に依存していないか確認（ルートが `/dev/sda`
+   上、または live ISO の loop が `/dev/sda` 上なら中止）
+2. Windows ISO と virtio-win.iso が `/dev/sda` 上にある場合だけ、
+   `MemAvailable` と `/dev/shm` の空きを確認して `/dev/shm` にコピー
+3. `/dev/sda` のマウントをすべて解除してから書き込み開始
 
-**`--mem 6144` を明示してください。** `--to-ram` の既定も 6144 ですが、
-`build.sh` 単体の既定は 8192 で、コピー後の空きメモリが足りず QEMU が
-OOM で落ちることがあります。
+`--mem` の既定は 6144 MiB です。RAM が 24 GB の A1 で ISO を `/dev/shm`
+に置く場合、`--mem 8192` は OOM の危険があります。`--mem 6144` のままに
+してください。
 
 #### 10 GB のデータボリュームに置く場合
 
@@ -279,9 +281,14 @@ findmnt /mnt/data
 以降は `/dev/sdb` ではなく `/mnt/data` を渡します。デバイス名を確認
 したいときは `findmnt -no SOURCE /mnt/data` です。
 
-`--to-ram` は ISO が `/mnt/data` にあっても、書き込み先 `/dev/sda` 上に
-無ければコピーしません。`/mnt/data` が `/dev/sda` 上にある場合だけ
-`/dev/shm` にコピーします。
+データボリュームを増やさず、Cloudflare R2 / Backblaze B2 / OCI Object Storage /
+WebDAV を一時置き場にする方法は、README の
+[「一時ストレージをマウントする」](../README.md#一時ストレージをマウントするおすすめ)
+にまとめています。GRUB は FUSE を読めないので、live ISO だけは実ディスクに
+置いてください。
+
+ISO が `/mnt/data` にある場合、`build.sh` はコピーしません
+（`/mnt/data` が `/dev/sda` 上にある場合だけ `/dev/shm` にコピーします）。
 
 ### 注意点
 
@@ -293,17 +300,28 @@ findmnt /mnt/data
   （`scripts/prepare.sh` がエントリを作ります）
 - ライブ環境の操作は基本シリアルコンソールです。`prepare.sh --ssh` を
   付けておくと、ESP を `CIDATA` にして cloud-init の seed を置くので、
-  live 起動時から `authorized_keys` で SSH できます（Ubuntu Server live は
-  cloud-init 入り）。live のホスト鍵は毎回変わるので、`known_hosts` の
-  警告が出たら `ssh-keygen -R <ip>` で消してください。ESP のラベルは
-  ビルド後に戻せます（`prepare.sh` が表示する `fatlabel` コマンド）
-- `toram` でも ISO のパーティションがマウントされたままの場合があります。
-  `scripts/build.sh` はマウント中のデバイスを拒否するので、先に
-  `sudo umount /dev/sda1` などで外してください
+  live 起動時から `ubuntu` ユーザー（パスワードなし sudo）で SSH できます。
+  Ubuntu Server live には cloud-init と openssh-server が入っており、
+  `ssh.socket` が最初から有効です（seed 側の `systemctl enable --now ssh`
+  は念のためで、無くても 22 番は開きます）。
+  sshd が上がらないときは `sudo cloud-init status --long` を見てください。
+  live のホスト鍵は毎回変わるので、`known_hosts` の警告が出たら
+  `ssh-keygen -R <ip>` で消してください。ESP のラベルはビルド後に戻せます
+  （`prepare.sh` が表示する `fatlabel` コマンド）
+- `prepare.sh --ssh` の seed は、Ubuntu 24.04.5 live-server arm64 ISO を
+  QEMU（AAVMF + TCG）で起動して確認済みです。cloud-init が `CIDATA` を
+  自動検出し、`ubuntu` ユーザー作成・`authorized_keys` でのログイン・
+  パスワードなし sudo・22 番の listen まで通りました。TCG では systemd の
+  起動完了まで実時間で 15 分ほどかかります。`meta-data` の
+  `local-hostname` は live では効かず、ホスト名は `ubuntu-server` のままに
+  なります（動作に影響はありません）
+- `toram` でも対象ディスクのパーティションがマウントされたままの場合があります。
+  `scripts/build.sh` は `--yes` の後で自動的に解除します。解除できない場合は
+  `fuser -vm <mountpoint>` で使用中プロセスを確認してください
 
-ISO を別ボリューム（`/mnt/data`）に置く場合も、`--to-ram` を付けたままで
-構いません。書き込み先 `/dev/sda` 上に無ければコピーは起きず、RAM
-起動かどうかの安全確認だけが行われます。
+ISO を別ボリューム（`/mnt/data`）に置く場合も、コマンドは同じです。
+`/dev/sda` 上に無ければコピーは起きず、RAM 起動かどうかの安全確認だけが
+行われます。
 
 方法 A（別インスタンスのビルダーから書き込む）と方法 B（1 インスタンスで
 完結）は、どちらも同じディスクを作ります。ビルド機を分けたいなら方法 A、

@@ -8,18 +8,22 @@
 # `toram` copies the whole live system into RAM, so /dev/sda can be wiped
 # while it runs.  After the reboot, pick the entry and run
 #
-#   sudo ./scripts/build.sh --to-ram --disk /dev/sda ...
+#   sudo ./scripts/build.sh --disk /dev/sda ...
+#
+# build.sh copies the Windows ISO and virtio-win into /dev/shm if they are
+# still on /dev/sda.  The live ISO itself must already be in RAM (toram).
 #
 # Add --keep-ubuntu to that command for a 4 GiB recovery Ubuntu, or leave it
 # out for Windows only.
 #
 # --ssh   write a cloud-init seed (user-data + meta-data) to the ESP and label
-#         the ESP `CIDATA`, so the live session starts sshd with the
-#         authorized_keys of this machine.  Needs --write.  The Ubuntu Server
-#         ISO ships cloud-init; if sshd still does not come up, use the serial
-#         console and run: sudo apt-get install -y openssh-server
-#         ESP_MNT (default /boot/efi) selects the mounted ESP.  The original
-#         ESP label is saved to win11-arm64-oci-esp-label on the ESP.
+#         the ESP `CIDATA`.  The live session then creates the user `ubuntu`
+#         (passwordless sudo, /bin/bash) with the authorized_keys of this
+#         machine, and starts sshd.  Needs --write.  The Ubuntu Server live
+#         ISO already contains cloud-init and openssh-server; if sshd does
+#         not come up, check `sudo cloud-init status --long` on the serial
+#         console.  ESP_MNT (default /boot/efi) selects the mounted ESP.
+#         The original ESP label is saved to win11-arm64-oci-esp-label.
 #
 # --write      install the entry into /etc/grub.d/40_custom and run update-grub
 # --name NAME  override the GRUB menu label
@@ -33,7 +37,7 @@ GRUB_CUSTOM=${GRUB_CUSTOM:-/etc/grub.d/40_custom}
 ESP_MNT=${ESP_MNT:-/boot/efi}
 
 usage() {
-    sed -n '2,25p' "$0" | sed 's/^# \{0,1\}//'
+    sed -n '2,/^set -euo/{/^set -euo/d;p}' "$0" | sed 's/^# \{0,1\}//'
     exit "${1:-0}"
 }
 
@@ -125,10 +129,17 @@ if [ "$WANT_SSH" = 1 ]; then
     {
         echo "#cloud-config"
         echo "ssh_pwauth: false"
-        echo "ssh_authorized_keys:"
-        printf '%s\n' "$KEYS" | sed 's/^/  - /'
-        echo "packages:"
-        echo "  - openssh-server"
+        # The Server live ISO's default user is 'installer', whose shell runs
+        # the installer UI.  Create a normal login user for SSH instead.
+        echo "users:"
+        echo "  - default"
+        echo "  - name: ubuntu"
+        echo "    gecos: Ubuntu"
+        echo "    groups: [adm, sudo]"
+        echo "    shell: /bin/bash"
+        echo '    sudo: "ALL=(ALL) NOPASSWD:ALL"'
+        echo "    ssh_authorized_keys:"
+        printf '%s\n' "$KEYS" | sed 's/^/      - /'
         echo "runcmd:"
         echo "  - systemctl enable --now ssh"
     } | $SUDO tee "$ESPDIR/user-data" >/dev/null
@@ -245,13 +256,13 @@ After the reboot, check that the live system is in RAM:
 
 Then build.  Windows only:
 
-  sudo ./scripts/build.sh --to-ram --disk /dev/sda \
+  sudo ./scripts/build.sh --disk /dev/sda \
     --iso /dev/shm/Win11_ARM64_26H2.iso \
     --virtio /dev/shm/virtio-win.iso --mem 6144 --yes
 
 Windows plus a 4 GiB recovery Ubuntu:
 
-  sudo ./scripts/build.sh --to-ram --keep-ubuntu --disk /dev/sda \
+  sudo ./scripts/build.sh --keep-ubuntu --disk /dev/sda \
     --iso /dev/shm/Win11_ARM64_26H2.iso \
     --virtio /dev/shm/virtio-win.iso --mem 6144 --yes
 EOF

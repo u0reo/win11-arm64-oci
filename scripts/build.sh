@@ -18,8 +18,10 @@
 # space is used for Windows.  This is the only mode that tolerates the
 # target disk being the running root, because nothing on p2 is written.
 #
-# Add --to-ram to copy the ISOs into RAM first (needed when the ISO lives on
-# the disk that is about to be wiped).  It hands over to internal/live-ram.sh.
+# The target must not be the running root (except with --reuse-ubuntu).  Boot
+# the Ubuntu live ISO with `toram` first (scripts/prepare.sh).  Media that
+# still lives on the target disk is copied into RAM before anything is
+# written, so the ISO may sit on the disk that is about to be wiped.
 #
 # Nothing is packaged and nothing is uploaded: the target itself becomes the
 # Windows disk.  On OCI, detach the volume and reattach it as the boot volume
@@ -30,15 +32,6 @@ set -euo pipefail
 
 HERE=$(cd "$(dirname "$0")" && pwd)
 
-# --to-ram is implemented by internal/live-ram.sh; strip it and hand over.
-for _a in "$@"; do
-    if [ "$_a" = "--to-ram" ]; then
-        _args=()
-        for _x in "$@"; do [ "$_x" = "--to-ram" ] || _args+=("$_x"); done
-        exec "$HERE/../internal/live-ram.sh" "${_args[@]}"
-    fi
-done
-
 DISK=""
 IMG=""
 FILE_TARGET=0
@@ -47,7 +40,7 @@ ISO=""
 VIRTIO=""
 DRIVERS=""
 IMAGE_INDEX=${IMAGE_INDEX:-1}
-MEM=${MEM:-8192}
+MEM=${MEM:-6144}
 SMP=${SMP:-4}
 KEEP_UBUNTU=0
 REUSE_UBUNTU=${REUSE_UBUNTU:-0}
@@ -55,7 +48,7 @@ RECOVERY_SIZE=${RECOVERY_SIZE:-4G}
 YES=0
 
 usage() {
-    sed -n '2,27p' "$0" | sed 's/^# \{0,1\}//'
+    sed -n '2,/^set -euo/{/^set -euo/d;p}' "$0" | sed 's/^# \{0,1\}//'
     exit "${1:-0}"
 }
 
@@ -73,6 +66,11 @@ while [ $# -gt 0 ]; do
         --keep-ubuntu) KEEP_UBUNTU=1; shift ;;
         --ubuntu-size) RECOVERY_SIZE=$2; KEEP_UBUNTU=1; shift 2 ;;
         --reuse-ubuntu) REUSE_UBUNTU=1; shift ;;
+        --to-ram)
+            echo "build: --to-ram is gone; it is detected automatically." >&2
+            echo "  boot the live ISO with 'toram' (scripts/prepare.sh) and" >&2
+            echo "  run build.sh without --to-ram" >&2
+            exit 1 ;;
         --yes) YES=1; shift ;;
         -h|--help) usage 0 ;;
         *) echo "build: unknown argument: $1" >&2; usage 1 ;;
@@ -100,26 +98,61 @@ if [ "$FILE_TARGET" = 1 ] && { [ "$KEEP_UBUNTU" = 1 ] || [ "$REUSE_UBUNTU" = 1 ]
     exit 1
 fi
 
+ISO=$(realpath -e "$ISO")
+if [ -n "$VIRTIO" ]; then
+    [ -f "$VIRTIO" ] || { echo "build: missing $VIRTIO" >&2; exit 1; }
+    VIRTIO=$(realpath -e "$VIRTIO")
+fi
+if [ -n "$DRIVERS" ]; then
+    [ -e "$DRIVERS" ] || { echo "build: missing $DRIVERS" >&2; exit 1; }
+    DRIVERS=$(realpath -e "$DRIVERS")
+fi
+
 if [ "$(id -u)" -ne 0 ]; then
     echo "build: run as root (sudo)" >&2
     exit 1
 fi
 
 # --- safety checks -------------------------------------------------------
+RAMDIR=${RAMDIR:-/dev/shm}
+MIN_FREE_MB=${MIN_FREE_MB:-2048}
+
 ROOTDEV=$(findmnt -no SOURCE / 2>/dev/null || true)
 ROOT_ON_DISK=0
 if [ "$FILE_TARGET" = 0 ] && [ -n "$ROOTDEV" ] && [[ "$ROOTDEV" == "$DISK"* ]]; then
     ROOT_ON_DISK=1
 fi
 
+on_target() {
+    local src
+    src=$(findmnt -no SOURCE --target "$1" 2>/dev/null || true)
+    [ -n "$src" ] && [[ "$src" == "$DISK"* ]]
+}
+
 if [ "$ROOT_ON_DISK" = 1 ] && [ "$REUSE_UBUNTU" != 1 ]; then
-    echo "build: $DISK is the running root device" >&2
-    echo "  boot a RAM-resident live environment (--to-ram), or use" >&2
-    echo "  --reuse-ubuntu when p2 is a small Ubuntu that must survive" >&2
+    cat >&2 <<EOF
+build: $DISK is the running root device.
+  Reboot into the Ubuntu live entry with 'toram' (scripts/prepare.sh) and
+  run this again, or use --reuse-ubuntu when p2 is a small Ubuntu that must
+  survive.  Nothing has been written.
+EOF
     exit 1
 fi
 
-if [ "$ROOT_ON_DISK" = 1 ]; then
+if [ "$REUSE_UBUNTU" != 1 ] && [ "$FILE_TARGET" = 0 ]; then
+    # A live ISO loop whose backing file is on the target means the live
+    # system still depends on the disk: it was booted without toram.
+    for f in $(losetup -a 2>/dev/null | sed -n 's|.*(\(.*\)).*|\1|p'); do
+        [ -e "$f" ] || continue
+        if on_target "$f"; then
+            echo "build: the live system still reads $f from $DISK" >&2
+            echo "  boot the live ISO with 'toram' (scripts/prepare.sh) first" >&2
+            exit 1
+        fi
+    done
+fi
+
+if [ "$REUSE_UBUNTU" = 1 ]; then
     # Only the root itself may be mounted; the ESP has to be free because
     # WinPE writes bcdboot output to it.
     ROOT_MP=$(findmnt -no TARGET /)
@@ -136,10 +169,6 @@ if [ "$ROOT_ON_DISK" = 1 ]; then
     fi
     echo "build: $DISK is the running disk; only $ROOT_MP stays mounted"
     swapoff -a 2>/dev/null || true
-elif [ "$FILE_TARGET" = 0 ] && [ -n "$(lsblk -no MOUNTPOINT "$DISK" 2>/dev/null | tr -d ' ')" ]; then
-    echo "build: $DISK has mounted partitions" >&2
-    lsblk -o NAME,SIZE,MOUNTPOINT "$DISK" >&2
-    exit 1
 fi
 
 SIZE_TEXT=$SIZE
@@ -207,6 +236,86 @@ if [ "$YES" != 1 ]; then
     echo
     echo "Re-run with --yes to continue."
     exit 1
+fi
+
+# --- free the target disk ------------------------------------------------
+# Media that still lives on the target is copied into RAM first.  This is
+# the only reason build.sh needs /dev/shm; if the ISO is already elsewhere
+# (a data volume, /dev/shm, the live medium) nothing is copied.
+STAGED=""
+stage_to_ram() {
+    local src=$1 dst
+    dst="$RAMDIR/$(basename "$src")"
+    echo "build: copying $src -> $dst" >&2
+    if [ -d "$src" ]; then rm -rf "$dst"; fi
+    cp -a "$src" "$dst"
+    sync
+    if [ -f "$src" ] && [ "$(stat -c %s "$src")" != "$(stat -c %s "$dst")" ]; then
+        echo "build: copy size mismatch: $dst" >&2
+        exit 1
+    fi
+    STAGED=$dst
+}
+
+if [ "$FILE_TARGET" = 0 ] && [ "$REUSE_UBUNTU" != 1 ]; then
+    NEED_COPY=0
+    NEED_MB=0
+    for _p in "$ISO" "$VIRTIO"; do
+        if [ -n "$_p" ] && [ -f "$_p" ] && on_target "$_p"; then
+            NEED_COPY=1
+            NEED_MB=$(( NEED_MB + $(stat -c %s "$_p") / 1024 / 1024 ))
+        fi
+    done
+    if [ -n "$DRIVERS" ] && [ -e "$DRIVERS" ] && on_target "$DRIVERS"; then
+        NEED_COPY=1
+        NEED_MB=$(( NEED_MB + $(du -sm "$DRIVERS" | awk '{print $1}') ))
+    fi
+    if [ "$NEED_COPY" = 1 ]; then
+        SHM_AVAIL_MB=$(df -Pm "$RAMDIR" | awk 'NR==2{print $4}')
+        AVAIL_MB=$(( $(awk '/^MemAvailable:/{print $2}' /proc/meminfo) / 1024 ))
+        if [ "$SHM_AVAIL_MB" -lt $(( NEED_MB + MIN_FREE_MB )) ]; then
+            echo "build: $RAMDIR is too small for the copy." >&2
+            echo "  need ${NEED_MB} + ${MIN_FREE_MB} MiB, have ${SHM_AVAIL_MB} MiB" >&2
+            echo "  enlarge it: sudo mount -o remount,size=10G $RAMDIR" >&2
+            exit 1
+        fi
+        if [ "$AVAIL_MB" -lt $(( NEED_MB + MEM + MIN_FREE_MB )) ]; then
+            echo "build: not enough RAM for the media and the guest." >&2
+            echo "  need ${NEED_MB} (media) + ${MEM} (guest) + ${MIN_FREE_MB} MiB," >&2
+            echo "  ${AVAIL_MB} MiB available.  Lower --mem or free some memory." >&2
+            exit 1
+        fi
+        echo "build: copying ${NEED_MB} MiB of media into $RAMDIR"
+        if on_target "$ISO"; then stage_to_ram "$ISO"; ISO=$STAGED; fi
+        if [ -n "$VIRTIO" ] && [ -f "$VIRTIO" ] && on_target "$VIRTIO"; then
+            stage_to_ram "$VIRTIO"; VIRTIO=$STAGED
+        fi
+        if [ -n "$DRIVERS" ] && [ -e "$DRIVERS" ] && on_target "$DRIVERS"; then
+            stage_to_ram "$DRIVERS"; DRIVERS=$STAGED
+        fi
+    fi
+
+    while read -r sw; do
+        [ -n "$sw" ] || continue
+        if [[ "$sw" == "$DISK"* ]] || on_target "$sw"; then
+            echo "build: swapoff $sw"
+            swapoff "$sw" 2>/dev/null || true
+        fi
+    done < <(swapon --show=NAME --noheadings 2>/dev/null || true)
+    mapfile -t MOUNTS < <(lsblk -lnpo MOUNTPOINT "$DISK" | sed '/^$/d' | sort -r)
+    for mp in "${MOUNTS[@]}"; do
+        echo "build: umount $mp"
+        if ! umount "$mp"; then
+            echo "build: cannot unmount $mp; close anything using it" >&2
+            echo "  (fuser -vm $mp) and run again.  Nothing has been written." >&2
+            exit 1
+        fi
+    done
+    if [ -n "$(lsblk -no MOUNTPOINT "$DISK" | tr -d ' ')" ]; then
+        echo "build: $DISK still has mounted partitions:" >&2
+        lsblk -o NAME,SIZE,MOUNTPOINT "$DISK" >&2
+        exit 1
+    fi
 fi
 
 # --- build ---------------------------------------------------------------

@@ -37,7 +37,7 @@ Windows ISO と virtio-win は live 環境で用意します。
 # 1. live ISO を GRUB に登録する。
 #    --ssh で ESP を CIDATA にし、authorized_keys を引き継ぐ。
 sudo ./scripts/prepare.sh \
-  /srv/iso/ubuntu-24.04-live-server-arm64.iso --write --ssh
+  /srv/iso/ubuntu-24.04.5-live-server-arm64.iso --write --ssh
 
 # 2. 再起動し、GRUB で "Ubuntu live (toram)" を選ぶ
 sudo reboot
@@ -48,20 +48,19 @@ live 環境で Windows ISO と virtio-win を `/dev/shm` に置き、次のど�
 
 ```bash
 # Windows のみ（p2 も消える）
-sudo ./scripts/build.sh --to-ram --disk /dev/sda \
+sudo ./scripts/build.sh --disk /dev/sda \
   --iso /dev/shm/Win11_ARM64_26H2.iso \
   --virtio /dev/shm/virtio-win.iso --mem 6144 --yes
 
 # Windows + 4 GiB の Ubuntu 復旧環境
-sudo ./scripts/build.sh --to-ram --keep-ubuntu --disk /dev/sda \
+sudo ./scripts/build.sh --keep-ubuntu --disk /dev/sda \
   --iso /dev/shm/Win11_ARM64_26H2.iso \
   --virtio /dev/shm/virtio-win.iso --mem 6144 --yes
 ```
 
 `--keep-ubuntu` は p2 を 4 GiB で作り直して minimal Ubuntu を debootstrap
-するので、Windows と Ubuntu が 1 回のビルドでできます。`--to-ram` は
-ISO を RAM に載せてから書き込みます。ISO がすでに `/dev/shm` にあれば
-コピーは起きません。
+するので、Windows と Ubuntu が 1 回のビルドでできます。ISO が対象ディスク
+上に残っていても、`--yes` の後で `/dev/shm` に自動でコピーされます。
 
 RAM の内訳と、データボリュームを使う場合の注意は
 [OCI.md の「24 GB で足りるか」](OCI.md#24-gb-で足りるか) にあります。
@@ -108,7 +107,7 @@ live 起動しか登録しないので、この Ubuntu は別のインストー�
 - 実行中の ext4 を触らないので `resize2fs` は不要ですが、**QEMU が同じ
   ディスクを開きます**。ビルド中に p2 のファイルを書き換えたり、電源を
   切ったりしないでください
-- Windows のみ（p2 を消す）は**できません**。その場合は `--to-ram` で
+- Windows のみ（p2 を消す）は**できません**。その場合は `toram` で
   live 環境から実行してください
 
 ## 中で起きること

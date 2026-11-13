@@ -32,7 +32,6 @@ RDP / WinRM で操作できる状態まで自動構築するためのスクリ�
 setup.sh ──> build.sh ──> 完成したディスク
                 │
                 ├─ --image FILE.qcow2    qcow2 を作る（ローカル検証）
-                ├─ --to-ram              ISO を RAM に載せてから書き込む
                 └─ --keep-ubuntu         Ubuntu 復旧環境を同居させる
 ```
 
@@ -44,13 +43,15 @@ OCI の Ubuntu から始める場合、`prepare.sh` が live ISO を GRUB に登
 ```bash
 # live を RAM に載せて起動するエントリを登録する。
 # --ssh を付けると ESP を CIDATA にして、live 起動時から SSH できる。
-sudo ./scripts/prepare.sh /srv/iso/ubuntu-24.04-live-server-arm64.iso \
+sudo ./scripts/prepare.sh /srv/iso/ubuntu-24.04.5-live-server-arm64.iso \
   --write --ssh
 ```
 
 再起動して GRUB の `Ubuntu live (toram)` を選び、live 環境で
-Windows ISO と virtio-win を用意して `build.sh --to-ram` を実行します
+Windows ISO と virtio-win を用意して `build.sh` を実行します
 （[docs/OCI.md](docs/OCI.md#方法-b-ライブ-cd-を-ram-に載せて-sda-を書き換える)）。
+書き込み先ディスク上に残っている ISO は、`--yes` の後で自動的に
+`/dev/shm` にコピーされます。
 
 すでに p2 に小さな Ubuntu が入っている場合だけ `--reuse-ubuntu` も使えます
 （上級者向け。[docs/DUALBOOT.md](docs/DUALBOOT.md)）。
@@ -67,7 +68,7 @@ sudo mkdir -p /srv/iso
 cd /srv/iso
 
 # arm64 を選ぶ。live もビルド環境もこの 1 枚で足りる
-VER=24.04.3   # releases.ubuntu.com/24.04/ で最新を確認
+VER=24.04.5   # releases.ubuntu.com/24.04/ で最新を確認
 curl -LO "https://releases.ubuntu.com/24.04/ubuntu-${VER}-live-server-arm64.iso"
 
 curl -sLO https://releases.ubuntu.com/24.04/SHA256SUMS
@@ -92,39 +93,53 @@ curl -LO https://fedorapeople.org/groups/virt/virtio-win/direct-downloads/stable
 # scp Win11_ARM64_26H2.iso ubuntu@<live-host>:/dev/shm/
 ```
 
-`--to-ram` は、ISO が書き込み先ディスク上にある場合だけ `/dev/shm` に
-コピーします。最初から `/dev/shm` にあるならコピーは起きません。
+ISO が書き込み先ディスク（`/dev/sda`）上にある場合、`build.sh` は
+`--yes` の後で `/dev/shm`（RAM）にコピーしてから書き込みます。最初から
+`/dev/shm` や別ボリュームにあるならコピーは起きません。ただし、live ISO
+そのものは `toram` で RAM に載っている必要があります。
 
-#### WebDAV やクラウドストレージからマウントする
+#### 一時ストレージをマウントする（おすすめ）
 
-ISO を手元のディスクに落とさず、WebDAV・S3・OneDrive などをマウントして
-読むこともできます。ただし `--to-ram` は **ISO が書き込み先ディスク上に
-ある場合しかコピーしません**。マウントから直接渡すなら、ビルドが終わるまで
-マウントを維持してください。確実にするなら、先に `/dev/shm`（RAM）へ
-コピーしてから渡します。
+Windows ISO（6 GB 前後）と virtio-win（0.7 GB）の置き場だけなら、
+無料枠のあるクラウドストレージをマウントするのが手軽です。
+**一定期間で消えてもよい**一時用途に向くものを挙げます。
+
+| サービス | 無料枠 | つなぎ方 | メモ |
+|---|---|---|---|
+| Cloudflare R2 | 10 GB | S3（rclone / s3fs） | 下り転送が無料。ISO の置き場に最適 |
+| Backblaze B2 | 10 GB | S3 / B2（rclone） | 下りは容量の 3 倍/日まで無料 |
+| OCI Object Storage | 10 GB 程度（Always Free） | S3 互換（rclone / OCI CLI） | 同一リージョンなら速い |
+| pCloud | 10 GB | WebDAV（rclone / davfs2） | 設定が簡単 |
+| Koofr | 10 GB | WebDAV | 同上 |
+| InfiniCLOUD | 20 GB | WebDAV | 枠が大きい |
+| Google Drive | 15 GB | rclone | 手元にあることが多い |
+| MEGA | 20 GB | rclone | 枠が大きい |
+
+R2 / B2 / OCI は S3 互換なので、rclone の `s3` バックエンド 1 つで扱えます。
 
 ```bash
-# rclone（WebDAV / S3 / OneDrive / Google Drive など何でも）
-rclone mount remote:path /mnt/iso --vfs-cache-mode full --daemon
+# 例: R2 を rclone でマウント（ランダム読み込みに備えてキャッシュする）
+rclone config            # s3 プロバイダで R2 を登録
+rclone mount r2:win11-iso /mnt/iso --vfs-cache-mode full --daemon
 
-# RAM にコピーしてからビルドする（ディスクには書きません）
-cp /mnt/iso/Win11_ARM64.iso /mnt/iso/virtio-win.iso /dev/shm/
-
-sudo ./scripts/build.sh --to-ram --disk /dev/sda \
-  --iso /dev/shm/Win11_ARM64.iso \
-  --virtio /dev/shm/virtio-win.iso --mem 6144 --yes
-```
-
-`davfs2` を使う場合:
-
-```bash
+# 例: WebDAV を davfs2 でマウント
 sudo apt-get install -y davfs2
 sudo mkdir -p /mnt/iso
-sudo mount -t davfs https://example.com/dav /mnt/iso
+sudo mount -t davfs https://webdav.pcloud.com /mnt/iso
 ```
 
-資格情報は `~/.config/rclone/rclone.conf` や `/etc/davfs2/secrets` に残ります。
-ビルドが終わったら削除してください。
+注意点:
+
+- **GRUB は FUSE マウントを読めません。** `prepare.sh` に渡す Ubuntu live ISO は
+  実ブロックデバイス上のファイルシステム（`/srv/iso` など）に置きます。
+  クラウドは live 起動後の Windows ISO / virtio-win 用です。
+- QEMU は ISO をシークしながら読むため、WAN 越しの直接マウントは遅いです。
+  `/dev/shm`（RAM）かデータボリュームにコピーしてからビルドします。
+- ビルド中にアンマウントすると QEMU が止まります。コピーしてから外します。
+- 資格情報は `~/.config/rclone/rclone.conf` や `/etc/davfs2/secrets` に残ります。
+  ビルドが終わったら削除してください。
+- `file.io` / `0x0.st` / `transfer.sh` のような期限付きファイル置き場は HTTP だけで、
+  マウントできません。単発の受け渡しには使えますが、6 GB の ISO には向きません。
 
 ## 必要なもの
 
@@ -193,8 +208,8 @@ sudo ./scripts/build.sh --disk /dev/sdb \
   --keep-ubuntu --ubuntu-size 4G --yes
 ```
 
-ISO が書き込み先ディスクにしかない場合は `--to-ram` を付けます
-（ISO をメモリにコピーしてから消す）。組み合わせの一覧は
+ISO が書き込み先ディスクにしかない場合でも、`--yes` の後で自動的に
+`/dev/shm` にコピーしてから書き込みます。組み合わせの一覧は
 [docs/OCI.md](docs/OCI.md#どの組み合わせが可能か)。
 
 ## ローカルでビルド
@@ -266,7 +281,7 @@ WIN_USERNAME=alice WIN_PASSWORD='strong-pass' COMPUTER_NAME=MY-WIN \
 autounattend/   無人インストール XML テンプレート
 oem/            初回起動時の PowerShell / CMD
 scripts/        入口 3 つ: setup.sh / build.sh / prepare.sh
-internal/       内部部品: build-image, live-ram, render, preflight ...
+internal/       内部部品: build-image, render, preflight ...
 pipeline/       ディスク構築の部品: wimlib apply, WinPE, QEMU, 検査
 config/         既定値
 docs/           OCI / SETUP / BUILD / WORKLOG
