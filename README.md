@@ -145,8 +145,11 @@ GitHub Actions では Secrets / Variables が環境変数として渡されま�
 
 ```bash
 WIN_USERNAME=alice WIN_PASSWORD='strong-pass' COMPUTER_NAME=MY-WIN \
-  python3 internal/render.py --out build/media
+  python3 internal/render.py --check
 ```
+
+`--check` は解決後の値を表示するだけで、ファイルは書きません。実際の
+ビルドでは同じ環境変数を `scripts/build.sh` に渡してください。
 
 > **警告**: `oci-a1` は意図的に弱い既定値です。パスワードは完成イメージに
 > 平文で埋め込まれます。Secrets は「リポジトリに出さない」だけで、
