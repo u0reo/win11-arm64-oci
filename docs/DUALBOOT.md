@@ -26,55 +26,45 @@ p3  Windows (NTFS, 残り)      wimlib-imagex で適用
 ## OCI の Ubuntu から始める
 
 ISO の取得方法は [README の「ISO の入手」](../README.md#iso-の入手) を
-参照してください（Ubuntu Server の live-server-arm64 ISO 1 枚で、
-方法 B とインストーラの両方に使えます）。
+参照してください。最初に用意するのは Ubuntu Server の live ISO 1 枚だけです。
+Windows ISO と virtio-win は live 環境で用意します。
 
 いま起動しているのが OCI の標準 Ubuntu（`/dev/sda2` が 46 GiB の root）
-の場合、**その p2 を縮小することはできません**（マウント中の ext4 は
-縮小できないため）。次のどちらかに進みます。
-
-### A. 4 GiB の Ubuntu を先に入れる
-
-Ubuntu Server のインストーラを GRUB に登録して再起動します。
+の場合、**その p2 は縮小できません**（マウント中の ext4 は縮小できない
+ため）。live 環境で p2 を作り直します。
 
 ```bash
-sudo ./scripts/prepare.sh --installer \
-  /srv/iso/ubuntu-24.04-live-server-arm64.iso --write
+# 1. live ISO を GRUB に登録する。
+#    --ssh で ESP を CIDATA にし、authorized_keys を引き継ぐ。
+sudo ./scripts/prepare.sh \
+  /srv/iso/ubuntu-24.04-live-server-arm64.iso --write --ssh
+
+# 2. 再起動し、GRUB で "Ubuntu live (toram)" を選ぶ
 sudo reboot
 ```
 
-GRUB で `Ubuntu Server installer (toram)` を選び、パーティションを
-
-```text
-p1  ESP     既存のまま（100 MiB〜1 GiB）
-p2  /       4 GiB, ext4
-残り        未割り当て（Windows 用に空ける）
-```
-
-にしてインストールします。swap は作りません（Windows の場所が減るため）。
-インストール後に新しい Ubuntu へ再起動し、SSH で入って
-`--reuse-ubuntu` を実行します（下の節）。
-
-`toram` を付けているのは、インストーラが**自分が起動したディスク**を
-再分区するためです。RAM に載っていないと p2 を消せません。
-
-### B. RAM に載せて一気に作る
-
-`--keep-ubuntu` を使う方法です。p2 を作り直して minimal を debootstrap
-するので、4 GiB の Ubuntu と Windows が 1 回のビルドでできます。
+live 環境で Windows ISO と virtio-win を `/dev/shm` に置き、次のどちらかを
+実行します。
 
 ```bash
-sudo ./scripts/prepare.sh --toram \
-  /srv/iso/ubuntu-24.04-live-server-arm64.iso --write
-sudo reboot
-# GRUB で "Ubuntu live (toram)" を選び、live 環境で
+# Windows のみ（p2 も消える）
+sudo ./scripts/build.sh --to-ram --disk /dev/sda \
+  --iso /dev/shm/Win11_ARM64_26H2.iso \
+  --virtio /dev/shm/virtio-win.iso --mem 6144 --yes
+
+# Windows + 4 GiB の Ubuntu 復旧環境
 sudo ./scripts/build.sh --to-ram --keep-ubuntu --disk /dev/sda \
-  --iso /dev/shm/Win11.iso --virtio /dev/shm/virtio-win.iso \
-  --mem 6144 --yes
+  --iso /dev/shm/Win11_ARM64_26H2.iso \
+  --virtio /dev/shm/virtio-win.iso --mem 6144 --yes
 ```
 
-`--to-ram` は ISO を RAM にコピーしてから書き込みます。ISO がすでに
-`/dev/shm` にあればコピーは起きません。
+`--keep-ubuntu` は p2 を 4 GiB で作り直して minimal Ubuntu を debootstrap
+するので、Windows と Ubuntu が 1 回のビルドでできます。`--to-ram` は
+ISO を RAM に載せてから書き込みます。ISO がすでに `/dev/shm` にあれば
+コピーは起きません。
+
+RAM の内訳と、データボリュームを使う場合の注意は
+[OCI.md の「24 GB で足りるか」](OCI.md#24-gb-で足りるか) にあります。
 
 ## 使い方
 
@@ -90,19 +80,21 @@ sudo ./scripts/build.sh \
 `--ubuntu-size 6G`。Windows は残り全部（100 GB のボリュームなら約 88 GiB）
 を使います。
 
-## インストール済みの Ubuntu を使う（`--reuse-ubuntu`）
+## 上級者向け: 既に小さな Ubuntu が入っている場合（`--reuse-ubuntu`）
 
-live 環境を使わず、**先に Ubuntu minimal を p2 に入れて起動する**方法です。
-RAM に ISO を載せないのでメモリに余裕があり、ビルドをやり直しやすいです。
+p2 に 4 GiB 程度の Ubuntu を**自分で入れて起動してある**なら、
+`--reuse-ubuntu` で p2 を残したまま Windows を足せます。`prepare.sh` は
+live 起動しか登録しないので、この Ubuntu は別のインストーラや方法 A で
+用意しておく必要があります。通常は `--keep-ubuntu` を使ってください。
 
 ```text
-1. Ubuntu Server minimal をインストーラで入れる
-   - p1 ESP (512 MB〜1 GB)
-   - p2 / を 4 GiB（4 GiB を超えると Windows の余地が減ります）
+1. p2 に Ubuntu を入れる（p1 ESP は既存のまま）
+   - p2 / を 4 GiB 程度
    - 残りは「未割り当て」のままにする（ここが p3 になります）
 2. その Ubuntu を起動して SSH で入る
 3. sudo ./scripts/build.sh --reuse-ubuntu --disk /dev/sda \
-     --iso /home/ubuntu/Win11_ARM64_26H2.iso --yes
+     --iso /mnt/data/Win11_ARM64_26H2.iso \
+     --virtio /mnt/data/virtio-win.iso --yes
 ```
 
 `--reuse-ubuntu` は p2 を**一切書き換えません**。p3 の作成と ESP への

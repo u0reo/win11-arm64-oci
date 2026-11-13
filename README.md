@@ -26,55 +26,105 @@ RDP / WinRM で操作できる状態まで自動構築するためのスクリ�
 |---|---|---|
 | ホストの準備と検査 | `sudo ./scripts/setup.sh` | 最初に 1 回（冪等） |
 | ディスクを作る | `sudo ./scripts/build.sh --disk /dev/sdb --iso ... --yes` | ビルドするとき |
-| ISO を GRUB に登録 | `sudo ./scripts/prepare.sh --toram <iso> --write` | 方法 B か、minimal を先に入れるとき |
+| ISO を GRUB に登録 | `sudo ./scripts/prepare.sh <iso> --write` | OCI の Ubuntu から方法 B を始めるとき |
 
 ```text
 setup.sh ──> build.sh ──> 完成したディスク
                 │
                 ├─ --image FILE.qcow2    qcow2 を作る（ローカル検証）
                 ├─ --to-ram              ISO を RAM に載せてから書き込む
-                ├─ --keep-ubuntu         Ubuntu 復旧環境を同居させる
-                └─ --reuse-ubuntu        先に入れた Ubuntu を残して同居
+                └─ --keep-ubuntu         Ubuntu 復旧環境を同居させる
 ```
 
 `build.sh` は `--disk`（ブロックデバイス）か `--image`（qcow2）のどちらかを
 必ず取ります。`--yes` を付けるまで実際には書き込みません。
 
-OCI の Ubuntu から始める場合、`prepare.sh` が ISO を GRUB に登録します。
+OCI の Ubuntu から始める場合、`prepare.sh` が live ISO を GRUB に登録します。
 
 ```bash
-# 方法 B（RAM に載せてから書き換える）
-sudo ./scripts/prepare.sh --toram /srv/iso/ubuntu-live-server-arm64.iso --write
-
-# 先に Ubuntu minimal を入れて、あとから Windows を足す
-sudo ./scripts/prepare.sh --installer /srv/iso/ubuntu-live-server-arm64.iso --write
+# live を RAM に載せて起動するエントリを登録する。
+# --ssh を付けると ESP を CIDATA にして、live 起動時から SSH できる。
+sudo ./scripts/prepare.sh /srv/iso/ubuntu-24.04-live-server-arm64.iso \
+  --write --ssh
 ```
 
-再起動して GRUB のエントリを選び、表示される次のコマンドを実行します。
+再起動して GRUB の `Ubuntu live (toram)` を選び、live 環境で
+Windows ISO と virtio-win を用意して `build.sh --to-ram` を実行します
+（[docs/OCI.md](docs/OCI.md#方法-b-ライブ-cd-を-ram-に載せて-sda-を書き換える)）。
+
+すでに p2 に小さな Ubuntu が入っている場合だけ `--reuse-ubuntu` も使えます
+（上級者向け。[docs/DUALBOOT.md](docs/DUALBOOT.md)）。
 
 ## ISO の入手
 
-Ubuntu（方法 B と minimal 用）と virtio-win は次のコマンドで取得できます。
-Windows 11 ARM64 の ISO は Microsoft から各自で用意してください。
+### 先に用意するもの（Ubuntu live だけ）
+
+方法 B では、まず Ubuntu Server の live ISO を 1 枚だけブートボリュームに
+置きます。これがビルド環境になります。
 
 ```bash
 sudo mkdir -p /srv/iso
 cd /srv/iso
 
-# Ubuntu Server（live も installer もこの 1 枚。arm64 を選ぶ）
+# arm64 を選ぶ。live もビルド環境もこの 1 枚で足りる
 VER=24.04.3   # releases.ubuntu.com/24.04/ で最新を確認
 curl -LO "https://releases.ubuntu.com/24.04/ubuntu-${VER}-live-server-arm64.iso"
 
-# virtio-win（ARM64 ドライバ入り）
-curl -LO https://fedorapeople.org/groups/virt/virtio-win/direct-downloads/stable-virtio/virtio-win.iso
-```
-
-チェックサムの確認:
-
-```bash
 curl -sLO https://releases.ubuntu.com/24.04/SHA256SUMS
 grep live-server-arm64 SHA256SUMS | sha256sum -c -
 ```
+
+`--keep-ubuntu` の 4 GiB Ubuntu は、`debootstrap` でネットワークから作ります。
+別途 minimal イメージをダウンロードする必要はありません。
+
+### live 環境で用意するもの（Windows / virtio-win）
+
+Windows 11 ARM64 の ISO と virtio-win は、**live に切り替わってから**
+用意します。`/dev/shm`（RAM）に置けば、これから消すディスクに依存しません。
+
+```bash
+cd /dev/shm
+
+# virtio-win（ARM64 ドライバ入り）
+curl -LO https://fedorapeople.org/groups/virt/virtio-win/direct-downloads/stable-virtio/virtio-win.iso
+
+# Windows 11 ARM64 ISO は Microsoft から取得するか、scp / rclone で転送
+# scp Win11_ARM64_26H2.iso ubuntu@<live-host>:/dev/shm/
+```
+
+`--to-ram` は、ISO が書き込み先ディスク上にある場合だけ `/dev/shm` に
+コピーします。最初から `/dev/shm` にあるならコピーは起きません。
+
+#### WebDAV やクラウドストレージからマウントする
+
+ISO を手元のディスクに落とさず、WebDAV・S3・OneDrive などをマウントして
+読むこともできます。ただし `--to-ram` は **ISO が書き込み先ディスク上に
+ある場合しかコピーしません**。マウントから直接渡すなら、ビルドが終わるまで
+マウントを維持してください。確実にするなら、先に `/dev/shm`（RAM）へ
+コピーしてから渡します。
+
+```bash
+# rclone（WebDAV / S3 / OneDrive / Google Drive など何でも）
+rclone mount remote:path /mnt/iso --vfs-cache-mode full --daemon
+
+# RAM にコピーしてからビルドする（ディスクには書きません）
+cp /mnt/iso/Win11_ARM64.iso /mnt/iso/virtio-win.iso /dev/shm/
+
+sudo ./scripts/build.sh --to-ram --disk /dev/sda \
+  --iso /dev/shm/Win11_ARM64.iso \
+  --virtio /dev/shm/virtio-win.iso --mem 6144 --yes
+```
+
+`davfs2` を使う場合:
+
+```bash
+sudo apt-get install -y davfs2
+sudo mkdir -p /mnt/iso
+sudo mount -t davfs https://example.com/dav /mnt/iso
+```
+
+資格情報は `~/.config/rclone/rclone.conf` や `/etc/davfs2/secrets` に残ります。
+ビルドが終わったら削除してください。
 
 ## 必要なもの
 
@@ -118,7 +168,8 @@ git clone https://github.com/<OWNER>/win11-arm64-oci.git
 cd win11-arm64-oci
 sudo ./scripts/setup.sh
 
-# 4. A のボリューム（例: /dev/sdb）へ直接書き込む
+# 4. A のボリュームへ直接書き込む（デバイス名は lsblk で確認。
+#    /dev/sdb とは限らず、/dev/oracleoci/oraclevdb のこともある）
 sudo ./scripts/build.sh \
   --disk /dev/sdb \
   --iso /srv/iso/Win11_ARM64_26H2.iso \
@@ -143,8 +194,7 @@ sudo ./scripts/build.sh --disk /dev/sdb \
 ```
 
 ISO が書き込み先ディスクにしかない場合は `--to-ram` を付けます
-（ISO をメモリにコピーしてから消す）。先に入れた Ubuntu をそのまま使う
-場合は `--reuse-ubuntu` です。組み合わせの一覧は
+（ISO をメモリにコピーしてから消す）。組み合わせの一覧は
 [docs/OCI.md](docs/OCI.md#どの組み合わせが可能か)。
 
 ## ローカルでビルド

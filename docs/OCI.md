@@ -21,41 +21,46 @@ OCI のカスタムイメージ取り込みは Object Storage 経由です。
 
 ## どの組み合わせが可能か
 
-ブートイメージの枚数 × 起動方法 × 仕上がり、の全パターンです。
+起動方法は **`--to-ram`（live Ubuntu を RAM に載せる）一択**です。
+OCI の標準 Ubuntu は p2 が 46 GiB の root で、マウント中の ext4 は縮小
+できないため、インストーラで p2 を作り直す経路は取りません。
+live 環境で、仕上がりだけを選びます。
 
-| ブートイメージ | 起動方法 | Windows のみ | Ubuntu とデュアルブート |
-|---|---|---|---|
-| 1 枚（live Ubuntu だけ。Windows ISO は live 内で取得） | `--to-ram` | 可 | 可 |
-| 2 枚（live Ubuntu + Windows ISO をディスクに置く） | `--to-ram` | 可 | 可 |
-| 1〜2 枚 | Ubuntu minimal を先にインストールして起動 | **不可**（実行中の p2 を消せない） | 可（p2 を 4 GiB で先に作り、残りを未割り当てにする） |
+| 仕上がり | コマンド | p2 |
+|---|---|---|
+| Windows のみ | `--to-ram` | 消える（Windows が全体を使う） |
+| Windows + 4 GiB Ubuntu | `--to-ram --keep-ubuntu` | 4 GiB で作り直す |
 
-- **Windows のみ**はディスク全体を消すので、`toram` で RAM に載った
-  live 環境からしか実行できません
-- **デュアルブート**は p2 を残すので、インストール済み Ubuntu からでも
-  実行できます（`--reuse-ubuntu`）。ただし p2 の後ろに 40 GiB 以上の
-  未割り当て領域が必要です
-- デュアルブートの p2 を新しく作り直す場合は `--keep-ubuntu`（live 環境のみ）
+Windows ISO と virtio-win の置き場所は 2 通りです。
+
+| 置き場所 | メモリ | 失敗時の再試行 |
+|---|---|---|
+| `/dev/shm`（RAM） | 6.2 + 0.7 GB を使う | ディスクを消すと消える |
+| 10 GB のデータボリューム | 使わない | 残る（推奨） |
 
 ```bash
-# 1 枚 + toram（Windows ISO は live 内でダウンロード）
-wget -O /dev/shm/Win11.iso https://example.com/Win11_ARM64.iso
+# RAM に置く（データボリュームなし）
 sudo ./scripts/build.sh --to-ram --disk /dev/sda \
-  --iso /dev/shm/Win11.iso --mem 6144 --yes
+  --iso /dev/shm/Win11.iso --virtio /dev/shm/virtio-win.iso \
+  --mem 6144 --yes
 
-# 2 枚 + toram（両方ディスク上、RAM にコピーしてから消す）
+# 10 GB のデータボリュームから読む（/mnt/data の例は下の注意を参照）
 sudo ./scripts/build.sh --to-ram --disk /dev/sda \
-  --iso /cdrom/Win11.iso --virtio /cdrom/virtio-win.iso --mem 6144 --yes
+  --iso /mnt/data/Win11.iso --virtio /mnt/data/virtio-win.iso \
+  --mem 6144 --yes
 
-# インストール済み Ubuntu からデュアルブート（p2 は触らない）
-sudo ./scripts/build.sh --reuse-ubuntu --disk /dev/sda \
-  --iso /home/ubuntu/Win11.iso --virtio /home/ubuntu/virtio-win.iso --yes
+# 4 GiB の Ubuntu 復旧環境も残す
+sudo ./scripts/build.sh --to-ram --keep-ubuntu --disk /dev/sda \
+  --iso /dev/shm/Win11.iso --virtio /dev/shm/virtio-win.iso \
+  --mem 6144 --yes
 ```
 
-`--reuse-ubuntu` では QEMU が実行中のディスクを開きます。書き込むのは
-p3 と ESP だけで、p2 には触れません。ビルド中に他のパーティションを
-マウントしたり、電源を切ったりしないでください。
+すでに p2 に 4 GiB 程度の Ubuntu を入れて起動してある場合だけ、
+`--reuse-ubuntu` で p2 を残せます（上級者向け。
+[DUALBOOT.md](DUALBOOT.md)）。`prepare.sh` は live 起動しか登録しないので、
+その Ubuntu は別途インストーラ等で入れておく必要があります。
 
-## 方法 A: ボリュームを付け替える（推奨）
+## 方法 A: ボリュームを付け替える
 
 OCI は「停止したインスタンスからブートボリュームを切り離し、別の
 インスタンスにデータボリュームとして付ける」ことを公式に認めています。
@@ -162,42 +167,48 @@ oci compute instance action --instance-id <A> --action START
 
 ### 24 GB で足りるか
 
-**Windows の ISO（約 6.2 GB）をどこに置くかで変わります。** ここを忘れると
-足りなくなります。
-
-#### そのまま RAM に置く場合
+**データボリュームは必須ではありません。** Windows ISO（6.2 GB）と
+virtio-win（0.7 GB）を `/dev/shm`（RAM）に置いても、24 GB に収まります。
 
 | 用途 | 目安 |
 |---|---|
-| ライブ ISO（`toram` で RAM に載る） | 2.5 GB（Server）/ 4 GB（Desktop） |
-| **Windows 11 ISO（ダウンロード先）** | **6.2 GB** |
+| ライブ ISO（`toram` で RAM に載る） | 2.5 GB |
+| Windows ISO（`/dev/shm`） | 6.2 GB |
+| virtio-win（`/dev/shm`） | 0.7 GB |
 | ライブ環境の書き込み層（apt で QEMU 等を入れる） | 2〜3 GB |
-| QEMU ゲスト（`MEM=8192`） | 8 GB |
-| QEMU 本体・ページキャッシュ | 残り |
+| QEMU ゲスト（`--mem 6144`） | 6 GB |
+| QEMU 本体・ページキャッシュ・余白 | 5 GB 程度 |
 
-合計 19〜20 GB。24 GB でも起動はしますが、ページキャッシュの余裕が
-ほとんどありません。`toram` の ISO と Windows ISO の両方が tmpfs に
-載るため、書き込み層の上限にも当たりやすいです。
+合計 23 GB 前後。`--mem 6144` なら入ります。`--mem 8192` や 16 GB に
+すると足りなくなります（Windows 11 のインストールは 6 GiB で通ります）。
+`--keep-ubuntu` の 4 GiB はディスク上の p2 なので、メモリは増えません。
 
-#### RAM だけで強行する（データボリュームなし）
+以前の「p2 を 8 GiB にする」案は不要です。live の RAM で賄うので、
+ディスク上の Ubuntu は `--keep-ubuntu` の 4 GiB だけです。
 
-10 GB のボリュームを足さずに済ませる方法です。手順は
-`internal/live-ram.sh` にまとめてあります。
+#### 手順
 
-1. ライブ ISO をブートボリュームの見える場所に置き、GRUB エントリを作る
+1. Ubuntu live ISO をブートボリュームに置き、GRUB エントリを作る
    （ISO の入手は [README の「ISO の入手」](../README.md#iso-の入手)）
 
    ```bash
-   sudo ./scripts/prepare.sh --toram \
-     /srv/iso/ubuntu-26.04-live-server-arm64.iso --write
+   sudo ./scripts/prepare.sh \
+     /srv/iso/ubuntu-24.04-live-server-arm64.iso --write --ssh
    ```
 
    `--write` は `/etc/grub.d/40_custom` に追記して `update-grub` まで
    実行します（何度実行してもエントリは 1 つに保たれます）。
+   `--ssh` は ESP に cloud-init の seed を書き、ESP のラベルを `CIDATA` に
+   して、live 起動時から `authorized_keys` で SSH できるようにします。
+   元のラベルは ESP の `win11-arm64-oci-esp-label` に保存され、復元コマンドも
+   表示されます。
 
 2. 再起動し、GRUB で `Ubuntu live (toram)` を選ぶ
 
-3. ライブ環境でビルドする
+3. live 環境で Windows ISO と virtio-win を `/dev/shm` に用意する
+   （取得方法は README の「ISO の入手」）
+
+4. ビルドする
 
    ```bash
    sudo apt-get update && sudo apt-get install -y git
@@ -205,13 +216,11 @@ oci compute instance action --instance-id <A> --action START
    cd win11-arm64-oci
    sudo ./scripts/setup.sh
    sudo ./scripts/build.sh --to-ram --disk /dev/sda \
-     --iso /cdrom/Win11_ARM64_26H2.iso \
-     --virtio /cdrom/virtio-win.iso --mem 6144 --yes
+     --iso /dev/shm/Win11_ARM64_26H2.iso \
+     --virtio /dev/shm/virtio-win.iso --mem 6144 --yes
    ```
 
-   ISO を 1 枚しか置かない場合は、live 環境で Windows ISO を
-   `/dev/shm` にダウンロードしてから `--iso /dev/shm/Win11.iso` を渡します
-   （`/dev/shm` は RAM なので、ディスクを消しても残ります）。
+   `--keep-ubuntu` を足すと 4 GiB の Ubuntu 復旧環境も一緒に作ります。
 
 `--to-ram` は `internal/live-ram.sh` に引き継がれ、次を行います。
 
@@ -220,29 +229,59 @@ oci compute instance action --instance-id <A> --action START
    いずれかが `/dev/sda` 上にあり、かつ `losetup -a` に RAM 上の
    loop が無ければ中止します）
 2. `MemAvailable` と `/dev/shm` の空きを確認し、足りなければ中止
-3. Windows ISO と virtio-win.iso を `/dev/shm` にコピー
+3. Windows ISO と virtio-win.iso を `/dev/shm` にコピー（まだそこに
+   無い場合だけ）
 4. `/dev/sda` のマウントをすべて解除し、`scripts/build.sh` に引き継ぐ
 
-**`--mem 6144` を必ず指定してください。** 既定の 8192 だと、コピー後の
-空きメモリが足りず QEMU が OOM で落ちることがあります。4 GiB のゲストでも
-Windows 11 のインストールは通ります。
+**`--mem 6144` を明示してください。** `--to-ram` の既定も 6144 ですが、
+`build.sh` 単体の既定は 8192 で、コピー後の空きメモリが足りず QEMU が
+OOM で落ちることがあります。
 
-#### 10 GB のデータボリュームに置く場合（推奨）
+#### 10 GB のデータボリュームに置く場合
+
+ISO をディスクに残せるので、失敗時の再試行が楽です。
 
 | 用途 | 目安 |
 |---|---|
 | ライブ ISO（`toram`） | 2.5 GB |
 | ライブ環境の書き込み層 | 2〜3 GB |
-| QEMU ゲスト（`MEM=8192`） | 8 GB |
+| QEMU ゲスト（`--mem 6144`） | 6 GB |
 | QEMU 本体・ページキャッシュ | 残り 10 GB 以上 |
 
-合計 13〜14 GB。**Windows ISO は 10 GB のブロックボリュームに置き、
-`--iso /mnt/winiso/Win11_ARM64_26H2.iso` を渡します。** このボリュームは
-`/dev/sda` の書き換えの影響を受けないので、失敗時の再試行も楽です。
-100 GB（ブート）+ 10 GB（ISO）= 110 GB で無料枠に収まります。
+**Windows ISO は 10 GB のブロックボリュームに置き、
+`--iso /mnt/data/Win11_ARM64_26H2.iso` を渡します。** このボリュームは
+`/dev/sda` の書き換えの影響を受けません。100 GB（ブート）+ 10 GB
+（ISO）= 110 GB で無料枠に収まります。
 
 **Desktop ISO は使わず Server ISO にしてください。** また `MEM` を 16 GB に
-すると破綻します（8 GB のままで十分です）。
+すると破綻します（6 GiB のままで十分です）。
+
+#### データボリュームのデバイス名は固定ではない
+
+OCI のデータボリュームは `/dev/sdb` になるとは限りません
+（`/dev/oracleoci/oraclevdb` のこともあります）。再起動や付け替えで
+名前が変わることもあります。**`/dev/sdb` を決め打ちせず、UUID で
+`/etc/fstab` に書いて `/mnt/data` で参照**してください。
+
+```bash
+lsblk -o NAME,SIZE,FSTYPE,LABEL,UUID,MOUNTPOINT
+sudo blkid
+
+# 初回だけ: フォーマットしてマウント
+sudo mkfs.ext4 -L data /dev/sdX          # 中身が消えます
+sudo mkdir -p /mnt/data
+UUID=$(sudo blkid -s UUID -o value /dev/sdX)
+echo "UUID=$UUID /mnt/data ext4 defaults,nofail 0 2" | sudo tee -a /etc/fstab
+sudo mount -a
+findmnt /mnt/data
+```
+
+以降は `/dev/sdb` ではなく `/mnt/data` を渡します。デバイス名を確認
+したいときは `findmnt -no SOURCE /mnt/data` です。
+
+`--to-ram` は ISO が `/mnt/data` にあっても、書き込み先 `/dev/sda` 上に
+無ければコピーしません。`/mnt/data` が `/dev/sda` 上にある場合だけ
+`/dev/shm` にコピーします。
 
 ### 注意点
 
@@ -251,30 +290,24 @@ Windows 11 のインストールは通ります。
   復旧するしかありません
 - OCI には CD-ROM デバイスが無いので、grub の `loopback` +
   `iso-scan/filename=` で起動する必要があります
-  （`scripts/prepare.sh --toram` がエントリを作ります）
-- ライブ環境の操作はシリアルコンソール越しになります。SSH を上げるまでが
-  面倒です
+  （`scripts/prepare.sh` がエントリを作ります）
+- ライブ環境の操作は基本シリアルコンソールです。`prepare.sh --ssh` を
+  付けておくと、ESP を `CIDATA` にして cloud-init の seed を置くので、
+  live 起動時から `authorized_keys` で SSH できます（Ubuntu Server live は
+  cloud-init 入り）。live のホスト鍵は毎回変わるので、`known_hosts` の
+  警告が出たら `ssh-keygen -R <ip>` で消してください。ESP のラベルは
+  ビルド後に戻せます（`prepare.sh` が表示する `fatlabel` コマンド）
 - `toram` でも ISO のパーティションがマウントされたままの場合があります。
   `scripts/build.sh` はマウント中のデバイスを拒否するので、先に
   `sudo umount /dev/sda1` などで外してください
 
-起動後は方法 A の手順 5 と同じです。ISO を別ボリュームに置ける場合は
-`scripts/build.sh` をそのまま使えます。
+ISO を別ボリューム（`/mnt/data`）に置く場合も、`--to-ram` を付けたままで
+構いません。書き込み先 `/dev/sda` 上に無ければコピーは起きず、RAM
+起動かどうかの安全確認だけが行われます。
 
-```bash
-git clone https://github.com/<OWNER>/win11-arm64-oci.git
-cd win11-arm64-oci
-sudo ./scripts/setup.sh
-sudo ./scripts/build.sh --disk /dev/sda \
-  --iso /path/to/Win11_ARM64_26H2.iso \
-  --virtio /path/to/virtio-win.iso --yes
-```
-
-ISO が `/dev/sda` 上にしかない場合は `--to-ram`（上記）を使って
-ください。`scripts/build.sh` は書き込み前に ISO が消えるため、そのままでは
-動きません。
-
-このため、特別な理由がなければ方法 A を使ってください。
+方法 A（別インスタンスのビルダーから書き込む）と方法 B（1 インスタンスで
+完結）は、どちらも同じディスクを作ります。ビルド機を分けたいなら方法 A、
+1 インスタンスで済ませたいなら方法 B です。
 
 方法 B で完了した場合は、付け替えは不要です。ライブ環境から
 `sudo reboot` すると、`/dev/sda` の Windows が起動します。

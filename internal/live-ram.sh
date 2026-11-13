@@ -109,7 +109,7 @@ live-ram: this environment still depends on $DISK.
   Either an installed Ubuntu is running from it, or a live ISO on it was
   booted without 'toram'.  Wiping $DISK would kill the build halfway.
   Use --reuse-ubuntu to keep an installed Ubuntu, or boot the live ISO
-  with 'toram' (scripts/prepare.sh --toram) and try again.
+  with 'toram' (scripts/prepare.sh) and try again.
 EOF
             exit 1
         fi
