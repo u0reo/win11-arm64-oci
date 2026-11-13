@@ -64,11 +64,27 @@ rm -f "$QMP" "$MON" "$PIDFILE"
 # QEMU aarch64/virt has no -boot drive-order support.  A blank disk + ISO
 # attached makes AAVMF boot the ISO; for the installed-disk phase use
 # WITH_ISO=0 so the firmware falls through to the disk's boot entry.
+# ACCEL=auto uses KVM when /dev/kvm is usable (OCI A1 with nested virt),
+# otherwise TCG.  Override with ACCEL=kvm or ACCEL=tcg.
+ACCEL=${ACCEL:-auto}
+if [ "$ACCEL" = auto ]; then
+    if [ -r /dev/kvm ] && [ -w /dev/kvm ]; then
+        ACCEL=kvm
+    else
+        ACCEL=tcg
+    fi
+fi
+case "$ACCEL" in
+    kvm) ACCEL_ARGS=(-accel kvm -cpu host) ;;
+    tcg) ACCEL_ARGS=(-accel tcg,thread=multi -cpu neoverse-n1) ;;
+    *)   echo "ACCEL must be auto, kvm or tcg" >&2; exit 1 ;;
+esac
+echo "[qemu] accel=$ACCEL smp=$SMP mem=$MEM"
+
 QEMU=(qemu-system-aarch64
     -name "$NAME"
     -machine virt,gic-version=3
-    -accel tcg,thread=multi
-    -cpu neoverse-n1
+    "${ACCEL_ARGS[@]}"
     -smp "$SMP"
     -m "$MEM"
     -drive if=pflash,format=raw,readonly=on,file="$FW_CODE"

@@ -32,11 +32,39 @@ RDP / WinRM で操作できる状態まで自動構築するためのスクリ�
 ### パッケージ（Debian/Ubuntu）
 
 ```bash
-sudo apt-get install -y \
-  qemu-system-arm qemu-utils wimtools libguestfs-tools \
-  mtools dosfstools ntfs-3g xorriso gdisk zstd \
-  python3 python3-hivex python3-pefile curl rclone oathtool age
+sudo ./scripts/bootstrap-ubuntu.sh
 ```
+
+手動で入れる場合:
+
+```bash
+sudo apt-get install -y \
+  qemu-system-arm qemu-utils qemu-efi-aarch64 wimtools \
+  libhivex-bin python3-hivex python3-pefile \
+  mtools dosfstools ntfs-3g xorriso gdisk zstd \
+  curl rclone oathtool age jq
+```
+
+## OCI A1 でビルド（推奨）
+
+GitHub ホストランナーでは作れません（14 GB SSD / 6 時間 / KVM なし）。
+Ampere A1 の Ubuntu を一時的なビルド機にします。
+
+```bash
+# 1. A1 インスタンス（Ubuntu 24.04 aarch64、ブートボリューム 100 GB）
+# 2. ログインして
+git clone https://github.com/<OWNER>/win11-arm64-oci.git
+cd win11-arm64-oci
+sudo ./scripts/bootstrap-ubuntu.sh
+
+# 3. ISO を置いてビルド
+sudo ./scripts/oci-run.sh --iso /srv/iso/Win11_ARM64_26H2.iso --deliver ssh
+```
+
+`--deliver` は `ssh` / `mega` / `rclone` / `image` / `none` から選べます。
+`image` は OCI のカスタムイメージとして登録し、そのまま A1 インスタンスを
+起動します（Windows 11 は OCI のサポート対象外なので注意）。
+詳細は [docs/OCI.md](docs/OCI.md)。
 
 ## ローカルでビルド
 
@@ -84,6 +112,9 @@ WIN_USERNAME=alice WIN_PASSWORD='strong-pass' COMPUTER_NAME=MY-WIN \
 | `ci.yml` | `ubuntu-latest` | shellcheck / XML / render / 秘密情報チェック |
 | `build-image.yml` | **self-hosted** | イメージ生成と MEGA アップロード |
 
+一発ビルドなら runner を登録せず、A1 上で `scripts/oci-run.sh` を直接
+実行する方が簡単です（[docs/OCI.md](docs/OCI.md)）。
+
 `build-image.yml` は **GitHub ホストランナーでは動きません**。
 
 - `/dev/kvm` がない
@@ -106,6 +137,7 @@ docs/           SETUP / BUILD / WORKLOG
 
 ## ドキュメント
 
+- [docs/OCI.md](docs/OCI.md) — OCI A1 をビルド機にする手順と納品方法
 - [docs/SETUP.md](docs/SETUP.md) — Secrets、runner、MEGA の準備
 - [docs/BUILD.md](docs/BUILD.md) — パイプラインの各段階と手動フォールバック
 - [docs/WORKLOG.md](docs/WORKLOG.md) — 26H2 構築までの作業ログ（サニタイズ済み）
