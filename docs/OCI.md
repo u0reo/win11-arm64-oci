@@ -143,6 +143,45 @@ oci compute instance action --instance-id <A> --action START
 ほとんどありません。`toram` の ISO と Windows ISO の両方が tmpfs に
 載るため、書き込み層の上限にも当たりやすいです。
 
+#### RAM だけで強行する（データボリュームなし）
+
+10 GB のボリュームを足さずに済ませる方法です。手順は
+`scripts/live-ram-run.sh` にまとめてあります。
+
+1. ライブ ISO をブートボリュームの見える場所に置き、GRUB エントリを作る
+
+   ```bash
+   sudo ./scripts/live-grub-entry.sh /srv/iso/ubuntu-26.04-live-server-arm64.iso \
+     | sudo tee -a /etc/grub.d/40_custom
+   sudo update-grub
+   ```
+
+2. 再起動し、GRUB で `Ubuntu live (toram)` を選ぶ
+
+3. ライブ環境でビルドする
+
+   ```bash
+   sudo apt-get update && sudo apt-get install -y git
+   git clone https://github.com/<OWNER>/win11-arm64-oci.git
+   cd win11-arm64-oci
+   sudo ./scripts/bootstrap-ubuntu.sh
+   sudo ./scripts/live-ram-run.sh --disk /dev/sda \
+     --iso /cdrom/Win11_ARM64_26H2.iso \
+     --virtio /cdrom/virtio-win.iso --mem 6144 --yes
+   ```
+
+`live-ram-run.sh` は次を行います。
+
+1. `toram` で起動しているか確認（していなければ中止。`/dev/sda` を消すと
+   ライブ環境ごと消えるため）
+2. `MemAvailable` と `/dev/shm` の空きを確認し、足りなければ中止
+3. Windows ISO と virtio-win.iso を `/dev/shm` にコピー
+4. `/dev/sda` のマウントをすべて解除し、`direct-run.sh` に引き継ぐ
+
+**`--mem 6144` を必ず指定してください。** 既定の 8192 だと、コピー後の
+空きメモリが足りず QEMU が OOM で落ちることがあります。4 GiB のゲストでも
+Windows 11 のインストールは通ります。
+
 #### 10 GB のデータボリュームに置く場合（推奨）
 
 | 用途 | 目安 |
@@ -165,15 +204,17 @@ oci compute instance action --instance-id <A> --action START
 - `toram` で起動しても、**書き換えた瞬間に grub エントリと ISO が消えます**。
   失敗するとライブ環境に戻れず、ボリュームを別インスタンスに付けて
   復旧するしかありません
-- OCI には CD-ROM デバイスが無いので、grub の `loopback` + `findiso=` で
-  起動する必要があります
+- OCI には CD-ROM デバイスが無いので、grub の `loopback` +
+  `iso-scan/filename=` で起動する必要があります
+  （`scripts/live-grub-entry.sh` がエントリを出力します）
 - ライブ環境の操作はシリアルコンソール越しになります。SSH を上げるまでが
   面倒です
 - `toram` でも ISO のパーティションがマウントされたままの場合があります。
   `direct-run.sh` はマウント中のデバイスを拒否するので、先に
   `sudo umount /dev/sda1` などで外してください
 
-起動後は方法 A の手順 5 と同じです。
+起動後は方法 A の手順 5 と同じです。ISO を別ボリュームに置ける場合は
+`direct-run.sh` をそのまま使えます。
 
 ```bash
 git clone https://github.com/<OWNER>/win11-arm64-oci.git
@@ -183,6 +224,10 @@ sudo ./scripts/direct-run.sh --disk /dev/sda \
   --iso /path/to/Win11_ARM64_26H2.iso \
   --virtio /path/to/virtio-win.iso --yes
 ```
+
+ISO が `/dev/sda` 上にしかない場合は `live-ram-run.sh`（上記）を使って
+ください。`direct-run.sh` は書き込み前に ISO が消えるため、そのままでは
+動きません。
 
 このため、特別な理由がなければ方法 A を使ってください。
 
