@@ -125,6 +125,9 @@ On OCI (detach/attach method):
   3. attach it to the target instance as the BOOT volume
   4. start the target instance and connect with RDP
 
+If this is the live-CD method (you wrote to the disk the live system booted
+from), no detach is needed: run 'sudo reboot' and the Windows install starts.
+
 The Windows account and password are the ones rendered into the image
 (see config/defaults.env or the GitHub Secrets used for the build).
 EOF
