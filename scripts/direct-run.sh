@@ -6,6 +6,10 @@
 #     --iso /srv/iso/Win11_ARM64_26H2.iso \
 #     --virtio /srv/iso/virtio-win.iso --yes
 #
+# Add --keep-ubuntu to keep a small Ubuntu recovery system on the same disk
+# (Windows Boot Manager chainloads its GRUB).  The old Ubuntu is replaced by
+# a fresh minimal install; its netplan and SSH settings are copied over.
+#
 # The device is wiped.  Nothing is packaged and nothing is uploaded: the
 # device itself becomes the Windows disk.  On OCI, detach the volume and
 # reattach it as the boot volume of the target instance afterwards.
@@ -22,10 +26,12 @@ DRIVERS=""
 IMAGE_INDEX=${IMAGE_INDEX:-1}
 MEM=${MEM:-8192}
 SMP=${SMP:-4}
+KEEP_UBUNTU=0
+RECOVERY_SIZE=${RECOVERY_SIZE:-4G}
 YES=0
 
 usage() {
-    sed -n '2,14p' "$0" | sed 's/^# \{0,1\}//'
+    sed -n '2,17p' "$0" | sed 's/^# \{0,1\}//'
     exit "${1:-0}"
 }
 
@@ -38,6 +44,8 @@ while [ $# -gt 0 ]; do
         --image-index) IMAGE_INDEX=$2; shift 2 ;;
         --mem) MEM=$2; shift 2 ;;
         --smp) SMP=$2; shift 2 ;;
+        --keep-ubuntu) KEEP_UBUNTU=1; shift ;;
+        --ubuntu-size) RECOVERY_SIZE=$2; KEEP_UBUNTU=1; shift 2 ;;
         --yes) YES=1; shift ;;
         -h|--help) usage 0 ;;
         *) echo "direct-run: unknown argument: $1" >&2; usage 1 ;;
@@ -90,8 +98,24 @@ cat <<EOF
   index    $IMAGE_INDEX
   memory   ${MEM} MiB
   cpus     $SMP
+  ubuntu   $([ "$KEEP_UBUNTU" = 1 ] && echo "keep ${RECOVERY_SIZE} recovery system" || echo 'no (whole disk Windows)')
 
+EOF
+
+if [ "$KEEP_UBUNTU" = 1 ]; then
+    cat <<EOF
+  The ESP and the partition table stay.  Partition 2 is recreated as a
+  ${RECOVERY_SIZE} ext4 recovery Ubuntu (fresh minimal install) and
+  partition 3 takes the rest for Windows.  Its netplan and SSH settings
+  are copied from the current Ubuntu before it is erased.
+  EVERYTHING ELSE ON $DISK WILL BE DESTROYED.
+EOF
+else
+    cat <<EOF
   ALL DATA ON $DISK WILL BE DESTROYED.
+EOF
+fi
+cat <<EOF
   The QEMU guest will boot from this device twice: WinPE, then Windows.
   Do not interrupt the guest; a hard reset corrupts the SOFTWARE hive.
 EOF
@@ -106,6 +130,7 @@ fi
 export DISK
 export ISO
 export IMAGE_INDEX MEM SMP
+export KEEP_UBUNTU RECOVERY_SIZE
 if [ -n "$DRIVERS" ]; then
     export DRIVERS_DIR="$DRIVERS"
 else
@@ -118,6 +143,16 @@ cat <<EOF
 
 == done ==
 $DISK now contains Windows 11 ARM64.
+EOF
+
+if [ "$KEEP_UBUNTU" = 1 ]; then
+    cat <<EOF
+The ${RECOVERY_SIZE} recovery Ubuntu is on partition 2.  The Windows Boot
+Manager menu shows it as "Ubuntu (recovery)" (5 second timeout).
+EOF
+fi
+
+cat <<EOF
 
 On OCI (detach/attach method):
   1. stop the builder instance

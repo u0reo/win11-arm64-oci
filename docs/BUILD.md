@@ -10,17 +10,24 @@
 | 1 | 設定の解決と XML 生成 | `scripts/render.py` |
 | 2 | virtio-win ARM64 ドライバ展開 | `scripts/stage-drivers.sh` |
 | 3 | OEMDRV ISO 作成 | `pipeline/make_oemdrv.sh` |
-| 4 | ディスク作成 + `install.wim` 適用 | `pipeline/host_apply.sh` |
-| 5 | `boot.wim` に自動実行コマンドを埋込 | `pipeline/make_manual_bootwim.sh` |
-| 6 | 起動用 FAT イメージ作成 | `pipeline/make_bootfat.sh` |
-| 7 | WinPE でドライバ + `bcdboot`（自動） | QEMU phase A |
-| 8 | Windows 初回起動 + 準備完了待ち | QEMU phase B |
-| 9 | ACPI シャットダウン | `scripts/qmp-powerdown.py` |
-| 10 | ESP パッチ + 検査 | `pipeline/finish_disk.sh` / `pipeline/inspect_image.sh` |
+| 4 | Ubuntu の netplan / SSH 設定を退避（`KEEP_UBUNTU=1`） | `pipeline/save_ubuntu_config.sh` |
+| 5 | ディスク作成 + `install.wim` 適用 | `pipeline/host_apply.sh` |
+| 6 | 復旧用 Ubuntu を構築（`KEEP_UBUNTU=1`） | `pipeline/make_recovery_ubuntu.sh` |
+| 7 | `boot.wim` に自動実行コマンドを埋込 | `pipeline/make_manual_bootwim.sh` |
+| 8 | 起動用 FAT イメージ作成 | `pipeline/make_bootfat.sh` |
+| 9 | WinPE でドライバ + `bcdboot`（自動） | QEMU phase A |
+| 10 | Windows 初回起動 + 準備完了待ち | QEMU phase B |
+| 11 | ACPI シャットダウン | `scripts/qmp-powerdown.py` |
+| 12 | ESP パッチ + 検査 | `pipeline/finish_disk.sh` / `pipeline/inspect_image.sh` |
+| 13 | 圧縮（`PACKAGE=1`） | `scripts/package-image.sh` |
 
 `DISK` を省略すると `build/win11-arm64.qcow2` に書き、`PACKAGE=1` のときだけ
 `scripts/package-image.sh` で圧縮します。`DISK=/dev/sdX` を渡すとブロック
 デバイスへ直接書き込み、圧縮は行いません。
+
+`KEEP_UBUNTU=1`（`direct-run.sh --keep-ubuntu`）では、ESP を残したまま
+p2 を `RECOVERY_SIZE`（既定 4 GiB）の Ubuntu Server minimal として作り直し、
+p3 を Windows にします。設定は [DUALBOOT.md](DUALBOOT.md)。
 
 ## 「WinPE の仕上げ」とは
 

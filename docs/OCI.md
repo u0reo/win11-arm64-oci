@@ -58,6 +58,10 @@ A は手順 7 まで一度も起動し直さないので、失敗しても A の
 Windows Update の余裕を考えるなら A だけ 64 GB にしても構いません
 （50 + 64 = 114 GB で無料枠内）。
 
+Ubuntu を 4 GiB の復旧環境として残す場合は `--keep-ubuntu` を付けます。
+ESP を保持したまま p2 を作り直し、Windows Boot Manager から GRUB を
+chainload します。手順と注意点は [DUALBOOT.md](DUALBOOT.md)。
+
 ### 手順
 
 ```bash

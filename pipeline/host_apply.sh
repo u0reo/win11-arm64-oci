@@ -5,7 +5,10 @@
 # timestamps.  This avoids the extremely slow DISM /apply-image under QEMU.
 #
 # The target can be a qcow2 file (created from scratch) or a raw block
-# device such as /dev/sdb.  A block device is wiped completely.
+# device such as /dev/sdb.  A block device is wiped completely, unless
+# KEEP_UBUNTU=1 is set: then the ESP is kept and partition 2 is recreated as
+# a small ext4 recovery system (RECOVERY_SIZE, default 4G) instead of being
+# deleted.  pipeline/make_recovery_ubuntu.sh fills it afterwards.
 #
 # Usage: ./host_apply.sh <windows-arm64.iso> <disk.qcow2|/dev/sdX> [index]
 #
@@ -24,6 +27,8 @@ DRIVERS=${DRIVERS:-$ROOT/build/drivers}
 DRIVERS_EXTRA=${DRIVERS_EXTRA:-$ROOT/build/drivers-extra}
 SIZE=${SIZE:-50G}
 SDB=${SDB:-/dev/nbd0}
+KEEP_UBUNTU=${KEEP_UBUNTU:-0}
+RECOVERY_SIZE=${RECOVERY_SIZE:-4G}
 
 RAW=0
 if [ -b "$IMG" ]; then
@@ -94,9 +99,14 @@ if [ "$RAW" = 1 ]; then
     DEV=$IMG
     echo "  size: $(sudo -n blockdev --getsize64 "$DEV") bytes"
 else
-    echo "[2/6] create fresh qcow2 ($SIZE)"
-    rm -f "$IMG"
-    qemu-img create -f qcow2 "$IMG" "$SIZE" >/dev/null
+    if [ "$KEEP_UBUNTU" = 1 ]; then
+        echo "[2/6] reuse the existing qcow2 ($IMG)"
+        [ -f "$IMG" ] || { echo "KEEP_UBUNTU needs an existing qcow2: $IMG" >&2; exit 1; }
+    else
+        echo "[2/6] create fresh qcow2 ($SIZE)"
+        rm -f "$IMG"
+        qemu-img create -f qcow2 "$IMG" "$SIZE" >/dev/null
+    fi
     sudo -n qemu-nbd --disconnect "$SDB" >/dev/null 2>&1 || true
     sleep 1
     sudo -n qemu-nbd --connect="$SDB" --format=qcow2 "$IMG"
@@ -113,26 +123,73 @@ else
     echo "  NBD size: $NBD_SIZE bytes"
 fi
 
-echo "[3/6] partition and format"
-sudo -n sgdisk --zap-all "$DEV" >/dev/null
-sudo -n sgdisk \
-    -n 1:2048:+100M -t 1:ef00 -c 1:"System" \
-    -n 2:0:+16M   -t 2:0c01 -c 2:"MSR" \
-    -n 3:0:0      -t 3:0700 -c 3:"Windows" \
-    "$DEV" >/dev/null
-sudo -n partprobe "$DEV" 2>/dev/null || true
-sleep 2
-P1=$(part "$DEV" 1)
-P3=$(part "$DEV" 3)
-lsblk -o NAME,SIZE,FSTYPE,PARTTYPENAME "$DEV"
-P3START=$(lsblk -no START "$P3" | tr -d ' ')
-[ -n "$P3START" ] || { echo "cannot determine p3 start sector" >&2; exit 1; }
-# -f is a quick format: without it mkntfs zeroes the whole volume, which
-# balloons the qcow2 and is extremely slow over NBD.  -p/-H/-S give the
-# NTFS BPB the same geometry Windows uses, so Windows can boot from it.
-sudo -n mkfs.vfat -F32 -n SYSTEM "$P1" >/dev/null
-sudo -n mkntfs -f -F -L Windows -p "$P3START" -H 255 -S 63 "$P3" >/dev/null
-echo "  formatted (p3 starts at sector $P3START)"
+if [ "$KEEP_UBUNTU" = 1 ]; then
+    echo "[3/6] keep the ESP, shrink Ubuntu to $RECOVERY_SIZE, add Windows"
+    sudo -n partprobe "$DEV" 2>/dev/null || true
+    sleep 1
+    P1=$(part "$DEV" 1)
+    P2=$(part "$DEV" 2)
+    [ -b "$P1" ] || { echo "no ESP at $P1" >&2; exit 1; }
+    [ -b "$P2" ] || { echo "no Ubuntu partition at $P2" >&2; exit 1; }
+    ESP_FS=$(lsblk -no FSTYPE "$P1" | tr -d ' ')
+    [ "$ESP_FS" = vfat ] || { echo "$P1 is not FAT32 ($ESP_FS)" >&2; exit 1; }
+    if [ -b "$(part "$DEV" 3)" ]; then
+        echo "partition 3 already exists; refusing to overwrite it" >&2
+        exit 1
+    fi
+
+    # The ESP keeps its Windows and Ubuntu boot files; only its free space
+    # matters.  bcdboot needs about 30 MiB and GRUB about 15 MiB.
+    ESPMNT=$(mktemp -d /tmp/hostapply-esp.XXXXXX)
+    sudo -n mount -t vfat -o ro "$P1" "$ESPMNT"
+    ESP_FREE_KB=$(df -Pk "$ESPMNT" | awk 'NR==2{print $4}')
+    sudo -n umount "$ESPMNT"
+    rmdir "$ESPMNT"
+    echo "  ESP free: $(( ESP_FREE_KB / 1024 )) MiB"
+    [ "$ESP_FREE_KB" -ge 40960 ] || {
+        echo "the ESP needs at least 40 MiB free for bcdboot and GRUB" >&2
+        echo "free some space on $P1 first" >&2
+        exit 1
+    }
+
+    P2START=$(cat "/sys/class/block/$(basename "$P2")/start")
+    sudo -n sgdisk -d 2 "$DEV" >/dev/null
+    sudo -n sgdisk \
+        -n "2:${P2START}:+${RECOVERY_SIZE}" -t 2:8300 -c 2:"Ubuntu" \
+        -n 3:0:0 -t 3:0700 -c 3:"Windows" \
+        "$DEV" >/dev/null
+    sudo -n partprobe "$DEV" 2>/dev/null || true
+    sleep 2
+    P2=$(part "$DEV" 2)
+    P3=$(part "$DEV" 3)
+    lsblk -o NAME,SIZE,FSTYPE,PARTTYPENAME "$DEV"
+    P3START=$(lsblk -no START "$P3" | tr -d ' ')
+    [ -n "$P3START" ] || { echo "cannot determine p3 start sector" >&2; exit 1; }
+    sudo -n mkfs.ext4 -F -L Ubuntu "$P2" >/dev/null
+    sudo -n mkntfs -f -F -L Windows -p "$P3START" -H 255 -S 63 "$P3" >/dev/null
+    echo "  formatted (p2 $RECOVERY_SIZE ext4, p3 starts at sector $P3START)"
+else
+    echo "[3/6] partition and format"
+    sudo -n sgdisk --zap-all "$DEV" >/dev/null
+    sudo -n sgdisk \
+        -n 1:2048:+100M -t 1:ef00 -c 1:"System" \
+        -n 2:0:+16M   -t 2:0c01 -c 2:"MSR" \
+        -n 3:0:0      -t 3:0700 -c 3:"Windows" \
+        "$DEV" >/dev/null
+    sudo -n partprobe "$DEV" 2>/dev/null || true
+    sleep 2
+    P1=$(part "$DEV" 1)
+    P3=$(part "$DEV" 3)
+    lsblk -o NAME,SIZE,FSTYPE,PARTTYPENAME "$DEV"
+    P3START=$(lsblk -no START "$P3" | tr -d ' ')
+    [ -n "$P3START" ] || { echo "cannot determine p3 start sector" >&2; exit 1; }
+    # -f is a quick format: without it mkntfs zeroes the whole volume, which
+    # balloons the qcow2 and is extremely slow over NBD.  -p/-H/-S give the
+    # NTFS BPB the same geometry Windows uses, so Windows can boot from it.
+    sudo -n mkfs.vfat -F32 -n SYSTEM "$P1" >/dev/null
+    sudo -n mkntfs -f -F -L Windows -p "$P3START" -H 255 -S 63 "$P3" >/dev/null
+    echo "  formatted (p3 starts at sector $P3START)"
+fi
 
 echo "[4/6] apply image $INDEX with wimlib-imagex"
 time sudo -n wimlib-imagex apply "$WIM" "$INDEX" "$P3"

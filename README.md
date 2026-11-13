@@ -72,8 +72,17 @@ sudo ./scripts/direct-run.sh \
 qcow2 も圧縮ファイルも作りません。ビルドが終わればそのボリュームが
 Windows ディスクになります。付け替え手順と、1 インスタンスで完結させる
 ライブ CD 方式（`toram`）は [docs/OCI.md](docs/OCI.md)。
-Ubuntu を残して Windows Boot Manager から切り替える案は
-[docs/DUALBOOT.md](docs/DUALBOOT.md) を参照してください。
+
+4 GiB の Ubuntu 復旧環境を残す場合は `--keep-ubuntu` を足します
+（Windows Boot Manager のメニューから起動。ネットワークと SSH の設定は
+元の Ubuntu から引き継ぎます）。詳細は
+[docs/DUALBOOT.md](docs/DUALBOOT.md)。
+
+```bash
+sudo ./scripts/direct-run.sh --disk /dev/sdb \
+  --iso /srv/iso/Win11_ARM64_26H2.iso --virtio /srv/iso/virtio-win.iso \
+  --keep-ubuntu --ubuntu-size 4G --yes
+```
 
 ## ローカルでビルド
 

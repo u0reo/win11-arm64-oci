@@ -37,6 +37,15 @@ on:
         description: "Optional block device to write directly (wiped)"
         required: false
         default: ""
+      keep_ubuntu:
+        description: "Keep a small Ubuntu recovery system (needs disk)"
+        required: false
+        type: boolean
+        default: false
+      ubuntu_size:
+        description: "Size of the recovery Ubuntu partition"
+        required: false
+        default: "4G"
 
   push:
     tags:
@@ -68,6 +77,8 @@ jobs:
       VIRTIO_ISO: ${{ inputs.virtio_iso || vars.VIRTIO_ISO }}
       SIZE: ${{ inputs.size || '50G' }}
       DISK: ${{ inputs.disk }}
+      KEEP_UBUNTU: ${{ inputs.keep_ubuntu && '1' || '0' }}
+      RECOVERY_SIZE: ${{ inputs.ubuntu_size || '4G' }}
 
     steps:
       - uses: actions/checkout@v4
@@ -83,6 +94,7 @@ jobs:
           echo "computer_name=$COMPUTER_NAME"
           echo "user=$WIN_USERNAME"
           echo "disk=${DISK:-<qcow2>}"
+          echo "keep_ubuntu=$KEEP_UBUNTU (${RECOVERY_SIZE})"
 
       - name: Verify ISO checksum
         if: env.ISO_SHA256 != ''

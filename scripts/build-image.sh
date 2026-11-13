@@ -22,6 +22,8 @@
 #   SIZE=50G             qcow2 virtual size (ignored for a block device)
 #   MEM=8192             guest RAM in MiB
 #   SMP=4                guest vCPUs
+#   KEEP_UBUNTU=1        keep a small Ubuntu recovery system on the disk
+#   RECOVERY_SIZE=4G     size of that recovery partition
 #   PACKAGE=1            compress the qcow2 when the build finishes
 #   WIN_USERNAME / WIN_PASSWORD / COMPUTER_NAME   (render.py overrides)
 set -euo pipefail
@@ -39,10 +41,16 @@ MEM=${MEM:-8192}
 SMP=${SMP:-4}
 WINRM_PORT=${WINRM_PORT:-15985}
 DISK=${DISK:-$BUILD/win11-arm64.qcow2}
+KEEP_UBUNTU=${KEEP_UBUNTU:-0}
+RECOVERY_SIZE=${RECOVERY_SIZE:-4G}
 
 RAW=0
 if [ -b "$DISK" ]; then
     RAW=1
+fi
+if [ "$KEEP_UBUNTU" = 1 ] && [ "$RAW" != 1 ]; then
+    echo "KEEP_UBUNTU needs DISK=/dev/sdX (the Ubuntu volume itself)" >&2
+    exit 1
 fi
 
 mkdir -p "$BUILD/logs" "$BUILD/artifacts"
@@ -51,7 +59,7 @@ exec > >(tee -a "$LOG") 2>&1
 
 step() { echo; echo "==== $* ===="; }
 
-step "0/10 preflight"
+step "0/13 preflight"
 if [ "$RAW" = 1 ]; then
     MIN_FREE_GB=${MIN_FREE_GB:-15} "$HERE/preflight.sh"
 else
@@ -59,28 +67,43 @@ else
 fi
 echo "  target: $DISK ($([ "$RAW" = 1 ] && echo 'raw block device' || echo 'qcow2'))"
 
-step "1/10 render unattended media"
+step "1/13 render unattended media"
 python3 "$HERE/render.py" --out "$BUILD/media" --image-index "$IMAGE_INDEX"
 
-step "2/10 stage virtio-win drivers"
+step "2/13 stage virtio-win drivers"
 "$HERE/stage-drivers.sh"
 
-step "3/10 build OEMDRV ISO"
+step "3/13 build OEMDRV ISO"
 MEDIA="$BUILD/media" DRIVERS="$BUILD/drivers" DRIVERS_EXTRA="$BUILD/drivers-extra" \
     "$PIPE/make_oemdrv.sh" "$ISO" "$IMAGE_INDEX"
 
-step "4/10 apply install.wim to the target"
-MEDIA="$BUILD/media" DRIVERS="$BUILD/drivers" DRIVERS_EXTRA="$BUILD/drivers-extra" \
-SIZE="$SIZE" "$PIPE/host_apply.sh" "$ISO" "$DISK" "$IMAGE_INDEX"
+step "4/13 save the Ubuntu network and SSH settings"
+if [ "$KEEP_UBUNTU" = 1 ]; then
+    "$PIPE/save_ubuntu_config.sh" "$DISK" "$BUILD/ubuntu-config"
+else
+    echo "  skipped (KEEP_UBUNTU is not 1)"
+fi
 
-step "5/10 patch boot.wim to run the WinPE finish automatically"
+step "5/13 apply install.wim to the target"
+MEDIA="$BUILD/media" DRIVERS="$BUILD/drivers" DRIVERS_EXTRA="$BUILD/drivers-extra" \
+SIZE="$SIZE" KEEP_UBUNTU="$KEEP_UBUNTU" RECOVERY_SIZE="$RECOVERY_SIZE" \
+"$PIPE/host_apply.sh" "$ISO" "$DISK" "$IMAGE_INDEX"
+
+step "6/13 install the recovery Ubuntu"
+if [ "$KEEP_UBUNTU" = 1 ]; then
+    "$PIPE/make_recovery_ubuntu.sh" "$DISK" "$BUILD/ubuntu-config"
+else
+    echo "  skipped (KEEP_UBUNTU is not 1)"
+fi
+
+step "7/13 patch boot.wim to run the WinPE finish automatically"
 START_CMD="$PIPE/manual_start.finish.cmd" \
     "$PIPE/make_manual_bootwim.sh" "$ISO" "$BUILD/boot-manual.wim"
 
-step "6/10 build the boot FAT image"
+step "8/13 build the boot FAT image"
 BOOTWIM="$BUILD/boot-manual.wim" "$PIPE/make_bootfat.sh" "$ISO"
 
-step "7/10 WinPE finish (drivers + bcdboot), automatic"
+step "9/13 WinPE finish (drivers + bcdboot), automatic"
 # The patched boot.wim runs manual_start.finish.cmd, which calls
 # manual_finish.cmd and then shuts the VM down.  No VNC interaction.
 NAME=finish WITH_ISO=0 BOOTFAT="$BUILD/bootfat.img" OEMDRV="$BUILD/oemdrv.iso" \
@@ -95,7 +118,7 @@ fi
 wait "$QEMU_PID" || true
 echo "WinPE finish completed"
 
-step "8/10 first Windows boot and readiness check"
+step "10/13 first Windows boot and readiness check"
 NAME=install WITH_ISO=0 BOOTFAT="" OEMDRV="" \
     DISK="$DISK" NVRAM="$BUILD/AAVMF_VARS.install.fd" MEM="$MEM" SMP="$SMP" \
     "$PIPE/run-qemu.sh" &
@@ -124,7 +147,7 @@ done
     exit 1
 }
 
-step "8b/10 graceful shutdown over QMP"
+step "11/13 graceful shutdown over QMP"
 python3 "$HERE/qmp-powerdown.py" "$BUILD/install.qmp" --timeout 60
 if ! timeout 900 tail --pid="$QEMU_PID" -f /dev/null; then
     echo "guest did not power down; refusing to hard-reset" >&2
@@ -134,11 +157,11 @@ fi
 wait "$QEMU_PID" || true
 echo "guest powered down"
 
-step "9/10 patch ESP and inspect"
+step "12/13 patch ESP and inspect"
 "$PIPE/finish_disk.sh" "$DISK"
 "$PIPE/inspect_image.sh" "$DISK" | tee "$BUILD/logs/inspect.log"
 
-step "10/10 package"
+step "13/13 package"
 if [ "$RAW" = 1 ]; then
     echo "raw target: nothing to package"
 elif [ "${PACKAGE:-0}" = "1" ]; then
