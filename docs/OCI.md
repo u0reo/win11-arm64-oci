@@ -25,8 +25,22 @@ OCI は「停止したインスタンスからブートボリュームを切り�
 インスタンスにデータボリュームとして付ける」ことを公式に認めています。
 これを使うと、ライブ CD も grub 細工も RAM ディスクも不要です。
 
+> 「ブートボリュームとブロックボリュームは変換できない」は正しいのですが、
+> **変換は不要**です。ブートボリュームを停止中に detach し、ブロック
+> ボリュームとして別インスタンスに attach します。OCI の公式ドキュメント
+> 「Attaching a Boot Volume」に次の記述があります。
+>
+> "If a boot volume has been detached from the associated instance, or if the
+> instance is stopped or terminated, you can attach the boot volume to another
+> instance as a data volume."
+>
+> 「Working with Boot Volumes」にも、トラブルシュート用に
+> "detach the boot volume, then attach it to another instance as a data volume"
+> と明記されています。リソース種別はブートボリュームのままですが、
+> データボリュームとして見える、という扱いです。
+
 ```text
-1. ターゲット A を作る（Ubuntu 26.04 minimal aarch64、ブート 100 GB）
+1. ターゲット A を作る（Ubuntu 26.04 minimal aarch64、ブート 50 GB）
 2. A を停止し、ブートボリュームを切り離す
 3. ビルダー B を作る（Ubuntu、ブート 50 GB、同じ AD）
 4. A のブートボリュームを B にデータボリュームとして接続する
@@ -35,9 +49,14 @@ OCI は「停止したインスタンスからブートボリュームを切り�
 7. A を起動すると Windows が立ち上がる
 ```
 
-ボリュームは 100 + 50 = 150 GB で、Always Free の 200 GB に収まります。
+ボリュームは 50 + 50 = 100 GB で、Always Free の 200 GB に収まります。
 A は手順 7 まで一度も起動し直さないので、失敗しても A の Ubuntu は無傷です
 （ボリュームの中身は変わっていますが、付け替えれば調べられます）。
+
+50 GB は OCI の Linux イメージの既定サイズであり、Windows の実データは
+約 28 GB なので収まります。ただし Microsoft の公式要件は 64 GB なので、
+Windows Update の余裕を考えるなら A だけ 64 GB にしても構いません
+（50 + 64 = 114 GB で無料枠内）。
 
 ### 手順
 
@@ -74,22 +93,26 @@ sudo ./scripts/direct-run.sh \
 # 1. A を停止してブートボリュームを切り離す
 oci compute instance action --instance-id <A> --action STOP
 oci compute boot-volume-attachment detach \
-  --boot-volume-attachment-id <A のアタッチメント>
+  --boot-volume-attachment-id <A のアタッチメント OCID>
 
-# 2. B にデータボリュームとして接続
+# 2. B にデータボリュームとして接続する。
+#    --volume-id には「ブートボリュームの OCID」を渡す（変換はしない）。
+#    ブートボリュームは consistent device path の対象外なので --device は付けない。
 oci compute volume-attachment attach \
-  --instance-id <B> --volume-id <A のブートボリューム> \
-  --type paravirtualized --device /dev/oracleoci/oraclevdb
+  --instance-id <B> --volume-id <A のブートボリューム OCID> \
+  --type paravirtualized
 
 # 3. ビルド後、B から切り離して A にブートボリュームとして接続
 oci compute volume-attachment detach --volume-attachment-id <...>
 oci compute boot-volume-attachment attach \
-  --instance-id <A> --boot-volume-id <A のブートボリューム>
+  --instance-id <A> --boot-volume-id <A のブートボリューム OCID>
 
 oci compute instance action --instance-id <A> --action START
 ```
 
-コンソールでも同じことができます。
+`boot-volume-attachment detach` は**アタッチメントの OCID**、
+`boot-volume-attachment attach` は**ブートボリュームの OCID** を取ります。
+混同しやすいので注意してください。コンソールでも同じことができます。
 
 ## 方法 B: ライブ CD を RAM に載せて sda を書き換える
 
@@ -99,18 +122,39 @@ oci compute instance action --instance-id <A> --action START
 
 ### 24 GB で足りるか
 
-足ります。ただし内訳を意識してください。
+**Windows の ISO（約 6.2 GB）をどこに置くかで変わります。** ここを忘れると
+足りなくなります。
+
+#### そのまま RAM に置く場合
 
 | 用途 | 目安 |
 |---|---|
 | ライブ ISO（`toram` で RAM に載る） | 2.5 GB（Server）/ 4 GB（Desktop） |
+| **Windows 11 ISO（ダウンロード先）** | **6.2 GB** |
 | ライブ環境の書き込み層（apt で QEMU 等を入れる） | 2〜3 GB |
 | QEMU ゲスト（`MEM=8192`） | 8 GB |
 | QEMU 本体・ページキャッシュ | 残り |
 
-合計 13〜15 GB なので 24 GB に収まります。**Desktop ISO は使わず
-Server ISO にしてください。** また `MEM` を 16 GB にすると破綻します
-（8 GB のままで十分です）。
+合計 19〜20 GB。24 GB でも起動はしますが、ページキャッシュの余裕が
+ほとんどありません。`toram` の ISO と Windows ISO の両方が tmpfs に
+載るため、書き込み層の上限にも当たりやすいです。
+
+#### 10 GB のデータボリュームに置く場合（推奨）
+
+| 用途 | 目安 |
+|---|---|
+| ライブ ISO（`toram`） | 2.5 GB |
+| ライブ環境の書き込み層 | 2〜3 GB |
+| QEMU ゲスト（`MEM=8192`） | 8 GB |
+| QEMU 本体・ページキャッシュ | 残り 10 GB 以上 |
+
+合計 13〜14 GB。**Windows ISO は 10 GB のブロックボリュームに置き、
+`--iso /mnt/winiso/Win11_ARM64_26H2.iso` を渡します。** このボリュームは
+`/dev/sda` の書き換えの影響を受けないので、失敗時の再試行も楽です。
+100 GB（ブート）+ 10 GB（ISO）= 110 GB で無料枠に収まります。
+
+**Desktop ISO は使わず Server ISO にしてください。** また `MEM` を 16 GB に
+すると破綻します（8 GB のままで十分です）。
 
 ### 注意点
 
@@ -196,7 +240,7 @@ oci bv boot-volume-backup create \
 | 項目 | 無料枠 | 超えた場合 |
 |---|---|---|
 | A1 4 OCPU / 24 GB | 常時無料 | — |
-| ブートボリューム 150 GB（A + B） | 200 GB まで無料 | $0.0255/GB/月 |
+| ブートボリューム 100 GB（A 50 + B 50） | 200 GB まで無料 | $0.0255/GB/月 |
 | 下り転送 | 10 TB/月 | — |
 
 ビルドが終わったら B は終了してください。B のブートボリュームを残すと
@@ -206,7 +250,7 @@ oci bv boot-volume-backup create \
 
 | 症状 | 確認 |
 |---|---|
-| `preflight.sh` がディスク不足で止まる | ブートボリュームを 100 GB に |
+| `preflight.sh` がディスク不足で止まる | ブートボリュームを 64 GB 以上に |
 | `qemu-system-aarch64: not found` | `bootstrap-ubuntu.sh` |
 | AAVMF が無い | `qemu-efi-aarch64` パッケージ |
 | ビルドが異常に遅い | `/dev/kvm` の有無。無ければ TCG |

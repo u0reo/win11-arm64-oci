@@ -51,8 +51,10 @@ GitHub ホストランナーでは作れません（14 GB SSD / 6 時間 / KVM �
 Ampere A1 の Ubuntu を一時的なビルド機にします。
 
 ```bash
-# 1. ターゲット A（Ubuntu 26.04 minimal aarch64、ブート 100 GB）を作って停止
-# 2. A のブートボリュームを切り離し、ビルダー B にデータボリュームとして接続
+# 1. ターゲット A（Ubuntu 26.04 minimal aarch64、ブート 50 GB）を作って停止
+#    64 GB にすると Windows Update の余裕が増える（50+64=114 GB で無料枠内）
+# 2. A のブートボリュームを切り離し、ビルダー B（ブート 50 GB）に
+#    データボリュームとして接続
 # 3. B にログインして
 git clone https://github.com/<OWNER>/win11-arm64-oci.git
 cd win11-arm64-oci
@@ -70,6 +72,8 @@ sudo ./scripts/direct-run.sh \
 qcow2 も圧縮ファイルも作りません。ビルドが終わればそのボリュームが
 Windows ディスクになります。付け替え手順と、1 インスタンスで完結させる
 ライブ CD 方式（`toram`）は [docs/OCI.md](docs/OCI.md)。
+Ubuntu を残して Windows Boot Manager から切り替える案は
+[docs/DUALBOOT.md](docs/DUALBOOT.md) を参照してください。
 
 ## ローカルでビルド
 
