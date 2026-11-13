@@ -133,8 +133,11 @@ if [ "$KEEP_UBUNTU" = 1 ]; then
     [ -b "$P2" ] || { echo "no Ubuntu partition at $P2" >&2; exit 1; }
     ESP_FS=$(lsblk -no FSTYPE "$P1" | tr -d ' ')
     [ "$ESP_FS" = vfat ] || { echo "$P1 is not FAT32 ($ESP_FS)" >&2; exit 1; }
-    if [ -b "$(part "$DEV" 3)" ]; then
-        echo "partition 3 already exists; refusing to overwrite it" >&2
+    PCOUNT=$(lsblk -lnpo NAME,TYPE "$DEV" | awk '$2=="part"' | wc -l)
+    if [ "$PCOUNT" -gt 2 ]; then
+        echo "expected 2 partitions (ESP + Ubuntu) on $DEV, found $PCOUNT" >&2
+        lsblk -o NAME,SIZE,FSTYPE,PARTTYPENAME "$DEV" >&2
+        echo "delete the extra partitions first; p1 (ESP) and p2 (Ubuntu) are kept" >&2
         exit 1
     fi
 
