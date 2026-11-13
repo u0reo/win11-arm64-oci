@@ -1,23 +1,29 @@
 #!/usr/bin/env bash
-# End-to-end image build.  Run on a self-hosted runner, not on GitHub-hosted
-# runners (no /dev/kvm, ~14 GB disk, 6 h job limit).
+# End-to-end image build.
+#
+# The target is a qcow2 file by default:
+#
+#   ISO=/srv/iso/Win11_ARM64_26H2.iso VIRTIO_ISO=/srv/iso/virtio-win.iso \
+#     scripts/build-image.sh
+#
+# To write straight onto a block device instead (no qcow2, no packaging):
+#
+#   sudo DISK=/dev/sdb ISO=... VIRTIO_ISO=... scripts/build-image.sh
+#
+# A block device is wiped.  Use scripts/direct-run.sh for the safety checks.
 #
 # Required:
 #   ISO=/path/to/Win11_ARM64.iso
 #   VIRTIO_ISO=/path/to/virtio-win.iso   (or DRIVERS_DIR=/path/to/drivers)
 #
 # Optional:
-#   IMAGE_INDEX=1        WIM index (default 1)
-#   SIZE=50G             qcow2 virtual size
+#   DISK=/dev/sdX        target block device (default: build/win11-arm64.qcow2)
+#   IMAGE_INDEX=1        WIM index
+#   SIZE=50G             qcow2 virtual size (ignored for a block device)
 #   MEM=8192             guest RAM in MiB
 #   SMP=4                guest vCPUs
+#   PACKAGE=1            compress the qcow2 when the build finishes
 #   WIN_USERNAME / WIN_PASSWORD / COMPUTER_NAME   (render.py overrides)
-#   SKIP_UPLOAD=1        do not upload to MEGA
-#
-# Outputs:
-#   build/win11-arm64.qcow2
-#   build/artifacts/win11-arm64.qcow2.zst{,.sha256}
-#   build/logs/*.log
 set -euo pipefail
 
 HERE=$(cd "$(dirname "$0")" && pwd)
@@ -32,7 +38,12 @@ SIZE=${SIZE:-50G}
 MEM=${MEM:-8192}
 SMP=${SMP:-4}
 WINRM_PORT=${WINRM_PORT:-15985}
-DISK="$BUILD/win11-arm64.qcow2"
+DISK=${DISK:-$BUILD/win11-arm64.qcow2}
+
+RAW=0
+if [ -b "$DISK" ]; then
+    RAW=1
+fi
 
 mkdir -p "$BUILD/logs" "$BUILD/artifacts"
 LOG="$BUILD/logs/build.log"
@@ -40,35 +51,40 @@ exec > >(tee -a "$LOG") 2>&1
 
 step() { echo; echo "==== $* ===="; }
 
-step "0/11 preflight"
-MIN_FREE_GB=${MIN_FREE_GB:-80} "$HERE/preflight.sh"
+step "0/10 preflight"
+if [ "$RAW" = 1 ]; then
+    MIN_FREE_GB=${MIN_FREE_GB:-15} "$HERE/preflight.sh"
+else
+    MIN_FREE_GB=${MIN_FREE_GB:-80} "$HERE/preflight.sh"
+fi
+echo "  target: $DISK ($([ "$RAW" = 1 ] && echo 'raw block device' || echo 'qcow2'))"
 
-step "1/11 render unattended media"
+step "1/10 render unattended media"
 python3 "$HERE/render.py" --out "$BUILD/media" --image-index "$IMAGE_INDEX"
 
-step "2/11 stage virtio-win drivers"
+step "2/10 stage virtio-win drivers"
 "$HERE/stage-drivers.sh"
 
-step "3/11 build OEMDRV ISO"
+step "3/10 build OEMDRV ISO"
 MEDIA="$BUILD/media" DRIVERS="$BUILD/drivers" DRIVERS_EXTRA="$BUILD/drivers-extra" \
     "$PIPE/make_oemdrv.sh" "$ISO" "$IMAGE_INDEX"
 
-step "4/11 apply install.wim to a fresh qcow2"
+step "4/10 apply install.wim to the target"
 MEDIA="$BUILD/media" DRIVERS="$BUILD/drivers" DRIVERS_EXTRA="$BUILD/drivers-extra" \
 SIZE="$SIZE" "$PIPE/host_apply.sh" "$ISO" "$DISK" "$IMAGE_INDEX"
 
-step "5/11 patch boot.wim to run the WinPE finish automatically"
+step "5/10 patch boot.wim to run the WinPE finish automatically"
 START_CMD="$PIPE/manual_start.finish.cmd" \
     "$PIPE/make_manual_bootwim.sh" "$ISO" "$BUILD/boot-manual.wim"
 
-step "6/11 build the boot FAT image"
+step "6/10 build the boot FAT image"
 BOOTWIM="$BUILD/boot-manual.wim" "$PIPE/make_bootfat.sh" "$ISO"
 
-step "7/11 WinPE finish (drivers + bcdboot), automatic"
+step "7/10 WinPE finish (drivers + bcdboot), automatic"
 # The patched boot.wim runs manual_start.finish.cmd, which calls
 # manual_finish.cmd and then shuts the VM down.  No VNC interaction.
 NAME=finish WITH_ISO=0 BOOTFAT="$BUILD/bootfat.img" OEMDRV="$BUILD/oemdrv.iso" \
-    NVRAM="$BUILD/AAVMF_VARS.finish.fd" MEM="$MEM" SMP="$SMP" \
+    DISK="$DISK" NVRAM="$BUILD/AAVMF_VARS.finish.fd" MEM="$MEM" SMP="$SMP" \
     "$PIPE/run-qemu.sh" &
 QEMU_PID=$!
 echo "qemu finish pid=$QEMU_PID"
@@ -79,9 +95,9 @@ fi
 wait "$QEMU_PID" || true
 echo "WinPE finish completed"
 
-step "8/11 first Windows boot and readiness check"
+step "8/10 first Windows boot and readiness check"
 NAME=install WITH_ISO=0 BOOTFAT="" OEMDRV="" \
-    NVRAM="$BUILD/AAVMF_VARS.install.fd" MEM="$MEM" SMP="$SMP" \
+    DISK="$DISK" NVRAM="$BUILD/AAVMF_VARS.install.fd" MEM="$MEM" SMP="$SMP" \
     "$PIPE/run-qemu.sh" &
 QEMU_PID=$!
 echo "qemu install pid=$QEMU_PID"
@@ -108,7 +124,7 @@ done
     exit 1
 }
 
-step "8b/11 graceful shutdown over QMP"
+step "8b/10 graceful shutdown over QMP"
 python3 "$HERE/qmp-powerdown.py" "$BUILD/install.qmp" --timeout 60
 if ! timeout 900 tail --pid="$QEMU_PID" -f /dev/null; then
     echo "guest did not power down; refusing to hard-reset" >&2
@@ -118,22 +134,24 @@ fi
 wait "$QEMU_PID" || true
 echo "guest powered down"
 
-step "9/11 patch ESP and inspect"
-"$PIPE/finish_qcow2.sh" "$DISK"
+step "9/10 patch ESP and inspect"
+"$PIPE/finish_disk.sh" "$DISK"
 "$PIPE/inspect_image.sh" "$DISK" | tee "$BUILD/logs/inspect.log"
 
-step "10/11 package"
-IMAGE="$DISK" "$HERE/package-image.sh"
-
-if [ "${SKIP_UPLOAD:-0}" = "1" ]; then
-    echo "upload skipped (SKIP_UPLOAD=1)"
-elif [ -n "${MEGA_USER:-}" ] && [ -n "${MEGA_PASS_OBSCURED:-}" ]; then
-    step "11/11 upload to MEGA"
-    "$HERE/upload-mega.sh" "$BUILD"/artifacts/*.zst "$BUILD"/artifacts/*.sha256
+step "10/10 package"
+if [ "$RAW" = 1 ]; then
+    echo "raw target: nothing to package"
+elif [ "${PACKAGE:-0}" = "1" ]; then
+    IMAGE="$DISK" "$HERE/package-image.sh"
 else
-    echo "upload skipped (MEGA_USER / MEGA_PASS_OBSCURED not set)"
+    echo "packaging skipped (set PACKAGE=1 to compress the qcow2)"
 fi
 
 echo
 echo "build complete: $DISK"
-ls -lh "$BUILD/artifacts"
+if [ "$RAW" = 1 ]; then
+    echo "Next: detach the volume, reattach it as the boot volume, start the"
+    echo "instance.  See docs/OCI.md."
+else
+    ls -lh "$DISK"
+fi

@@ -1,199 +1,215 @@
-# OCI Ampere A1 でビルドする
+# OCI Ampere A1 を Windows に置き換える
 
-GitHub ホストランナーではこのイメージは作れません（14 GB SSD、6 時間上限、
-`/dev/kvm` なし）。**OCI の Ampere A1 インスタンスを一時的なビルド機にする**のが
-一番現実的です。ここでは self-hosted runner を使わず、クローンして直接実行する
-手順を説明します。
+GitHub ホストランナーでは作れません（14 GB SSD / 6 時間 / KVM なし）。
+OCI の Ampere A1 をビルド機にして、**ブートボリュームの中身を Windows に
+置き換える**のがこのリポジトリの想定です。
 
-## runner と手動実行のどちらにするか
+配布物は作りません。qcow2 も圧縮ファイルも MEGA も使いません。
+ビルドが終われば、そのボリュームがそのまま Windows ディスクになります。
 
-**手動実行を推奨します。**
+## なぜ Object Storage / カスタムイメージを使わないか
 
-| | 手動クローン＋実行 | self-hosted runner |
-|---|---|---|
-| 準備 | clone して 1 コマンド | runner 登録 + Secrets + environment |
-| 認証情報 | GitHub トークンをクラウドに置かない | runner 登録トークンが必要 |
-| 失敗時 | その場でログとシェルが見られる | ログはジョブ画面越し |
-| 実行上限 | なし（自分のシェル） | 1 ジョブ 5 日 |
-| 再現性・来歴 | 手元のログ | GitHub に記録が残る |
-| 向いている用途 | 一度作ればよい | 定期的に作り直す |
+OCI のカスタムイメージ取り込みは Object Storage 経由です。
 
-迷ったら手動で始めてください。`scripts/oci-run.sh` も
-`.github/workflows/build-image.yml` も最終的に `scripts/build-image.sh` を
-呼ぶので、後から runner を足しても二重実装にはなりません。
+- Always Free の Object Storage は Standard 10 GB（IA/Archive を含めても 20〜30 GB）
+- qcow2 は 28 GB、圧縮しても 13 GB なので無料枠を超える
+- さらに Windows 11 は取り込みのサポート対象外（Server 2016〜2025 のみ）
+- Windows 用の公式手順は BIOS/MBR 前提で、こちらは UEFI/GPT
 
-## 1. インスタンスを用意する
+そこで「イメージを作って配る」のをやめ、**ブートボリュームを直接書き換える**
+方針にしました。
 
-| 項目 | 推奨値 |
-|---|---|
-| シェイプ | `VM.Standard.A1.Flex`（4 OCPU / 24 GB） |
-| イメージ | Ubuntu 24.04 (aarch64) |
-| ブートボリューム | **100 GB 以上**（50 GB では足りない） |
-| ネットワーク | パブリックサブネット + パブリック IP |
+## 方法 A: ボリュームを付け替える（推奨）
 
-Always Free のブロックボリュームは 200 GB までなので、100 GB のブートボリューム
-なら無料枠に収まります。50 GB のままだと `preflight.sh` が停止します。
+OCI は「停止したインスタンスからブートボリュームを切り離し、別の
+インスタンスにデータボリュームとして付ける」ことを公式に認めています。
+これを使うと、ライブ CD も grub 細工も RAM ディスクも不要です。
 
-## 2. セットアップ
+```text
+1. ターゲット A を作る（Ubuntu 26.04 minimal aarch64、ブート 100 GB）
+2. A を停止し、ブートボリュームを切り離す
+3. ビルダー B を作る（Ubuntu、ブート 50 GB、同じ AD）
+4. A のブートボリュームを B にデータボリュームとして接続する
+5. B でビルドする（書き込み先は /dev/sdb など）
+6. B を停止し、ボリュームを切り離して A のブートボリュームとして再接続
+7. A を起動すると Windows が立ち上がる
+```
+
+ボリュームは 100 + 50 = 150 GB で、Always Free の 200 GB に収まります。
+A は手順 7 まで一度も起動し直さないので、失敗しても A の Ubuntu は無傷です
+（ボリュームの中身は変わっていますが、付け替えれば調べられます）。
+
+### 手順
 
 ```bash
+# B にログイン
 sudo apt-get update && sudo apt-get install -y git
 git clone https://github.com/<OWNER>/win11-arm64-oci.git
 cd win11-arm64-oci
 sudo ./scripts/bootstrap-ubuntu.sh
-```
 
-`bootstrap-ubuntu.sh` は QEMU、wimlib、hivex、AAVMF ファームウェアなどを入れ、
-`/dev/kvm` と空き容量を確認します。
+# 書き込み先デバイスを確認（OCI のデータボリュームは /dev/sdb か
+# /dev/oracleoci/oraclevdb）
+lsblk -o NAME,SIZE,MODEL,SERIAL
 
-### KVM はあるか
-
-```bash
-ls -l /dev/kvm
-```
-
-- 存在して読み書きできる → `run-qemu.sh` が自動で `-accel kvm -cpu host` を使う
-- 無い → TCG。A1 がネスト仮想化を公開していない場合はこちら。ビルドに数時間
-
-`ACCEL=kvm` / `ACCEL=tcg` で明示的に上書きできます。
-
-## 3. ISO を置く
-
-```bash
-# 手元から送る
-scp Win11_ARM64_26H2.iso ubuntu@<ip>:/srv/iso/
-
-# または MEGA / OneDrive などから直接
-rclone copyto mega:win11/Win11_ARM64_26H2.iso /srv/iso/Win11_ARM64_26H2.iso
-```
-
-`--iso` にはローカルパス、`https://`、rclone のリモート
-（`mega:...` など）を渡せます。SHA256 を渡すと検証します。
-
-## 4. ビルドする
-
-```bash
-sudo ./scripts/oci-run.sh \
+sudo ./scripts/direct-run.sh \
+  --disk /dev/sdb \
   --iso /srv/iso/Win11_ARM64_26H2.iso \
-  --deliver ssh
+  --virtio /srv/iso/virtio-win.iso \
+  --yes
 ```
 
-`--deliver` で納品方法を選びます。
+`direct-run.sh` は次を確認してから `build-image.sh` を呼びます。
 
-| 値 | 動作 |
+- ブロックデバイスであること
+- マウントされていないこと
+- 実行中のルートデバイスでないこと
+- 40 GiB 以上あること
+
+`--yes` を付けないと、対象デバイスの model / serial / size を表示して止まります。
+
+### OCI CLI で付け替える
+
+```bash
+# 1. A を停止してブートボリュームを切り離す
+oci compute instance action --instance-id <A> --action STOP
+oci compute boot-volume-attachment detach \
+  --boot-volume-attachment-id <A のアタッチメント>
+
+# 2. B にデータボリュームとして接続
+oci compute volume-attachment attach \
+  --instance-id <B> --volume-id <A のブートボリューム> \
+  --type paravirtualized --device /dev/oracleoci/oraclevdb
+
+# 3. ビルド後、B から切り離して A にブートボリュームとして接続
+oci compute volume-attachment detach --volume-attachment-id <...>
+oci compute boot-volume-attachment attach \
+  --instance-id <A> --boot-volume-id <A のブートボリューム>
+
+oci compute instance action --instance-id <A> --action START
+```
+
+コンソールでも同じことができます。
+
+## 方法 B: ライブ CD を RAM に載せて sda を書き換える
+
+1 インスタンスで完結させたい場合の方法です。Ubuntu のライブ ISO を
+ブートボリュームの 1 パーティションに置き、grub の `loopback` で起動し、
+`toram` でメモリに展開してから `/dev/sda` を丸ごと上書きします。
+
+### 24 GB で足りるか
+
+足ります。ただし内訳を意識してください。
+
+| 用途 | 目安 |
 |---|---|
-| `ssh` | `build/artifacts/` に置き、`scp` コマンドを表示（既定） |
-| `mega` | `MEGA_USER` / `MEGA_PASS_OBSCURED` で MEGA へ |
-| `rclone` | `RCLONE_TARGET=remote:path` へ |
-| `image` | OCI のカスタムイメージとして登録（＋任意で起動） |
-| `none` | ビルドだけ |
+| ライブ ISO（`toram` で RAM に載る） | 2.5 GB（Server）/ 4 GB（Desktop） |
+| ライブ環境の書き込み層（apt で QEMU 等を入れる） | 2〜3 GB |
+| QEMU ゲスト（`MEM=8192`） | 8 GB |
+| QEMU 本体・ページキャッシュ | 残り |
 
-### 途中から再開する
+合計 13〜15 GB なので 24 GB に収まります。**Desktop ISO は使わず
+Server ISO にしてください。** また `MEM` を 16 GB にすると破綻します
+（8 GB のままで十分です）。
 
-```bash
-sudo ./scripts/oci-run.sh --skip-build --deliver image \
-  -- --compartment ocid1.compartment.oc1..xxxx \
-     --subnet ocid1.subnet.oc1..xxxx --launch
-```
+### 注意点
 
-`--` 以降は `scripts/oci-image.sh` にそのまま渡ります。
+- `toram` で起動しても、**書き換えた瞬間に grub エントリと ISO が消えます**。
+  失敗するとライブ環境に戻れず、ボリュームを別インスタンスに付けて
+  復旧するしかありません
+- OCI には CD-ROM デバイスが無いので、grub の `loopback` + `findiso=` で
+  起動する必要があります
+- ライブ環境の操作はシリアルコンソール越しになります。SSH を上げるまでが
+  面倒です
+- `toram` でも ISO のパーティションがマウントされたままの場合があります。
+  `direct-run.sh` はマウント中のデバイスを拒否するので、先に
+  `sudo umount /dev/sda1` などで外してください
 
-## 5. OCI カスタムイメージとして登録する
-
-```bash
-sudo ./scripts/oci-image.sh \
-  --image build/win11-arm64.qcow2 \
-  --compartment ocid1.compartment.oc1..xxxx \
-  --subnet ocid1.subnet.oc1..xxxx \
-  --launch
-```
-
-やること:
-
-1. qcow2 を Object Storage のバケットへアップロード（一時オブジェクト）
-2. `oci compute image import from-object` でインポート
-3. `AVAILABLE` まで待つ
-4. ファームウェアを `UEFI_64` に、シェイプ互換に `VM.Standard.A1.Flex` を追加
-5. `--launch` なら A1 インスタンスを起動し、パブリック IP を表示
-
-### 認証
-
-`OCI_AUTH` で選びます。
-
-- `auto`（既定）: `~/.oci/config` があれば API キー、無ければインスタンス・プリンシパル
-- `instance_principal`: ダイナミック・グループのポリシーで許可（ビルド機に向く）
-
-インスタンス・プリンシパルを使う場合、テナンシ側で次が必要です。
-
-```text
-# ダイナミック・グループ（例: コンパートメント単位）
-ALL {instance.compartment.id = 'ocid1.compartment.oc1..xxxx'}
-
-# ポリシー
-Allow dynamic-group win11-builders to manage compute-images in compartment <C>
-Allow dynamic-group win11-builders to manage object-family in compartment <C>
-Allow dynamic-group win11-builders to manage instances in compartment <C>
-Allow dynamic-group win11-builders to use subnets in compartment <C>
-Allow dynamic-group win11-builders to use vnics in compartment <C>
-Allow dynamic-group win11-builders to read availability-domains in tenancy
-```
-
-コンパートメント単位のダイナミック・グループは範囲が広いので、専用の
-コンパートメントか、インスタンス OCID を列挙する形にしてください。
-
-### 先に確認する
-
-`--dry-run` で実行されるコマンドだけ表示できます。
+起動後は方法 A の手順 5 と同じです。
 
 ```bash
-./scripts/oci-image.sh --image build/win11-arm64.qcow2 \
-  --compartment ocid1.compartment.oc1..xxxx --dry-run
+git clone https://github.com/<OWNER>/win11-arm64-oci.git
+cd win11-arm64-oci
+sudo ./scripts/bootstrap-ubuntu.sh
+sudo ./scripts/direct-run.sh --disk /dev/sda \
+  --iso /path/to/Win11_ARM64_26H2.iso \
+  --virtio /path/to/virtio-win.iso --yes
 ```
 
-## 重要: 未検証と制約
+このため、特別な理由がなければ方法 A を使ってください。
 
-OCI のカスタムイメージ取り込みは、公式には **Windows Server 2016〜2025 のみ**
-が対象です。Windows 11 は対象外で、動いても Oracle のサポートは受けられません。
+方法 B で完了した場合は、付け替えは不要です。ライブ環境から
+`sudo reboot` すると、`/dev/sda` の Windows が起動します。
 
-さらに公式ドキュメントには次の記述があります。
+## ビルドの流れ（共通）
 
-| 記述 | 影響 |
-|---|---|
-| 「BIOS ブート用に設定されていること」 | こちらは UEFI（ARM64 に BIOS は無い）。取り込み後のファームウェア変更で対応する想定 |
-| 「MBR とブートローダーが必要」 | こちらは GPT + ESP。取り込み時に弾かれる可能性がある |
-| 「最小ブートボリューム 256 GB」（Windows 取り込みページ） | 一般的なカスタムイメージの記述は 50 GB。実際の下限は要確認 |
-| ライセンスは自己責任 | Windows 11 のライセンスは各自で |
+`direct-run.sh` は `build-image.sh` に `DISK` を渡すだけです。
 
-つまり **`--deliver image` は「動けば儲けもの」** です。確実なのは
-`ssh` / `mega` / `rclone` で qcow2 を取り出し、手元の手順
-（[SETUP.md](SETUP.md) とリポジトリ外のランブック）で扱う方法です。
+1. `render.py` で autounattend / OEM スクリプトを生成
+2. virtio-win の ARM64 ドライバを展開
+3. OEMDRV ISO を作成
+4. `wimlib-imagex apply` で対象ディスクへ展開
+5. `boot.wim` の `Setup\CmdLine` を書き換えて WinPE を自動実行
+6. **phase A**: WinPE がドライバ追加と `bcdboot` を行い、`wpeutil shutdown`
+7. **phase B**: ディスクから Windows が初回起動し、OOBE と OEM スクリプト
+8. WinRM の応答を確認して QMP で正常シャットダウン
+9. ESP の `bootmgfw.efi` / `bootaa64.efi` に AnyPages パッチ
+10. 検査
 
-インポートが `IMPORTING` のまま失敗する場合、まず疑うのは:
+qcow2 を作りたいときは `DISK` を省略します（ローカル検証用）。
 
-1. qcow2 が 50 GB 仮想ディスクのまま（256 GB 下限説）
-2. UEFI/GPT が受け付けられない
-3. Object Storage の読み取り権限（同一テナンシなら通常問題なし）
+```bash
+ISO=/srv/iso/Win11_ARM64_26H2.iso VIRTIO_ISO=/srv/iso/virtio-win.iso \
+  scripts/build-image.sh
+```
+
+## 起動後
+
+- OCI のファームウェアは UEFI です。ESP の `\EFI\BOOT\BOOTAA64.EFI` から
+  起動します
+- ネットワークは DHCP で VNIC の IP を取ります
+- RDP 3389 / WinRM 5985 が開いています（NLA 無効・ファイアウォール無効）
+- **OCI エージェントは入っていない**ので、コンソールのパスワードリセットは
+  使えません。ビルド時のパスワードで入ってください
+- シリアルコンソールに Windows の出力は出ません。RDP で接続します
+
+### セキュリティ
+
+3389 を `0.0.0.0/0` に開けないでください。セキュリティリストか NSG で
+自分の IP か VPN に限定します。
+
+## バックアップと復旧
+
+`direct-run.sh` は対象デバイスを消します。実行前に**ブートボリュームの
+バックアップ**を取ってください。
+
+```bash
+oci bv boot-volume-backup create \
+  --boot-volume-id <vol> --display-name win11-pre-build
+```
+
+失敗したら、バックアップから復元するか、ボリュームを別インスタンスに
+データボリュームとして付けて中身を調べます。
 
 ## コスト
 
 | 項目 | 無料枠 | 超えた場合 |
 |---|---|---|
 | A1 4 OCPU / 24 GB | 常時無料 | — |
-| ブートボリューム 100 GB | 200 GB まで無料 | $0.0255/GB/月 |
-| Object Storage（一時） | 20〜30 GB | 取り込み後に削除すればほぼ 0 |
+| ブートボリューム 150 GB（A + B） | 200 GB まで無料 | $0.0255/GB/月 |
 | 下り転送 | 10 TB/月 | — |
 
-ビルドが終わったらインスタンスを終了してください。ブートボリュームを
-残すとその分だけ課金対象になります。
+ビルドが終わったら B は終了してください。B のブートボリュームを残すと
+その分だけ課金対象になります。
 
 ## トラブルシューティング
 
 | 症状 | 確認 |
 |---|---|
 | `preflight.sh` がディスク不足で止まる | ブートボリュームを 100 GB に |
-| `qemu-system-aarch64: not found` | `bootstrap-ubuntu.sh` を実行 |
+| `qemu-system-aarch64: not found` | `bootstrap-ubuntu.sh` |
 | AAVMF が無い | `qemu-efi-aarch64` パッケージ |
 | ビルドが異常に遅い | `/dev/kvm` の有無。無ければ TCG |
-| `oci: not found` | OCI CLI を導入（`--deliver image` のみ） |
-| インポートが失敗 | 上記「重要: 未検証と制約」 |
-| 起動したが RDP が繋がらない | セキュリティリスト/NSG で 3389 を自分の IP に許可 |
+| `direct-run.sh` が「ルートデバイス」で止まる | 方法 A に切り替える |
+| 起動しない | ESP に `BOOTAA64.EFI` があるか、AnyPages パッチが当たっているか |
+| RDP が繋がらない | セキュリティリスト/NSG で 3389 を許可 |

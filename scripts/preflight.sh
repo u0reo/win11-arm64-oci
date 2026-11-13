@@ -18,7 +18,6 @@ for t in qemu-system-aarch64 qemu-img qemu-nbd wimlib-imagex xorriso sgdisk \
     if command -v "$t" >/dev/null 2>&1; then ok "$t"; else bad "$t not found"; fi
 done
 command -v age >/dev/null 2>&1 && ok "age" || warn "age not found (optional)"
-command -v oathtool >/dev/null 2>&1 && ok "oathtool" || warn "oathtool not found (only needed for MEGA 2FA)"
 command -v shellcheck >/dev/null 2>&1 && ok "shellcheck" || warn "shellcheck not found (CI only)"
 
 echo "== python modules =="
@@ -37,9 +36,9 @@ if sudo -n true 2>/dev/null; then ok "sudo -n"; else bad "passwordless sudo is r
 
 echo "== virtualisation =="
 if [ -e /dev/kvm ]; then
-    ok "/dev/kvm present (x86 guests only; ARM64 still uses TCG on x86)"
+    ok "/dev/kvm present (QEMU uses KVM acceleration)"
 else
-    warn "/dev/kvm absent: ARM64 guest will run under TCG (slow)"
+    warn "/dev/kvm absent: guest runs under TCG (slow)"
 fi
 echo "  arch=$(uname -m) cpus=$(nproc)"
 

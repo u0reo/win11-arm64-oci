@@ -11,18 +11,18 @@ RDP / WinRM で操作できる状態まで自動構築するためのスクリ�
 
 ## 何をするか
 
-1. Windows 11 ARM64 ISO の `install.wim` をホスト側で qcow2 に適用（`wimlib-imagex`）
+1. Windows 11 ARM64 ISO の `install.wim` をホスト側でディスクに適用（`wimlib-imagex`）
 2. WinPE を自動起動し、virtio ドライバ追加と `bcdboot` を実行
 3. 初回起動で OOBE・OEM スクリプトを無人実行
 4. RDP / WinRM を有効化し、準備完了を確認
 5. ESP の `bootmgfw.efi` に OCI A1 向け AnyPages パッチを適用
-6. 検査 → 圧縮 → MEGA へアップロード
+6. 検査（qcow2 にしたい場合のみ任意で圧縮）
 
 ## 必要なもの
 
 | 項目 | 要件 |
 |---|---|
-| ホスト | Linux x86_64 または ARM64。**空き 100GB 以上** |
+| ホスト | Linux x86_64 または ARM64。直接書き込みなら空き 20GB、qcow2 を作るなら 100GB 以上 |
 | CPU/RAM | 4 コア / 16GB 以上を推奨（TCG は遅い） |
 | KVM | x86 ホストで ARM64 ゲストを動かす場合、KVM は使えない（TCG） |
 | Windows ISO | Windows 11 ARM64 26H2（各自で用意） |
@@ -42,7 +42,7 @@ sudo apt-get install -y \
   qemu-system-arm qemu-utils qemu-efi-aarch64 wimtools \
   libhivex-bin python3-hivex python3-pefile \
   mtools dosfstools ntfs-3g xorriso gdisk zstd \
-  curl rclone oathtool age jq
+  curl rclone age jq
 ```
 
 ## OCI A1 でビルド（推奨）
@@ -51,20 +51,25 @@ GitHub ホストランナーでは作れません（14 GB SSD / 6 時間 / KVM �
 Ampere A1 の Ubuntu を一時的なビルド機にします。
 
 ```bash
-# 1. A1 インスタンス（Ubuntu 24.04 aarch64、ブートボリューム 100 GB）
-# 2. ログインして
+# 1. ターゲット A（Ubuntu 26.04 minimal aarch64、ブート 100 GB）を作って停止
+# 2. A のブートボリュームを切り離し、ビルダー B にデータボリュームとして接続
+# 3. B にログインして
 git clone https://github.com/<OWNER>/win11-arm64-oci.git
 cd win11-arm64-oci
 sudo ./scripts/bootstrap-ubuntu.sh
 
-# 3. ISO を置いてビルド
-sudo ./scripts/oci-run.sh --iso /srv/iso/Win11_ARM64_26H2.iso --deliver ssh
+# 4. A のボリューム（例: /dev/sdb）へ直接書き込む
+sudo ./scripts/direct-run.sh \
+  --disk /dev/sdb \
+  --iso /srv/iso/Win11_ARM64_26H2.iso \
+  --virtio /srv/iso/virtio-win.iso --yes
+
+# 5. ボリュームを A のブートボリュームとして戻して起動
 ```
 
-`--deliver` は `ssh` / `mega` / `rclone` / `image` / `none` から選べます。
-`image` は OCI のカスタムイメージとして登録し、そのまま A1 インスタンスを
-起動します（Windows 11 は OCI のサポート対象外なので注意）。
-詳細は [docs/OCI.md](docs/OCI.md)。
+qcow2 も圧縮ファイルも作りません。ビルドが終わればそのボリュームが
+Windows ディスクになります。付け替え手順と、1 インスタンスで完結させる
+ライブ CD 方式（`toram`）は [docs/OCI.md](docs/OCI.md)。
 
 ## ローカルでビルド
 
@@ -78,9 +83,11 @@ scripts/build-image.sh
 
 ```text
 build/win11-arm64.qcow2
-build/artifacts/win11-arm64.qcow2.zst
-build/artifacts/win11-arm64.qcow2.zst.sha256
 ```
+
+`PACKAGE=1` を付けたときだけ `build/artifacts/` に zstd 圧縮版と SHA256 を
+作ります。ブロックデバイスへ直接書く場合（`DISK=/dev/sdb`）は何も
+パッケージしません。
 
 ## 既定の資格情報
 
@@ -110,9 +117,9 @@ WIN_USERNAME=alice WIN_PASSWORD='strong-pass' COMPUTER_NAME=MY-WIN \
 | ワークフロー | ランナー | 用途 |
 |---|---|---|
 | `ci.yml` | `ubuntu-latest` | shellcheck / XML / render / 秘密情報チェック |
-| `build-image.yml` | **self-hosted** | イメージ生成と MEGA アップロード |
+| `build-image.yml` | **self-hosted** | イメージ生成（qcow2 またはブロックデバイス） |
 
-一発ビルドなら runner を登録せず、A1 上で `scripts/oci-run.sh` を直接
+一発ビルドなら runner を登録せず、A1 上で `scripts/direct-run.sh` を直接
 実行する方が簡単です（[docs/OCI.md](docs/OCI.md)）。
 
 `build-image.yml` は **GitHub ホストランナーでは動きません**。
@@ -130,15 +137,15 @@ WIN_USERNAME=alice WIN_PASSWORD='strong-pass' COMPUTER_NAME=MY-WIN \
 autounattend/   無人インストール XML テンプレート
 oem/            初回起動時の PowerShell / CMD
 pipeline/       wimlib apply, WinPE, QEMU, 検査
-scripts/        render, build, package, upload, preflight
+scripts/        render, build, direct-run, preflight
 config/         既定値
-docs/           SETUP / BUILD / WORKLOG
+docs/           OCI / SETUP / BUILD / WORKLOG
 ```
 
 ## ドキュメント
 
-- [docs/OCI.md](docs/OCI.md) — OCI A1 をビルド機にする手順と納品方法
-- [docs/SETUP.md](docs/SETUP.md) — Secrets、runner、MEGA の準備
+- [docs/OCI.md](docs/OCI.md) — OCI A1 のブートボリュームを Windows にする手順
+- [docs/SETUP.md](docs/SETUP.md) — Secrets、runner の準備
 - [docs/BUILD.md](docs/BUILD.md) — パイプラインの各段階と手動フォールバック
 - [docs/WORKLOG.md](docs/WORKLOG.md) — 26H2 構築までの作業ログ（サニタイズ済み）
 

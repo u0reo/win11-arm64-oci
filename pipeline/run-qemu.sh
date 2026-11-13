@@ -4,7 +4,8 @@
 #   ISO=/path/to/Win11_ARM64.iso ./run-qemu.sh      # first boot from ISO
 #   BOOT=disk ./run-qemu.sh                         # later boot from disk
 #
-# The target is a qcow2 file; /dev/sdb is never touched by this script.
+# The target is a qcow2 file by default.  DISK=/dev/sdX uses a raw block
+# device; the caller is responsible for what that device contains.
 # QEMU options are single array elements that contain commas.
 # shellcheck disable=SC2054,SC2206
 set -euo pipefail
@@ -50,7 +51,13 @@ if [ -n "$BOOTFAT" ]; then
     [ -f "$BOOTFAT" ] || { echo "missing BOOTFAT image: $BOOTFAT" >&2; exit 1; }
 fi
 
-if [ ! -f "$DISK" ]; then
+DISK_FORMAT=qcow2
+DISK_CACHE=""
+if [ -b "$DISK" ]; then
+    DISK_FORMAT=raw
+    DISK_CACHE=",cache=none"
+    [ -w "$DISK" ] || { echo "no write access to $DISK (run as root)" >&2; exit 1; }
+elif [ ! -e "$DISK" ]; then
     echo "[disk] creating $DISK (50G qcow2)"
     qemu-img create -f qcow2 "$DISK" 50G >/dev/null
 fi
@@ -92,7 +99,7 @@ QEMU=(qemu-system-aarch64
     -device qemu-xhci,id=xhci
     -device usb-kbd
     -device usb-tablet
-    -drive if=none,id=disk0,format=qcow2,file="$DISK"
+    -drive "if=none,id=disk0,format=$DISK_FORMAT,file=$DISK$DISK_CACHE"
     -device virtio-scsi-pci,id=scsi0
     -device scsi-hd,drive=disk0,bus=scsi0.0,channel=0,scsi-id=0,lun=0,bootindex=1
     -device virtio-net-pci,netdev=n0

@@ -6,7 +6,6 @@ name: build-image
 #   - no /dev/kvm (ARM64 guest runs under TCG on x86)
 #   - ~14 GB free disk (the qcow2 alone is ~28 GB)
 #   - 6 hour job limit
-#   - ISO licensing and artifact size limits
 #
 # Never add a `pull_request` trigger to this workflow: fork PRs would run
 # arbitrary code on the self-hosted machine.
@@ -31,14 +30,13 @@ on:
         required: false
         default: ""
       size:
-        description: "qcow2 virtual size"
+        description: "qcow2 virtual size (ignored when disk is set)"
         required: true
         default: "50G"
-      upload:
-        description: "Upload the compressed image to MEGA"
-        type: boolean
-        required: true
-        default: true
+      disk:
+        description: "Optional block device to write directly (wiped)"
+        required: false
+        default: ""
 
   push:
     tags:
@@ -69,33 +67,13 @@ jobs:
       IMAGE_INDEX: ${{ inputs.image_index || '1' }}
       VIRTIO_ISO: ${{ inputs.virtio_iso || vars.VIRTIO_ISO }}
       SIZE: ${{ inputs.size || '50G' }}
-
-      MEGA_USER: ${{ secrets.MEGA_USER }}
-      MEGA_PASS_OBSCURED: ${{ secrets.MEGA_PASS_OBSCURED }}
-      MEGA_2FA_SECRET: ${{ secrets.MEGA_2FA_SECRET }}
-      MEGA_REMOTE_PATH: ${{ vars.MEGA_REMOTE_PATH || 'win11-arm64' }}
-      AGE_RECIPIENT: ${{ secrets.AGE_RECIPIENT }}
-      # `inputs.upload` is a boolean on workflow_dispatch and empty on tag
-      # pushes.  It is resolved to SKIP_UPLOAD by the first step instead of
-      # relying on loose equality in an expression.
-      UPLOAD_INPUT: ${{ inputs.upload }}
+      DISK: ${{ inputs.disk }}
 
     steps:
       - uses: actions/checkout@v4
 
-      - name: Resolve upload flag
-        run: |
-          if [ "${GITHUB_EVENT_NAME}" = "workflow_dispatch" ] && [ "${UPLOAD_INPUT}" != "true" ]; then
-            echo "SKIP_UPLOAD=1" >> "$GITHUB_ENV"
-          else
-            echo "SKIP_UPLOAD=0" >> "$GITHUB_ENV"
-          fi
-
       - name: Mask credentials
-        run: |
-          echo "::add-mask::$WIN_PASSWORD"
-          echo "::add-mask::$MEGA_PASS_OBSCURED"
-          echo "::add-mask::$MEGA_2FA_SECRET"
+        run: echo "::add-mask::$WIN_PASSWORD"
 
       - name: Show resolved settings
         run: |
@@ -104,7 +82,7 @@ jobs:
           echo "image_index=$IMAGE_INDEX"
           echo "computer_name=$COMPUTER_NAME"
           echo "user=$WIN_USERNAME"
-          echo "upload=$([ "$SKIP_UPLOAD" = 1 ] && echo no || echo yes)"
+          echo "disk=${DISK:-<qcow2>}"
 
       - name: Verify ISO checksum
         if: env.ISO_SHA256 != ''
@@ -128,5 +106,5 @@ jobs:
             echo "- iso: $ISO"
             echo "- image index: $IMAGE_INDEX"
             echo "- computer name: $COMPUTER_NAME"
-            echo "- upload: $([ "$SKIP_UPLOAD" = 1 ] && echo no || echo yes)"
+            echo "- target: ${DISK:-build/win11-arm64.qcow2}"
           } >> "$GITHUB_STEP_SUMMARY"

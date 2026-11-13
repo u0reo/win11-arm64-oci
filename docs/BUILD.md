@@ -10,15 +10,17 @@
 | 1 | 設定の解決と XML 生成 | `scripts/render.py` |
 | 2 | virtio-win ARM64 ドライバ展開 | `scripts/stage-drivers.sh` |
 | 3 | OEMDRV ISO 作成 | `pipeline/make_oemdrv.sh` |
-| 4 | qcow2 作成 + `install.wim` 適用 | `pipeline/host_apply.sh` |
+| 4 | ディスク作成 + `install.wim` 適用 | `pipeline/host_apply.sh` |
 | 5 | `boot.wim` に自動実行コマンドを埋込 | `pipeline/make_manual_bootwim.sh` |
 | 6 | 起動用 FAT イメージ作成 | `pipeline/make_bootfat.sh` |
 | 7 | WinPE でドライバ + `bcdboot`（自動） | QEMU phase A |
 | 8 | Windows 初回起動 + 準備完了待ち | QEMU phase B |
 | 9 | ACPI シャットダウン | `scripts/qmp-powerdown.py` |
-| 10 | ESP パッチ + 検査 | `finish_qcow2.sh` / `inspect_image.sh` |
-| 11 | 圧縮 + 任意の暗号化 | `scripts/package-image.sh` |
-| 12 | MEGA へアップロード | `scripts/upload-mega.sh` |
+| 10 | ESP パッチ + 検査 | `pipeline/finish_disk.sh` / `pipeline/inspect_image.sh` |
+
+`DISK` を省略すると `build/win11-arm64.qcow2` に書き、`PACKAGE=1` のときだけ
+`scripts/package-image.sh` で圧縮します。`DISK=/dev/sdX` を渡すとブロック
+デバイスへ直接書き込み、圧縮は行いません。
 
 ## 「WinPE の仕上げ」とは
 
@@ -69,7 +71,7 @@ TCP connect だけでは判定できません。HTTP 応答コードを見ます
 SOFTWARE ハイブを壊したためです。
 
 シャットダウンが完了しない場合は、スクリプトはエラーで止まります。
-手動で落としてから、パッケージ以降を再実行してください。
+手動で落としてから、以降の段階を再実行してください。
 
 ## 手動フォールバック
 
@@ -101,6 +103,11 @@ NAME=install WITH_ISO=0 BOOTFAT="" OEMDRV="" \
 VNC は `127.0.0.1:1` で見られます（`VNC_DISPLAY`）。
 シリアルログは `build/logs/*-serial.log` です。
 
+ブロックデバイスへ書く場合は、上の `host_apply.sh` / `run-qemu.sh` の
+qcow2 パスを `/dev/sdb` に置き換え、最後に
+`pipeline/finish_disk.sh /dev/sdb` と `pipeline/inspect_image.sh /dev/sdb`
+を実行します。`DISK=/dev/sdb` を各スクリプトに渡しても同じです。
+
 ## トラブルシューティング
 
 | 症状 | 確認 |
@@ -118,5 +125,3 @@ VNC は `127.0.0.1:1` で見られます（`VNC_DISPLAY`）。
   ビルドには数時間かかることがあります。
 - `inspect_image.sh` の一部チェックは `python3-hivex` /
   `python3-pefile` が必要です。無い場合は警告してスキップします。
-- MEGA は短時間の連続ログインで一時ブロックされます。
-  アップロードは 1 ジョブ 1 回にしています。

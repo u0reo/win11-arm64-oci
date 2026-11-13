@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Prepare an Ubuntu 22.04/24.04 ARM64 host (for example an OCI Ampere A1
+# Prepare an Ubuntu 24.04/26.04 ARM64 host (for example an OCI Ampere A1
 # instance) for building the Windows 11 ARM64 image.
 #
 #   ./scripts/bootstrap-ubuntu.sh
@@ -7,7 +7,7 @@
 # It is idempotent: running it twice only re-checks the packages.
 set -euo pipefail
 
-MIN_FREE_GB=${MIN_FREE_GB:-100}
+MIN_FREE_GB=${MIN_FREE_GB:-20}
 HERE=$(cd "$(dirname "$0")" && pwd)
 ROOT=$(cd "$HERE/.." && pwd)
 
@@ -34,7 +34,7 @@ PKGS=(
     qemu-system-arm qemu-utils qemu-efi-aarch64
     wimtools libhivex-bin python3-hivex python3-pefile
     mtools dosfstools ntfs-3g xorriso gdisk zstd
-    curl rclone oathtool age jq
+    curl rclone age jq
     libxml2-utils shellcheck
 )
 $SUDO apt-get update -qq
@@ -60,7 +60,8 @@ FREE_GB=$(df -Pk "$ROOT/build" | awk 'NR==2 {printf "%d", $4/1024/1024}')
 echo "  $ROOT/build: ${FREE_GB} GiB free (need >= ${MIN_FREE_GB} GiB)"
 if [ "$FREE_GB" -lt "$MIN_FREE_GB" ]; then
     echo "  ERROR: enlarge the boot volume or attach a block volume." >&2
-    echo "  OCI: 100 GB boot volume is enough; Always Free allows 200 GB total." >&2
+    echo "  Direct mode only needs ~20 GiB for temporary files." >&2
+    echo "  The qcow2 mode needs ~80 GiB; set MIN_FREE_GB=80 to check that." >&2
     exit 1
 fi
 
@@ -71,15 +72,8 @@ for f in "$FW_CODE" "$FW_VARS"; do
     [ -f "$f" ] && echo "  ok $f" || { echo "  MISSING $f" >&2; exit 1; }
 done
 
-echo "== oci cli =="
-if command -v oci >/dev/null 2>&1; then
-    echo "  $(oci --version 2>/dev/null || echo 'oci present')"
-else
-    echo "  not installed (only needed for --deliver image)"
-    echo "  install: https://docs.oracle.com/iaas/Content/API/SDKDocs/cliinstall.htm"
-fi
-
 echo
 echo "bootstrap: OK"
 echo "next: put the Windows ISO on the host, then"
-echo "  sudo ./scripts/oci-run.sh --iso /path/to/Win11_ARM64_26H2.iso --deliver ssh"
+echo "  sudo ./scripts/direct-run.sh --disk /dev/sdb \\"
+echo "    --iso /path/to/Win11_ARM64_26H2.iso --virtio /path/to/virtio-win.iso --yes"
