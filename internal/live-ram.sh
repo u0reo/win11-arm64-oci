@@ -86,19 +86,35 @@ if [ "$REUSE_UBUNTU" = 1 ]; then
     echo "live-ram: --reuse-ubuntu keeps p2, so the ISO is used in place"
 fi
 
-# --- is the live system really in RAM? -----------------------------------
-if [ "$REUSE_UBUNTU" != 1 ] && on_target "$ISO"; then
-    RAM_LOOP=$(losetup -a | sed -n 's|.*(\(.*\)).*|\1|p' |
-        grep -E "^($RAMDIR|/run|/tmp|/cow)/" || true)
-    if [ -z "$RAM_LOOP" ]; then
-        cat >&2 <<EOF
-live-ram: the ISO sits on $DISK, but the live system is not running from RAM.
-  Wiping $DISK would kill this environment in the middle of the build.
-  Boot the live ISO with 'toram' (see docs/OCI.md) and try again.
+# --- does this environment depend on the disk we are about to wipe? ------
+ram_loop() {
+    losetup -a 2>/dev/null | sed -n 's|.*(\(.*\)).*|\1|p' |
+        grep -E "^($RAMDIR|/run|/tmp|/cow)/" || true
+}
+
+if [ "$REUSE_UBUNTU" != 1 ]; then
+    LIVE_ON_DISK=0
+    on_target / && LIVE_ON_DISK=1
+    for _d in /run/live/medium /cdrom; do
+        [ -d "$_d" ] && on_target "$_d" && LIVE_ON_DISK=1
+    done
+    on_target "$ISO" && LIVE_ON_DISK=1
+    [ -n "$VIRTIO" ] && [ -f "$VIRTIO" ] && on_target "$VIRTIO" && LIVE_ON_DISK=1
+
+    if [ "$LIVE_ON_DISK" = 1 ]; then
+        RAM_LOOP=$(ram_loop)
+        if [ -z "$RAM_LOOP" ]; then
+            cat >&2 <<EOF
+live-ram: this environment still depends on $DISK.
+  Either an installed Ubuntu is running from it, or a live ISO on it was
+  booted without 'toram'.  Wiping $DISK would kill the build halfway.
+  Use --reuse-ubuntu to keep an installed Ubuntu, or boot the live ISO
+  with 'toram' (scripts/prepare.sh --toram) and try again.
 EOF
-        exit 1
+            exit 1
+        fi
+        echo "live-ram: toram confirmed ($RAM_LOOP)"
     fi
-    echo "live-ram: toram confirmed ($RAM_LOOP)"
 fi
 
 # --- RAM budget ----------------------------------------------------------

@@ -26,7 +26,7 @@ RDP / WinRM で操作できる状態まで自動構築するためのスクリ�
 |---|---|---|
 | ホストの準備と検査 | `sudo ./scripts/setup.sh` | 最初に 1 回（冪等） |
 | ディスクを作る | `sudo ./scripts/build.sh --disk /dev/sdb --iso ... --yes` | ビルドするとき |
-| 方法 B の GRUB エントリ | `./scripts/build.sh --grub-entry /srv/iso/ubuntu-live.iso` | `--to-ram` を使う前だけ |
+| ISO を GRUB に登録 | `sudo ./scripts/prepare.sh --toram <iso> --write` | 方法 B か、minimal を先に入れるとき |
 
 ```text
 setup.sh ──> build.sh ──> 完成したディスク
@@ -36,11 +36,23 @@ setup.sh ──> build.sh ──> 完成したディスク
                 ├─ --keep-ubuntu         Ubuntu 復旧環境を同居させる
                 ├─ --reuse-ubuntu        先に入れた Ubuntu を残して同居
                 ├─ --fetch-iso            ISO をダウンロード
-                └─ --grub-entry           方法 B の GRUB エントリを出力
+                └─ --prepare              GRUB エントリを出力/登録
 ```
 
 `build.sh` は `--disk`（ブロックデバイス）か `--image`（qcow2）のどちらかを
 必ず取ります。`--yes` を付けるまで実際には書き込みません。
+
+OCI の Ubuntu から始める場合、`prepare.sh` が ISO を GRUB に登録します。
+
+```bash
+# 方法 B（RAM に載せてから書き換える）
+sudo ./scripts/prepare.sh --toram /srv/iso/ubuntu-live-server-arm64.iso --write
+
+# 先に Ubuntu minimal を入れて、あとから Windows を足す
+sudo ./scripts/prepare.sh --installer /srv/iso/ubuntu-live-server-arm64.iso --write
+```
+
+再起動して GRUB のエントリを選び、表示される次のコマンドを実行します。
 
 ## 必要なもの
 
@@ -181,7 +193,7 @@ WIN_USERNAME=alice WIN_PASSWORD='strong-pass' COMPUTER_NAME=MY-WIN \
 ```text
 autounattend/   無人インストール XML テンプレート
 oem/            初回起動時の PowerShell / CMD
-scripts/        入口 3 つ: setup.sh / build.sh / live-grub.sh
+scripts/        入口 3 つ: setup.sh / build.sh / prepare.sh
 internal/       内部部品: build-image, live-ram, render, preflight ...
 pipeline/       ディスク構築の部品: wimlib apply, WinPE, QEMU, 検査
 config/         既定値

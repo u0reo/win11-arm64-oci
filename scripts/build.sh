@@ -23,7 +23,8 @@
 #
 # Two helpers do not build anything:
 #   --fetch-iso SRC DEST [SHA256]   download an ISO (URL, rclone or local file)
-#   --grub-entry ISO                print a toram GRUB entry for method B
+#   --prepare MODE ISO              stage a toram/installer GRUB entry
+#                                   (MODE is --toram or --installer)
 #
 # Nothing is packaged and nothing is uploaded: the target itself becomes the
 # Windows disk.  On OCI, detach the volume and reattach it as the boot volume
@@ -49,9 +50,9 @@ case "${1:-}" in
         shift
         exec "$HERE/../internal/fetch-iso.sh" "$@"
         ;;
-    --grub-entry)
+    --prepare)
         shift
-        exec "$HERE/live-grub.sh" "$@"
+        exec "$HERE/prepare.sh" "$@"
         ;;
 esac
 

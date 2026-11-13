@@ -187,10 +187,12 @@ oci compute instance action --instance-id <A> --action START
 1. ライブ ISO をブートボリュームの見える場所に置き、GRUB エントリを作る
 
    ```bash
-   sudo ./scripts/live-grub.sh /srv/iso/ubuntu-26.04-live-server-arm64.iso \
-     | sudo tee -a /etc/grub.d/40_custom
-   sudo update-grub
+   sudo ./scripts/prepare.sh --toram \
+     /srv/iso/ubuntu-26.04-live-server-arm64.iso --write
    ```
+
+   `--write` は `/etc/grub.d/40_custom` に追記して `update-grub` まで
+   実行します（何度実行してもエントリは 1 つに保たれます）。
 
 2. 再起動し、GRUB で `Ubuntu live (toram)` を選ぶ
 
@@ -212,8 +214,10 @@ oci compute instance action --instance-id <A> --action START
 
 `--to-ram` は `internal/live-ram.sh` に引き継がれ、次を行います。
 
-1. `toram` で起動しているか確認（していなければ中止。`/dev/sda` を消すと
-   ライブ環境ごと消えるため）
+1. 実行中の環境が `/dev/sda` に依存していないか確認（していなければ中止。
+   ルート、ライブメディア（`/run/live/medium` か `/cdrom`）、ISO の
+   いずれかが `/dev/sda` 上にあり、かつ `losetup -a` に RAM 上の
+   loop が無ければ中止します）
 2. `MemAvailable` と `/dev/shm` の空きを確認し、足りなければ中止
 3. Windows ISO と virtio-win.iso を `/dev/shm` にコピー
 4. `/dev/sda` のマウントをすべて解除し、`scripts/build.sh` に引き継ぐ
@@ -246,7 +250,7 @@ Windows 11 のインストールは通ります。
   復旧するしかありません
 - OCI には CD-ROM デバイスが無いので、grub の `loopback` +
   `iso-scan/filename=` で起動する必要があります
-  （`scripts/live-grub.sh` がエントリを出力します）
+  （`scripts/prepare.sh --toram` がエントリを作ります）
 - ライブ環境の操作はシリアルコンソール越しになります。SSH を上げるまでが
   面倒です
 - `toram` でも ISO のパーティションがマウントされたままの場合があります。

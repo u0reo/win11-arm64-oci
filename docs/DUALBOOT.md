@@ -23,6 +23,55 @@ p3  Windows (NTFS, 残り)      wimlib-imagex で適用
 に置きます。**`/etc/shadow` と SSH 秘密鍵を含むので git に入れないでください**
 （`build/` は .gitignore 済み）。ビルドが終わったら削除してください。
 
+## OCI の Ubuntu から始める
+
+いま起動しているのが OCI の標準 Ubuntu（`/dev/sda2` が 46 GiB の root）
+の場合、**その p2 を縮小することはできません**（マウント中の ext4 は
+縮小できないため）。次のどちらかに進みます。
+
+### A. 4 GiB の Ubuntu を先に入れる
+
+Ubuntu Server のインストーラを GRUB に登録して再起動します。
+
+```bash
+sudo ./scripts/prepare.sh --installer \
+  /srv/iso/ubuntu-24.04-live-server-arm64.iso --write
+sudo reboot
+```
+
+GRUB で `Ubuntu Server installer (toram)` を選び、パーティションを
+
+```text
+p1  ESP     既存のまま（100 MiB〜1 GiB）
+p2  /       4 GiB, ext4
+残り        未割り当て（Windows 用に空ける）
+```
+
+にしてインストールします。swap は作りません（Windows の場所が減るため）。
+インストール後に新しい Ubuntu へ再起動し、SSH で入って
+`--reuse-ubuntu` を実行します（下の節）。
+
+`toram` を付けているのは、インストーラが**自分が起動したディスク**を
+再分区するためです。RAM に載っていないと p2 を消せません。
+
+### B. RAM に載せて一気に作る
+
+`--keep-ubuntu` を使う方法です。p2 を作り直して minimal を debootstrap
+するので、4 GiB の Ubuntu と Windows が 1 回のビルドでできます。
+
+```bash
+sudo ./scripts/prepare.sh --toram \
+  /srv/iso/ubuntu-24.04-live-server-arm64.iso --write
+sudo reboot
+# GRUB で "Ubuntu live (toram)" を選び、live 環境で
+sudo ./scripts/build.sh --to-ram --keep-ubuntu --disk /dev/sda \
+  --iso /dev/shm/Win11.iso --virtio /dev/shm/virtio-win.iso \
+  --mem 6144 --yes
+```
+
+`--to-ram` は ISO を RAM にコピーしてから書き込みます。ISO がすでに
+`/dev/shm` にあればコピーは起きません。
+
 ## 使い方
 
 ```bash
