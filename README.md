@@ -34,9 +34,7 @@ setup.sh ──> build.sh ──> 完成したディスク
                 ├─ --image FILE.qcow2    qcow2 を作る（ローカル検証）
                 ├─ --to-ram              ISO を RAM に載せてから書き込む
                 ├─ --keep-ubuntu         Ubuntu 復旧環境を同居させる
-                ├─ --reuse-ubuntu        先に入れた Ubuntu を残して同居
-                ├─ --fetch-iso            ISO をダウンロード
-                └─ --prepare              GRUB エントリを出力/登録
+                └─ --reuse-ubuntu        先に入れた Ubuntu を残して同居
 ```
 
 `build.sh` は `--disk`（ブロックデバイス）か `--image`（qcow2）のどちらかを
@@ -53,6 +51,30 @@ sudo ./scripts/prepare.sh --installer /srv/iso/ubuntu-live-server-arm64.iso --wr
 ```
 
 再起動して GRUB のエントリを選び、表示される次のコマンドを実行します。
+
+## ISO の入手
+
+Ubuntu（方法 B と minimal 用）と virtio-win は次のコマンドで取得できます。
+Windows 11 ARM64 の ISO は Microsoft から各自で用意してください。
+
+```bash
+sudo mkdir -p /srv/iso
+cd /srv/iso
+
+# Ubuntu Server（live も installer もこの 1 枚。arm64 を選ぶ）
+VER=24.04.3   # releases.ubuntu.com/24.04/ で最新を確認
+curl -LO "https://releases.ubuntu.com/24.04/ubuntu-${VER}-live-server-arm64.iso"
+
+# virtio-win（ARM64 ドライバ入り）
+curl -LO https://fedorapeople.org/groups/virt/virtio-win/direct-downloads/stable-virtio/virtio-win.iso
+```
+
+チェックサムの確認:
+
+```bash
+curl -sLO https://releases.ubuntu.com/24.04/SHA256SUMS
+grep live-server-arm64 SHA256SUMS | sha256sum -c -
+```
 
 ## 必要なもの
 

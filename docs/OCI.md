@@ -185,6 +185,7 @@ oci compute instance action --instance-id <A> --action START
 `internal/live-ram.sh` にまとめてあります。
 
 1. ライブ ISO をブートボリュームの見える場所に置き、GRUB エントリを作る
+   （ISO の入手は [README の「ISO の入手」](../README.md#iso-の入手)）
 
    ```bash
    sudo ./scripts/prepare.sh --toram \

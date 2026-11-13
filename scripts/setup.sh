@@ -89,9 +89,7 @@ next: put the Windows ISO on the host, then
   sudo ./scripts/build.sh --disk /dev/sdb \\
     --iso /path/to/Win11_ARM64_26H2.iso --virtio /path/to/virtio-win.iso --yes
 
-Need the ISO downloaded first?
-
-  ./scripts/build.sh --fetch-iso https://host/Win11.iso build/iso/Win11.iso
+Need the Ubuntu or virtio-win ISO?  See "ISO の入手" in README.md.
 
 Building method B (live ISO in RAM)?  See docs/OCI.md.
 EOF

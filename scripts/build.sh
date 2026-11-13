@@ -21,11 +21,6 @@
 # Add --to-ram to copy the ISOs into RAM first (needed when the ISO lives on
 # the disk that is about to be wiped).  It hands over to internal/live-ram.sh.
 #
-# Two helpers do not build anything:
-#   --fetch-iso SRC DEST [SHA256]   download an ISO (URL, rclone or local file)
-#   --prepare MODE ISO              stage a toram/installer GRUB entry
-#                                   (MODE is --toram or --installer)
-#
 # Nothing is packaged and nothing is uploaded: the target itself becomes the
 # Windows disk.  On OCI, detach the volume and reattach it as the boot volume
 # of the target instance afterwards.
@@ -44,18 +39,6 @@ for _a in "$@"; do
     fi
 done
 
-# --- helpers that do not build anything ----------------------------------
-case "${1:-}" in
-    --fetch-iso)
-        shift
-        exec "$HERE/../internal/fetch-iso.sh" "$@"
-        ;;
-    --prepare)
-        shift
-        exec "$HERE/prepare.sh" "$@"
-        ;;
-esac
-
 DISK=""
 IMG=""
 FILE_TARGET=0
@@ -72,7 +55,7 @@ RECOVERY_SIZE=${RECOVERY_SIZE:-4G}
 YES=0
 
 usage() {
-    sed -n '2,31p' "$0" | sed 's/^# \{0,1\}//'
+    sed -n '2,27p' "$0" | sed 's/^# \{0,1\}//'
     exit "${1:-0}"
 }
 

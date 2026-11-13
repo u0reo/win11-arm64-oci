@@ -25,6 +25,10 @@ p3  Windows (NTFS, 残り)      wimlib-imagex で適用
 
 ## OCI の Ubuntu から始める
 
+ISO の取得方法は [README の「ISO の入手」](../README.md#iso-の入手) を
+参照してください（Ubuntu Server の live-server-arm64 ISO 1 枚で、
+方法 B とインストーラの両方に使えます）。
+
 いま起動しているのが OCI の標準 Ubuntu（`/dev/sda2` が 46 GiB の root）
 の場合、**その p2 を縮小することはできません**（マウント中の ext4 は
 縮小できないため）。次のどちらかに進みます。
