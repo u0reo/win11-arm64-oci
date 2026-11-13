@@ -29,6 +29,7 @@ IMAGE_INDEX=${IMAGE_INDEX:-1}
 MEM=${MEM:-6144}
 SMP=${SMP:-4}
 KEEP_UBUNTU=0
+REUSE_UBUNTU=${REUSE_UBUNTU:-0}
 RECOVERY_SIZE=${RECOVERY_SIZE:-4G}
 YES=0
 RAMDIR=${RAMDIR:-/dev/shm}
@@ -50,6 +51,8 @@ while [ $# -gt 0 ]; do
         --smp) SMP=$2; shift 2 ;;
         --keep-ubuntu) KEEP_UBUNTU=1; shift ;;
         --ubuntu-size) RECOVERY_SIZE=$2; KEEP_UBUNTU=1; shift 2 ;;
+        --reuse-ubuntu) REUSE_UBUNTU=1; shift ;;
+        --to-ram) shift ;;
         --yes) YES=1; shift ;;
         -h|--help) usage 0 ;;
         *) echo "live-ram: unknown argument: $1" >&2; usage 1 ;;
@@ -73,8 +76,14 @@ on_target() {
     [ -n "$d" ] && [[ "$d" == "$DISK"* ]]
 }
 
+# With --reuse-ubuntu nothing on the disk is destroyed, so the ISO can stay
+# where it is and no RAM copy is needed.
+if [ "$REUSE_UBUNTU" = 1 ]; then
+    echo "live-ram: --reuse-ubuntu keeps p2, so the ISO is used in place"
+fi
+
 # --- is the live system really in RAM? -----------------------------------
-if on_target "$ISO"; then
+if [ "$REUSE_UBUNTU" != 1 ] && on_target "$ISO"; then
     RAM_LOOP=$(losetup -a | sed -n 's|.*(\(.*\)).*|\1|p' |
         grep -E "^($RAMDIR|/run|/tmp|/cow)/" || true)
     if [ -z "$RAM_LOOP" ]; then
@@ -92,11 +101,11 @@ fi
 ISO_MB=$(( $(stat -c %s "$ISO") / 1024 / 1024 ))
 NEED_MB=$ISO_MB
 VIRTIO_MB=0
-if [ -n "$VIRTIO" ] && [ -f "$VIRTIO" ] && on_target "$VIRTIO"; then
+if [ "$REUSE_UBUNTU" != 1 ] && [ -n "$VIRTIO" ] && [ -f "$VIRTIO" ] && on_target "$VIRTIO"; then
     VIRTIO_MB=$(( $(stat -c %s "$VIRTIO") / 1024 / 1024 ))
     NEED_MB=$(( NEED_MB + VIRTIO_MB ))
 fi
-if [ -n "$DRIVERS" ] && [ -d "$DRIVERS" ] && on_target "$DRIVERS"; then
+if [ "$REUSE_UBUNTU" != 1 ] && [ -n "$DRIVERS" ] && [ -d "$DRIVERS" ] && on_target "$DRIVERS"; then
     D_MB=$(du -sm "$DRIVERS" | awk '{print $1}')
     NEED_MB=$(( NEED_MB + D_MB ))
 fi
@@ -120,7 +129,7 @@ fi
 
 # --- copy the media into tmpfs -------------------------------------------
 ISO_RAM=$ISO
-if on_target "$ISO"; then
+if [ "$REUSE_UBUNTU" != 1 ] && on_target "$ISO"; then
     ISO_RAM="$RAMDIR/$(basename "$ISO")"
     echo "live-ram: copying the Windows ISO to $ISO_RAM (this takes a few minutes)"
     cp "$ISO" "$ISO_RAM"
@@ -131,7 +140,7 @@ if on_target "$ISO"; then
 fi
 
 VIRTIO_RAM=$VIRTIO
-if [ -n "$VIRTIO" ] && [ -f "$VIRTIO" ] && on_target "$VIRTIO"; then
+if [ "$REUSE_UBUNTU" != 1 ] && [ -n "$VIRTIO" ] && [ -f "$VIRTIO" ] && on_target "$VIRTIO"; then
     VIRTIO_RAM="$RAMDIR/$(basename "$VIRTIO")"
     echo "live-ram: copying virtio-win to $VIRTIO_RAM"
     cp "$VIRTIO" "$VIRTIO_RAM"
@@ -139,7 +148,7 @@ if [ -n "$VIRTIO" ] && [ -f "$VIRTIO" ] && on_target "$VIRTIO"; then
 fi
 
 DRIVERS_RAM=$DRIVERS
-if [ -n "$DRIVERS" ] && [ -d "$DRIVERS" ] && on_target "$DRIVERS"; then
+if [ "$REUSE_UBUNTU" != 1 ] && [ -n "$DRIVERS" ] && [ -d "$DRIVERS" ] && on_target "$DRIVERS"; then
     DRIVERS_RAM="$RAMDIR/$(basename "$DRIVERS")"
     echo "live-ram: copying drivers to $DRIVERS_RAM"
     rm -rf "$DRIVERS_RAM"
@@ -172,6 +181,7 @@ ARGS=(--disk "$DISK" --iso "$ISO_RAM" --mem "$MEM" --smp "$SMP"
 [ -n "$VIRTIO_RAM" ] && ARGS+=(--virtio "$VIRTIO_RAM")
 [ -n "$DRIVERS_RAM" ] && ARGS+=(--drivers "$DRIVERS_RAM")
 [ "$KEEP_UBUNTU" = 1 ] && ARGS+=(--keep-ubuntu --ubuntu-size "$RECOVERY_SIZE")
+[ "$REUSE_UBUNTU" = 1 ] && ARGS+=(--reuse-ubuntu)
 [ "$YES" = 1 ] && ARGS+=(--yes)
 
 echo "live-ram: running direct-run.sh ${ARGS[*]}"

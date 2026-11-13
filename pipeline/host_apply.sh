@@ -28,6 +28,7 @@ DRIVERS_EXTRA=${DRIVERS_EXTRA:-$ROOT/build/drivers-extra}
 SIZE=${SIZE:-50G}
 SDB=${SDB:-/dev/nbd0}
 KEEP_UBUNTU=${KEEP_UBUNTU:-0}
+REUSE_UBUNTU=${REUSE_UBUNTU:-0}
 RECOVERY_SIZE=${RECOVERY_SIZE:-4G}
 
 RAW=0
@@ -41,6 +42,48 @@ part() {
         printf '%sp%s' "$1" "$2"
     else
         printf '%s%s' "$1" "$2"
+    fi
+}
+
+esp_free_kb() {
+    local mnt
+    mnt=$(mktemp -d /tmp/hostapply-esp.XXXXXX)
+    sudo -n mount -t vfat -o ro "$1" "$mnt"
+    df -Pk "$mnt" | awk 'NR==2{print $4}'
+    sudo -n umount "$mnt"
+    rmdir "$mnt"
+}
+
+# GiB available after the last partition (the GPT backup takes 34 sectors).
+free_gib() {
+    local total last
+    total=$(( $(sudo -n blockdev --getsize64 "$1") / 512 ))
+    last=$(lsblk -lnbo NAME,START,SIZE "$1" |
+        awk 'NF==3 && $2>0 {e=$2+int($3/512)-1; if(e>m)m=e} END{print m+0}')
+    echo $(( (total - last - 34) * 512 / 1024 / 1024 / 1024 ))
+}
+
+# The ESP keeps its Windows and Ubuntu boot files; only its free space
+# matters.  bcdboot needs about 30 MiB and GRUB about 15 MiB.
+require_esp_free() {
+    local kb
+    kb=$(esp_free_kb "$1")
+    echo "  ESP free: $(( kb / 1024 )) MiB"
+    if [ "$kb" -lt 40960 ]; then
+        echo "the ESP needs at least 40 MiB free for bcdboot and GRUB" >&2
+        echo "free some space on $1 first" >&2
+        exit 1
+    fi
+}
+
+require_two_partitions() {
+    local n
+    n=$(lsblk -lnpo NAME,TYPE "$1" | awk '$2=="part"' | wc -l)
+    if [ "$n" -ne 2 ]; then
+        echo "expected 2 partitions (ESP + Ubuntu) on $1, found $n" >&2
+        lsblk -o NAME,SIZE,FSTYPE,PARTTYPENAME "$1" >&2
+        echo "the layout must be p1=ESP, p2=Ubuntu, and p3 must not exist" >&2
+        exit 1
     fi
 }
 
@@ -123,7 +166,48 @@ else
     echo "  NBD size: $NBD_SIZE bytes"
 fi
 
-if [ "$KEEP_UBUNTU" = 1 ]; then
+if [ "$REUSE_UBUNTU" = 1 ]; then
+    echo "[3/6] keep p1 and p2, create Windows in the free space"
+    [ "$RAW" = 1 ] || { echo "REUSE_UBUNTU needs a block device" >&2; exit 1; }
+    sudo -n partprobe "$DEV" 2>/dev/null || true
+    sleep 1
+    P1=$(part "$DEV" 1)
+    P2=$(part "$DEV" 2)
+    [ -b "$P1" ] || { echo "no ESP at $P1" >&2; exit 1; }
+    [ -b "$P2" ] || { echo "no Ubuntu partition at $P2" >&2; exit 1; }
+    [ "$(lsblk -no FSTYPE "$P1" | tr -d ' ')" = vfat ] || {
+        echo "$P1 is not FAT32; the ESP must stay as it is" >&2; exit 1; }
+    case "$(lsblk -no FSTYPE "$P2" | tr -d ' ')" in
+        ext2|ext3|ext4) ;;
+        *) echo "$P2 is not ext4; refusing to build next to it" >&2; exit 1 ;;
+    esac
+    require_two_partitions "$DEV"
+    require_esp_free "$P1"
+
+    FREE_GIB=$(free_gib "$DEV")
+    echo "  free space: ${FREE_GIB} GiB"
+    if [ "$FREE_GIB" -lt 40 ]; then
+        echo "not enough free space for Windows (${FREE_GIB} GiB)" >&2
+        echo "  shrink p2 from a live session first, or leave 40 GiB+" >&2
+        echo "  unallocated when installing Ubuntu" >&2
+        exit 1
+    fi
+
+    sudo -n sgdisk -n 3:0:0 -t 3:0700 -c 3:"Windows" "$DEV" >/dev/null
+    sudo -n partprobe "$DEV" 2>/dev/null || true
+    for _ in $(seq 1 10); do
+        [ -b "$(part "$DEV" 3)" ] && break
+        sudo -n partx -a "$DEV" 2>/dev/null || true
+        sleep 1
+    done
+    P3=$(part "$DEV" 3)
+    [ -b "$P3" ] || { echo "partition 3 did not appear" >&2; exit 1; }
+    lsblk -o NAME,SIZE,FSTYPE,PARTTYPENAME "$DEV"
+    P3START=$(lsblk -no START "$P3" | tr -d ' ')
+    [ -n "$P3START" ] || { echo "cannot determine p3 start sector" >&2; exit 1; }
+    sudo -n mkntfs -f -F -L Windows -p "$P3START" -H 255 -S 63 "$P3" >/dev/null
+    echo "  formatted (p3 starts at sector $P3START)"
+elif [ "$KEEP_UBUNTU" = 1 ]; then
     echo "[3/6] keep the ESP, shrink Ubuntu to $RECOVERY_SIZE, add Windows"
     sudo -n partprobe "$DEV" 2>/dev/null || true
     sleep 1
@@ -133,27 +217,8 @@ if [ "$KEEP_UBUNTU" = 1 ]; then
     [ -b "$P2" ] || { echo "no Ubuntu partition at $P2" >&2; exit 1; }
     ESP_FS=$(lsblk -no FSTYPE "$P1" | tr -d ' ')
     [ "$ESP_FS" = vfat ] || { echo "$P1 is not FAT32 ($ESP_FS)" >&2; exit 1; }
-    PCOUNT=$(lsblk -lnpo NAME,TYPE "$DEV" | awk '$2=="part"' | wc -l)
-    if [ "$PCOUNT" -gt 2 ]; then
-        echo "expected 2 partitions (ESP + Ubuntu) on $DEV, found $PCOUNT" >&2
-        lsblk -o NAME,SIZE,FSTYPE,PARTTYPENAME "$DEV" >&2
-        echo "delete the extra partitions first; p1 (ESP) and p2 (Ubuntu) are kept" >&2
-        exit 1
-    fi
-
-    # The ESP keeps its Windows and Ubuntu boot files; only its free space
-    # matters.  bcdboot needs about 30 MiB and GRUB about 15 MiB.
-    ESPMNT=$(mktemp -d /tmp/hostapply-esp.XXXXXX)
-    sudo -n mount -t vfat -o ro "$P1" "$ESPMNT"
-    ESP_FREE_KB=$(df -Pk "$ESPMNT" | awk 'NR==2{print $4}')
-    sudo -n umount "$ESPMNT"
-    rmdir "$ESPMNT"
-    echo "  ESP free: $(( ESP_FREE_KB / 1024 )) MiB"
-    [ "$ESP_FREE_KB" -ge 40960 ] || {
-        echo "the ESP needs at least 40 MiB free for bcdboot and GRUB" >&2
-        echo "free some space on $P1 first" >&2
-        exit 1
-    }
+    require_two_partitions "$DEV"
+    require_esp_free "$P1"
 
     P2START=$(cat "/sys/class/block/$(basename "$P2")/start")
     sudo -n sgdisk -d 2 "$DEV" >/dev/null

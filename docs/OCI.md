@@ -19,6 +19,42 @@ OCI のカスタムイメージ取り込みは Object Storage 経由です。
 そこで「イメージを作って配る」のをやめ、**ブートボリュームを直接書き換える**
 方針にしました。
 
+## どの組み合わせが可能か
+
+ブートイメージの枚数 × 起動方法 × 仕上がり、の全パターンです。
+
+| ブートイメージ | 起動方法 | Windows のみ | Ubuntu とデュアルブート |
+|---|---|---|---|
+| 1 枚（live Ubuntu だけ。Windows ISO は live 内で取得） | `--to-ram` | 可 | 可 |
+| 2 枚（live Ubuntu + Windows ISO をディスクに置く） | `--to-ram` | 可 | 可 |
+| 1〜2 枚 | Ubuntu minimal を先にインストールして起動 | **不可**（実行中の p2 を消せない） | 可（p2 を 4 GiB で先に作り、残りを未割り当てにする） |
+
+- **Windows のみ**はディスク全体を消すので、`toram` で RAM に載った
+  live 環境からしか実行できません
+- **デュアルブート**は p2 を残すので、インストール済み Ubuntu からでも
+  実行できます（`--reuse-ubuntu`）。ただし p2 の後ろに 40 GiB 以上の
+  未割り当て領域が必要です
+- デュアルブートの p2 を新しく作り直す場合は `--keep-ubuntu`（live 環境のみ）
+
+```bash
+# 1 枚 + toram（Windows ISO は live 内でダウンロード）
+wget -O /dev/shm/Win11.iso https://example.com/Win11_ARM64.iso
+sudo ./scripts/direct-run.sh --to-ram --disk /dev/sda \
+  --iso /dev/shm/Win11.iso --mem 6144 --yes
+
+# 2 枚 + toram（両方ディスク上、RAM にコピーしてから消す）
+sudo ./scripts/direct-run.sh --to-ram --disk /dev/sda \
+  --iso /cdrom/Win11.iso --virtio /cdrom/virtio-win.iso --mem 6144 --yes
+
+# インストール済み Ubuntu からデュアルブート（p2 は触らない）
+sudo ./scripts/direct-run.sh --reuse-ubuntu --disk /dev/sda \
+  --iso /home/ubuntu/Win11.iso --virtio /home/ubuntu/virtio-win.iso --yes
+```
+
+`--reuse-ubuntu` では QEMU が実行中のディスクを開きます。書き込むのは
+p3 と ESP だけで、p2 には触れません。ビルド中に他のパーティションを
+マウントしたり、電源を切ったりしないでください。
+
 ## 方法 A: ボリュームを付け替える（推奨）
 
 OCI は「停止したインスタンスからブートボリュームを切り離し、別の
@@ -165,12 +201,16 @@ oci compute instance action --instance-id <A> --action START
    git clone https://github.com/<OWNER>/win11-arm64-oci.git
    cd win11-arm64-oci
    sudo ./scripts/bootstrap-ubuntu.sh
-   sudo ./scripts/live-ram-run.sh --disk /dev/sda \
+   sudo ./scripts/direct-run.sh --to-ram --disk /dev/sda \
      --iso /cdrom/Win11_ARM64_26H2.iso \
      --virtio /cdrom/virtio-win.iso --mem 6144 --yes
    ```
 
-`live-ram-run.sh` は次を行います。
+   ISO を 1 枚しか置かない場合は、live 環境で Windows ISO を
+   `/dev/shm` にダウンロードしてから `--iso /dev/shm/Win11.iso` を渡します
+   （`/dev/shm` は RAM なので、ディスクを消しても残ります）。
+
+`--to-ram` は `live-ram-run.sh` に引き継がれ、次を行います。
 
 1. `toram` で起動しているか確認（していなければ中止。`/dev/sda` を消すと
    ライブ環境ごと消えるため）

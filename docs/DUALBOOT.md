@@ -37,6 +37,35 @@ sudo ./scripts/direct-run.sh \
 `--ubuntu-size 6G`。Windows は残り全部（100 GB のボリュームなら約 88 GiB）
 を使います。
 
+## インストール済みの Ubuntu を使う（`--reuse-ubuntu`）
+
+live 環境を使わず、**先に Ubuntu minimal を p2 に入れて起動する**方法です。
+RAM に ISO を載せないのでメモリに余裕があり、ビルドをやり直しやすいです。
+
+```text
+1. Ubuntu Server minimal をインストーラで入れる
+   - p1 ESP (512 MB〜1 GB)
+   - p2 / を 4 GiB（4 GiB を超えると Windows の余地が減ります）
+   - 残りは「未割り当て」のままにする（ここが p3 になります）
+2. その Ubuntu を起動して SSH で入る
+3. sudo ./scripts/direct-run.sh --reuse-ubuntu --disk /dev/sda \
+     --iso /home/ubuntu/Win11_ARM64_26H2.iso --yes
+```
+
+`--reuse-ubuntu` は p2 を**一切書き換えません**。p3 の作成と ESP への
+`bcdboot` だけを行います。そのため実行中のディスクでも受け付けます
+（他のモードは拒否します）。
+
+注意点:
+
+- p2 の後ろに **40 GiB 以上の未割り当て領域**が必要です。足りない場合は
+  エラーになります。インストール時に 4 GiB だけ使うようにしてください
+- 実行中の ext4 を触らないので `resize2fs` は不要ですが、**QEMU が同じ
+  ディスクを開きます**。ビルド中に p2 のファイルを書き換えたり、電源を
+  切ったりしないでください
+- Windows のみ（p2 を消す）は**できません**。その場合は `--to-ram` で
+  live 環境から実行してください
+
 ## 中で起きること
 
 1. `save_ubuntu_config.sh` が既存 p2 を read-only でマウントし、設定を退避

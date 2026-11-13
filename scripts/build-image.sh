@@ -24,6 +24,7 @@
 #   SMP=4                guest vCPUs
 #   KEEP_UBUNTU=1        keep a small Ubuntu recovery system on the disk
 #   RECOVERY_SIZE=4G     size of that recovery partition
+#   REUSE_UBUNTU=1       p2 is an installed Ubuntu; only use the free space
 #   PACKAGE=1            compress the qcow2 when the build finishes
 #   WIN_USERNAME / WIN_PASSWORD / COMPUTER_NAME   (render.py overrides)
 set -euo pipefail
@@ -42,6 +43,7 @@ SMP=${SMP:-4}
 WINRM_PORT=${WINRM_PORT:-15985}
 DISK=${DISK:-$BUILD/win11-arm64.qcow2}
 KEEP_UBUNTU=${KEEP_UBUNTU:-0}
+REUSE_UBUNTU=${REUSE_UBUNTU:-0}
 RECOVERY_SIZE=${RECOVERY_SIZE:-4G}
 
 RAW=0
@@ -50,6 +52,14 @@ if [ -b "$DISK" ]; then
 fi
 if [ "$KEEP_UBUNTU" = 1 ] && [ "$RAW" != 1 ]; then
     echo "KEEP_UBUNTU needs DISK=/dev/sdX (the Ubuntu volume itself)" >&2
+    exit 1
+fi
+if [ "$REUSE_UBUNTU" = 1 ] && [ "$RAW" != 1 ]; then
+    echo "REUSE_UBUNTU needs DISK=/dev/sdX (the installed Ubuntu disk)" >&2
+    exit 1
+fi
+if [ "$REUSE_UBUNTU" = 1 ] && [ "$KEEP_UBUNTU" = 1 ]; then
+    echo "REUSE_UBUNTU and KEEP_UBUNTU are mutually exclusive" >&2
     exit 1
 fi
 
@@ -86,7 +96,8 @@ fi
 
 step "5/13 apply install.wim to the target"
 MEDIA="$BUILD/media" DRIVERS="$BUILD/drivers" DRIVERS_EXTRA="$BUILD/drivers-extra" \
-SIZE="$SIZE" KEEP_UBUNTU="$KEEP_UBUNTU" RECOVERY_SIZE="$RECOVERY_SIZE" \
+SIZE="$SIZE" KEEP_UBUNTU="$KEEP_UBUNTU" REUSE_UBUNTU="$REUSE_UBUNTU" \
+RECOVERY_SIZE="$RECOVERY_SIZE" \
 "$PIPE/host_apply.sh" "$ISO" "$DISK" "$IMAGE_INDEX"
 
 step "6/13 install the recovery Ubuntu"

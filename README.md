@@ -84,6 +84,11 @@ sudo ./scripts/direct-run.sh --disk /dev/sdb \
   --keep-ubuntu --ubuntu-size 4G --yes
 ```
 
+ISO が書き込み先ディスクにしかない場合は `--to-ram` を付けます
+（ISO をメモリにコピーしてから消す）。先に入れた Ubuntu をそのまま使う
+場合は `--reuse-ubuntu` です。組み合わせの一覧は
+[docs/OCI.md](docs/OCI.md#どの組み合わせが可能か)。
+
 ## ローカルでビルド
 
 ```bash
