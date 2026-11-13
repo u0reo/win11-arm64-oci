@@ -48,7 +48,7 @@ RECOVERY_SIZE=${RECOVERY_SIZE:-4G}
 YES=0
 
 usage() {
-    sed -n '2,17p' "$0" | sed 's/^# \{0,1\}//'
+    sed -n '2,25p' "$0" | sed 's/^# \{0,1\}//'
     exit "${1:-0}"
 }
 

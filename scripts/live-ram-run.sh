@@ -10,6 +10,9 @@
 # script copies the ISO (and virtio-win.iso) into tmpfs first, unmounts
 # everything on the target disk, then hands over to direct-run.sh.
 #
+# --keep-ubuntu and --reuse-ubuntu are forwarded to direct-run.sh.
+# --reuse-ubuntu keeps p2, so nothing has to be copied into RAM.
+#
 # Memory budget on a 24 GB A1 (MEM=6144):
 #   live ISO in RAM (toram)   2.5 GB
 #   Windows ISO copy          6.2 GB
@@ -36,7 +39,7 @@ RAMDIR=${RAMDIR:-/dev/shm}
 MIN_FREE_MB=${MIN_FREE_MB:-2048}
 
 usage() {
-    sed -n '2,20p' "$0" | sed 's/^# \{0,1\}//'
+    sed -n '2,23p' "$0" | sed 's/^# \{0,1\}//'
     exit "${1:-0}"
 }
 
