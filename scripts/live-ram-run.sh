@@ -35,7 +35,7 @@ RAMDIR=${RAMDIR:-/dev/shm}
 MIN_FREE_MB=${MIN_FREE_MB:-2048}
 
 usage() {
-    sed -n '2,22p' "$0" | sed 's/^# \{0,1\}//'
+    sed -n '2,20p' "$0" | sed 's/^# \{0,1\}//'
     exit "${1:-0}"
 }
 

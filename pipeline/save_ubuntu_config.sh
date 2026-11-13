@@ -18,7 +18,7 @@ part() {
     else printf '%s%s' "$1" "$2"; fi
 }
 
-ROOTPART=$(lsblk -lnbo NAME,FSTYPE,SIZE "$DISK" |
+ROOTPART=$(lsblk -lnpbo NAME,FSTYPE,SIZE "$DISK" |
     awk '$2 ~ /^ext[234]$/ {print $3, $1}' | sort -n | tail -1 | awk '{print $2}')
 [ -n "$ROOTPART" ] || { echo "save-config: no ext2/3/4 root on $DISK" >&2; exit 1; }
 echo "save-config: reading $ROOTPART"
