@@ -12,7 +12,7 @@
 # The netplan and SSH configuration saved by save_ubuntu_config.sh is copied
 # in, so the same keys and the same DHCP setup work.
 #
-# Requires debootstrap on the builder (scripts/bootstrap-ubuntu.sh installs it).
+# Requires debootstrap on the builder (scripts/setup.sh installs it).
 set -euo pipefail
 
 DISK=${1:?usage: $0 <disk> <config-dir>}
@@ -25,7 +25,7 @@ RECOVERY_PASSWORD=${RECOVERY_PASSWORD:-}
 [ -b "$DISK" ] || { echo "recovery: $DISK is not a block device" >&2; exit 1; }
 [ -d "$CONFIG" ] || { echo "recovery: missing config dir $CONFIG" >&2; exit 1; }
 command -v debootstrap >/dev/null || {
-    echo "recovery: debootstrap is not installed (run scripts/bootstrap-ubuntu.sh)" >&2
+    echo "recovery: debootstrap is not installed (run scripts/setup.sh)" >&2
     exit 1
 }
 

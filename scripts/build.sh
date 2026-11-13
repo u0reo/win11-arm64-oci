@@ -1,8 +1,11 @@
 #!/usr/bin/env bash
-# Write Windows 11 ARM64 directly onto a block device.
+# Build the Windows 11 ARM64 disk: a block device (--disk) or a qcow2 (--image).
 #
-#   sudo ./scripts/direct-run.sh \
-#     --disk /dev/sdb \
+#   sudo ./scripts/build.sh --disk /dev/sdb \
+#     --iso /srv/iso/Win11_ARM64_26H2.iso \
+#     --virtio /srv/iso/virtio-win.iso --yes
+#
+#   sudo ./scripts/build.sh --image build/win11-arm64.qcow2 \
 #     --iso /srv/iso/Win11_ARM64_26H2.iso \
 #     --virtio /srv/iso/virtio-win.iso --yes
 #
@@ -16,26 +19,46 @@
 # target disk being the running root, because nothing on p2 is written.
 #
 # Add --to-ram to copy the ISOs into RAM first (needed when the ISO lives on
-# the disk that is about to be wiped).  It hands over to live-ram-run.sh.
+# the disk that is about to be wiped).  It hands over to internal/live-ram.sh.
 #
-# The device is wiped.  Nothing is packaged and nothing is uploaded: the
-# device itself becomes the Windows disk.  On OCI, detach the volume and
-# reattach it as the boot volume of the target instance afterwards.
+# Two helpers do not build anything:
+#   --fetch-iso SRC DEST [SHA256]   download an ISO (URL, rclone or local file)
+#   --grub-entry ISO                print a toram GRUB entry for method B
+#
+# Nothing is packaged and nothing is uploaded: the target itself becomes the
+# Windows disk.  On OCI, detach the volume and reattach it as the boot volume
+# of the target instance afterwards.
 #
 # WARNING: take a boot volume backup first.
 set -euo pipefail
 
 HERE=$(cd "$(dirname "$0")" && pwd)
 
-# --to-ram is implemented by live-ram-run.sh; strip it and hand over.
+# --to-ram is implemented by internal/live-ram.sh; strip it and hand over.
 for _a in "$@"; do
     if [ "$_a" = "--to-ram" ]; then
         _args=()
         for _x in "$@"; do [ "$_x" = "--to-ram" ] || _args+=("$_x"); done
-        exec "$HERE/live-ram-run.sh" "${_args[@]}"
+        exec "$HERE/../internal/live-ram.sh" "${_args[@]}"
     fi
 done
+
+# --- helpers that do not build anything ----------------------------------
+case "${1:-}" in
+    --fetch-iso)
+        shift
+        exec "$HERE/../internal/fetch-iso.sh" "$@"
+        ;;
+    --grub-entry)
+        shift
+        exec "$HERE/live-grub.sh" "$@"
+        ;;
+esac
+
 DISK=""
+IMG=""
+FILE_TARGET=0
+SIZE=${SIZE:-50G}
 ISO=""
 VIRTIO=""
 DRIVERS=""
@@ -48,13 +71,15 @@ RECOVERY_SIZE=${RECOVERY_SIZE:-4G}
 YES=0
 
 usage() {
-    sed -n '2,25p' "$0" | sed 's/^# \{0,1\}//'
+    sed -n '2,31p' "$0" | sed 's/^# \{0,1\}//'
     exit "${1:-0}"
 }
 
 while [ $# -gt 0 ]; do
     case "$1" in
         --disk) DISK=$2; shift 2 ;;
+        --image) IMG=$2; shift 2 ;;
+        --size) SIZE=$2; shift 2 ;;
         --iso) ISO=$2; shift 2 ;;
         --virtio) VIRTIO=$2; shift 2 ;;
         --drivers) DRIVERS=$2; shift 2 ;;
@@ -66,29 +91,45 @@ while [ $# -gt 0 ]; do
         --reuse-ubuntu) REUSE_UBUNTU=1; shift ;;
         --yes) YES=1; shift ;;
         -h|--help) usage 0 ;;
-        *) echo "direct-run: unknown argument: $1" >&2; usage 1 ;;
+        *) echo "build: unknown argument: $1" >&2; usage 1 ;;
     esac
 done
 
-[ -n "$DISK" ] || { echo "direct-run: --disk is required" >&2; usage 1; }
-[ -n "$ISO" ] || { echo "direct-run: --iso is required" >&2; usage 1; }
-[ -b "$DISK" ] || { echo "direct-run: $DISK is not a block device" >&2; exit 1; }
-[ -f "$ISO" ] || { echo "direct-run: missing ISO $ISO" >&2; exit 1; }
+if [ -n "$IMG" ] && [ -n "$DISK" ]; then
+    echo "build: use either --disk or --image, not both" >&2
+    exit 1
+fi
+if [ -n "$IMG" ]; then
+    DISK=$IMG
+    FILE_TARGET=1
+fi
+[ -n "$DISK" ] || { echo "build: --disk or --image is required" >&2; usage 1; }
+[ -n "$ISO" ] || { echo "build: --iso is required" >&2; usage 1; }
+[ -f "$ISO" ] || { echo "build: missing ISO $ISO" >&2; exit 1; }
+[ -n "$DRIVERS" ] || [ -n "$VIRTIO" ] || {
+    echo "build: --virtio or --drivers is required" >&2; usage 1; }
+if [ "$FILE_TARGET" = 0 ]; then
+    [ -b "$DISK" ] || { echo "build: $DISK is not a block device" >&2; exit 1; }
+fi
+if [ "$FILE_TARGET" = 1 ] && { [ "$KEEP_UBUNTU" = 1 ] || [ "$REUSE_UBUNTU" = 1 ]; }; then
+    echo "build: --keep-ubuntu and --reuse-ubuntu need a block device (--disk)" >&2
+    exit 1
+fi
 
 if [ "$(id -u)" -ne 0 ]; then
-    echo "direct-run: run as root (sudo)" >&2
+    echo "build: run as root (sudo)" >&2
     exit 1
 fi
 
 # --- safety checks -------------------------------------------------------
 ROOTDEV=$(findmnt -no SOURCE / 2>/dev/null || true)
 ROOT_ON_DISK=0
-if [ -n "$ROOTDEV" ] && [[ "$ROOTDEV" == "$DISK"* ]]; then
+if [ "$FILE_TARGET" = 0 ] && [ -n "$ROOTDEV" ] && [[ "$ROOTDEV" == "$DISK"* ]]; then
     ROOT_ON_DISK=1
 fi
 
 if [ "$ROOT_ON_DISK" = 1 ] && [ "$REUSE_UBUNTU" != 1 ]; then
-    echo "direct-run: $DISK is the running root device" >&2
+    echo "build: $DISK is the running root device" >&2
     echo "  boot a RAM-resident live environment (--to-ram), or use" >&2
     echo "  --reuse-ubuntu when p2 is a small Ubuntu that must survive" >&2
     exit 1
@@ -105,34 +146,39 @@ if [ "$ROOT_ON_DISK" = 1 ]; then
         BUSY="$BUSY $mp"
     done < <(lsblk -no MOUNTPOINT "$DISK")
     if [ -n "$BUSY" ]; then
-        echo "direct-run: umount these before building:$BUSY" >&2
+        echo "build: umount these before building:$BUSY" >&2
         lsblk -o NAME,SIZE,MOUNTPOINT "$DISK" >&2
         exit 1
     fi
-    echo "direct-run: $DISK is the running disk; only $ROOT_MP stays mounted"
+    echo "build: $DISK is the running disk; only $ROOT_MP stays mounted"
     swapoff -a 2>/dev/null || true
-elif [ -n "$(lsblk -no MOUNTPOINT "$DISK" 2>/dev/null | tr -d ' ')" ]; then
-    echo "direct-run: $DISK has mounted partitions" >&2
+elif [ "$FILE_TARGET" = 0 ] && [ -n "$(lsblk -no MOUNTPOINT "$DISK" 2>/dev/null | tr -d ' ')" ]; then
+    echo "build: $DISK has mounted partitions" >&2
     lsblk -o NAME,SIZE,MOUNTPOINT "$DISK" >&2
     exit 1
 fi
 
-SIZE_BYTES=$(blockdev --getsize64 "$DISK")
-SIZE_GB=$(( SIZE_BYTES / 1024 / 1024 / 1024 ))
-if [ "$SIZE_GB" -lt 40 ]; then
-    echo "direct-run: $DISK is only ${SIZE_GB} GiB; Windows needs at least 40" >&2
-    exit 1
+SIZE_TEXT=$SIZE
+MODEL=""
+SERIAL=""
+if [ "$FILE_TARGET" = 0 ]; then
+    SIZE_BYTES=$(blockdev --getsize64 "$DISK")
+    SIZE_GB=$(( SIZE_BYTES / 1024 / 1024 / 1024 ))
+    if [ "$SIZE_GB" -lt 40 ]; then
+        echo "build: $DISK is only ${SIZE_GB} GiB; Windows needs at least 40" >&2
+        exit 1
+    fi
+    SIZE_TEXT="${SIZE_GB} GiB"
+    MODEL=$(lsblk -dno MODEL "$DISK" 2>/dev/null | sed 's/ *$//' || true)
+    SERIAL=$(lsblk -dno SERIAL "$DISK" 2>/dev/null | sed 's/ *$//' || true)
 fi
-
-MODEL=$(lsblk -dno MODEL "$DISK" 2>/dev/null | sed 's/ *$//' || true)
-SERIAL=$(lsblk -dno SERIAL "$DISK" 2>/dev/null | sed 's/ *$//' || true)
 
 cat <<EOF
 
   target   $DISK
-  model    ${MODEL:-unknown}
-  serial   ${SERIAL:-unknown}
-  size     ${SIZE_GB} GiB
+  model    ${MODEL:-qcow2 file}
+  serial   ${SERIAL:-n/a}
+  size     ${SIZE_TEXT}
   iso      $ISO
   drivers  ${DRIVERS:-$VIRTIO}
   index    $IMAGE_INDEX
@@ -158,6 +204,11 @@ elif [ "$KEEP_UBUNTU" = 1 ]; then
   are copied from the current Ubuntu before it is erased.
   EVERYTHING ELSE ON $DISK WILL BE DESTROYED.
 EOF
+elif [ "$FILE_TARGET" = 1 ]; then
+    cat <<EOF
+  $DISK will be created or replaced with a ${SIZE} qcow2.  Nothing outside
+  that file is touched.
+EOF
 else
     cat <<EOF
   ALL DATA ON $DISK WILL BE DESTROYED.
@@ -177,7 +228,7 @@ fi
 # --- build ---------------------------------------------------------------
 export DISK
 export ISO
-export IMAGE_INDEX MEM SMP
+export IMAGE_INDEX MEM SMP SIZE
 export KEEP_UBUNTU RECOVERY_SIZE REUSE_UBUNTU
 if [ -n "$DRIVERS" ]; then
     export DRIVERS_DIR="$DRIVERS"
@@ -185,7 +236,7 @@ else
     export VIRTIO_ISO="$VIRTIO"
 fi
 
-"$HERE/build-image.sh"
+"$HERE/../internal/build-image.sh"
 
 cat <<EOF
 
@@ -205,7 +256,15 @@ menu should show it as "Ubuntu (recovery)" (5 second timeout).
 EOF
 fi
 
-cat <<EOF
+if [ "$FILE_TARGET" = 1 ]; then
+    cat <<EOF
+
+To test the qcow2 locally:
+
+  BOOT=disk DISK=$DISK pipeline/run-qemu.sh
+EOF
+else
+    cat <<EOF
 
 On OCI (detach/attach method):
   1. stop the builder instance
@@ -215,6 +274,10 @@ On OCI (detach/attach method):
 
 If this is the live-CD method (you wrote to the disk the live system booted
 from), no detach is needed: run 'sudo reboot' and the Windows install starts.
+EOF
+fi
+
+cat <<EOF
 
 The Windows account and password are the ones rendered into the image
 (see config/defaults.env or the GitHub Secrets used for the build).

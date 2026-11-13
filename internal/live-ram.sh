@@ -1,16 +1,17 @@
 #!/usr/bin/env bash
 # Force method B with memory only: no extra data volume for the ISO.
+# This is internal; call it through scripts/build.sh.
 #
-#   sudo ./scripts/live-ram-run.sh --disk /dev/sda \
+#   sudo ./scripts/build.sh --to-ram --disk /dev/sda \
 #     --iso /cdrom/Win11_ARM64_26H2.iso \
 #     --virtio /cdrom/virtio-win.iso --mem 6144 --yes
 #
 # The live system must have booted with `toram`, because the partition that
 # holds the Windows ISO is on the disk that is about to be wiped.  This
 # script copies the ISO (and virtio-win.iso) into tmpfs first, unmounts
-# everything on the target disk, then hands over to direct-run.sh.
+# everything on the target disk, then hands over to scripts/build.sh.
 #
-# --keep-ubuntu and --reuse-ubuntu are forwarded to direct-run.sh.
+# --keep-ubuntu and --reuse-ubuntu are forwarded to scripts/build.sh.
 # --reuse-ubuntu keeps p2, so nothing has to be copied into RAM.
 #
 # Memory budget on a 24 GB A1 (MEM=6144):
@@ -39,7 +40,7 @@ RAMDIR=${RAMDIR:-/dev/shm}
 MIN_FREE_MB=${MIN_FREE_MB:-2048}
 
 usage() {
-    sed -n '2,23p' "$0" | sed 's/^# \{0,1\}//'
+    sed -n '2,24p' "$0" | sed 's/^# \{0,1\}//'
     exit "${1:-0}"
 }
 
@@ -159,18 +160,24 @@ if [ "$REUSE_UBUNTU" != 1 ] && [ -n "$DRIVERS" ] && [ -d "$DRIVERS" ] && on_targ
 fi
 
 # --- release the target disk ---------------------------------------------
-mapfile -t MOUNTS < <(lsblk -lnpo MOUNTPOINT "$DISK" | sed '/^$/d' | sort -r)
-for mp in "${MOUNTS[@]}"; do
-    echo "live-ram: umount $mp"
-    umount "$mp" || umount -l "$mp" || true
-done
-if [ -n "$(lsblk -no MOUNTPOINT "$DISK" | tr -d ' ')" ]; then
-    echo "live-ram: $DISK still has mounted partitions:" >&2
-    lsblk -o NAME,SIZE,MOUNTPOINT "$DISK" >&2
-    exit 1
+if [ "$REUSE_UBUNTU" = 1 ]; then
+    # p2 is the running root and must stay mounted; --reuse-ubuntu only
+    # touches the free space and the ESP.
+    echo "live-ram: --reuse-ubuntu keeps $DISK mounted; nothing is released"
+else
+    mapfile -t MOUNTS < <(lsblk -lnpo MOUNTPOINT "$DISK" | sed '/^$/d' | sort -r)
+    for mp in "${MOUNTS[@]}"; do
+        echo "live-ram: umount $mp"
+        umount "$mp" || umount -l "$mp" || true
+    done
+    if [ -n "$(lsblk -no MOUNTPOINT "$DISK" | tr -d ' ')" ]; then
+        echo "live-ram: $DISK still has mounted partitions:" >&2
+        lsblk -o NAME,SIZE,MOUNTPOINT "$DISK" >&2
+        exit 1
+    fi
+    swapoff -a 2>/dev/null || true
+    sync
 fi
-swapoff -a 2>/dev/null || true
-sync
 
 AVAIL_MB=$(( $(awk '/^MemAvailable:/{print $2}' /proc/meminfo) / 1024 ))
 echo "live-ram: after the copy, MemAvailable ${AVAIL_MB} MiB"
@@ -187,5 +194,5 @@ ARGS=(--disk "$DISK" --iso "$ISO_RAM" --mem "$MEM" --smp "$SMP"
 [ "$REUSE_UBUNTU" = 1 ] && ARGS+=(--reuse-ubuntu)
 [ "$YES" = 1 ] && ARGS+=(--yes)
 
-echo "live-ram: running direct-run.sh ${ARGS[*]}"
-exec "$HERE/direct-run.sh" "${ARGS[@]}"
+echo "live-ram: running scripts/build.sh ${ARGS[*]}"
+exec "$HERE/../scripts/build.sh" "${ARGS[@]}"

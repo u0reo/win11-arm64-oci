@@ -26,7 +26,7 @@ p3  Windows (NTFS, 残り)      wimlib-imagex で適用
 ## 使い方
 
 ```bash
-sudo ./scripts/direct-run.sh \
+sudo ./scripts/build.sh \
   --disk /dev/sdb \
   --iso /srv/iso/Win11_ARM64_26H2.iso \
   --virtio /srv/iso/virtio-win.iso \
@@ -48,7 +48,7 @@ RAM に ISO を載せないのでメモリに余裕があり、ビルドをや�
    - p2 / を 4 GiB（4 GiB を超えると Windows の余地が減ります）
    - 残りは「未割り当て」のままにする（ここが p3 になります）
 2. その Ubuntu を起動して SSH で入る
-3. sudo ./scripts/direct-run.sh --reuse-ubuntu --disk /dev/sda \
+3. sudo ./scripts/build.sh --reuse-ubuntu --disk /dev/sda \
      --iso /home/ubuntu/Win11_ARM64_26H2.iso --yes
 ```
 

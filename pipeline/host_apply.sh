@@ -90,7 +90,7 @@ require_two_partitions() {
 [ -f "$ISO" ] || { echo "missing ISO: $ISO" >&2; exit 1; }
 [ -f "$MEDIA/autounattend.xml" ] || { echo "missing $MEDIA/autounattend.xml; run make_oemdrv.sh first" >&2; exit 1; }
 [ -d "$MEDIA/oem" ] || { echo "missing $MEDIA/oem" >&2; exit 1; }
-[ -d "$DRIVERS" ] || { echo "missing $DRIVERS; run scripts/stage-drivers.sh" >&2; exit 1; }
+[ -d "$DRIVERS" ] || { echo "missing $DRIVERS; run internal/stage-drivers.sh" >&2; exit 1; }
 
 if pgrep -f "qemu-system-aarch64.*$IMG" >/dev/null 2>&1; then
     echo "QEMU still references $IMG; stop it first" >&2

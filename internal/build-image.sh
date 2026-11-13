@@ -1,16 +1,17 @@
 #!/usr/bin/env bash
-# End-to-end image build.
+# End-to-end image build.  This is internal: normal use goes through
+# scripts/build.sh, which adds the safety checks and the confirmation.
 #
 # The target is a qcow2 file by default:
 #
 #   ISO=/srv/iso/Win11_ARM64_26H2.iso VIRTIO_ISO=/srv/iso/virtio-win.iso \
-#     scripts/build-image.sh
+#     internal/build-image.sh
 #
 # To write straight onto a block device instead (no qcow2, no packaging):
 #
-#   sudo DISK=/dev/sdb ISO=... VIRTIO_ISO=... scripts/build-image.sh
+#   sudo DISK=/dev/sdb ISO=... VIRTIO_ISO=... internal/build-image.sh
 #
-# A block device is wiped.  Use scripts/direct-run.sh for the safety checks.
+# A block device is wiped.  scripts/build.sh is the supported entry point.
 #
 # Required:
 #   ISO=/path/to/Win11_ARM64.iso

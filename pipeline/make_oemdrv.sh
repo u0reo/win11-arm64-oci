@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Build the small "OEMDRV" ISO used by the unattended Windows 11 ARM64
 # install.  It contains the rendered autounattend.xml, the OEM scripts and
-# the virtio-win ARM64 drivers staged by scripts/stage-drivers.sh.
+# the virtio-win ARM64 drivers staged by internal/stage-drivers.sh.
 #
 # Usage:
 #   ./make_oemdrv.sh /path/to/Windows11_ARM64.iso [image-index]
@@ -26,11 +26,11 @@ STAGE="$OUT_DIR/oemdrv.stage"
 
 [ -f "$ISO" ] || { echo "missing ISO: $ISO" >&2; exit 1; }
 [ -f "$MEDIA/autounattend.xml" ] || {
-    echo "missing $MEDIA/autounattend.xml; run scripts/render.py first" >&2
+    echo "missing $MEDIA/autounattend.xml; run internal/render.py first" >&2
     exit 1
 }
 [ -d "$MEDIA/oem" ] || { echo "missing $MEDIA/oem" >&2; exit 1; }
-[ -d "$DRIVERS" ] || { echo "missing $DRIVERS; run scripts/stage-drivers.sh" >&2; exit 1; }
+[ -d "$DRIVERS" ] || { echo "missing $DRIVERS; run internal/stage-drivers.sh" >&2; exit 1; }
 find "$DRIVERS" -maxdepth 1 -iname '*.inf' | grep -q . || {
     echo "no .inf in $DRIVERS" >&2
     exit 1

@@ -18,6 +18,30 @@ RDP / WinRM で操作できる状態まで自動構築するためのスクリ�
 5. ESP の `bootmgfw.efi` に OCI A1 向け AnyPages パッチを適用
 6. 検査（qcow2 にしたい場合のみ任意で圧縮）
 
+## 使い方は 3 つだけ
+
+`scripts/` にあるのは入口 3 つです。内部部品は `internal/` にあり、直接は叩きません。
+
+| やること | コマンド | いつ |
+|---|---|---|
+| ホストの準備と検査 | `sudo ./scripts/setup.sh` | 最初に 1 回（冪等） |
+| ディスクを作る | `sudo ./scripts/build.sh --disk /dev/sdb --iso ... --yes` | ビルドするとき |
+| 方法 B の GRUB エントリ | `./scripts/build.sh --grub-entry /srv/iso/ubuntu-live.iso` | `--to-ram` を使う前だけ |
+
+```text
+setup.sh ──> build.sh ──> 完成したディスク
+                │
+                ├─ --image FILE.qcow2    qcow2 を作る（ローカル検証）
+                ├─ --to-ram              ISO を RAM に載せてから書き込む
+                ├─ --keep-ubuntu         Ubuntu 復旧環境を同居させる
+                ├─ --reuse-ubuntu        先に入れた Ubuntu を残して同居
+                ├─ --fetch-iso            ISO をダウンロード
+                └─ --grub-entry           方法 B の GRUB エントリを出力
+```
+
+`build.sh` は `--disk`（ブロックデバイス）か `--image`（qcow2）のどちらかを
+必ず取ります。`--yes` を付けるまで実際には書き込みません。
+
 ## 必要なもの
 
 | 項目 | 要件 |
@@ -32,7 +56,7 @@ RDP / WinRM で操作できる状態まで自動構築するためのスクリ�
 ### パッケージ（Debian/Ubuntu）
 
 ```bash
-sudo ./scripts/bootstrap-ubuntu.sh
+sudo ./scripts/setup.sh
 ```
 
 手動で入れる場合:
@@ -58,10 +82,10 @@ Ampere A1 の Ubuntu を一時的なビルド機にします。
 # 3. B にログインして
 git clone https://github.com/<OWNER>/win11-arm64-oci.git
 cd win11-arm64-oci
-sudo ./scripts/bootstrap-ubuntu.sh
+sudo ./scripts/setup.sh
 
 # 4. A のボリューム（例: /dev/sdb）へ直接書き込む
-sudo ./scripts/direct-run.sh \
+sudo ./scripts/build.sh \
   --disk /dev/sdb \
   --iso /srv/iso/Win11_ARM64_26H2.iso \
   --virtio /srv/iso/virtio-win.iso --yes
@@ -79,7 +103,7 @@ Windows ディスクになります。付け替え手順と、1 インスタン�
 [docs/DUALBOOT.md](docs/DUALBOOT.md)。
 
 ```bash
-sudo ./scripts/direct-run.sh --disk /dev/sdb \
+sudo ./scripts/build.sh --disk /dev/sdb \
   --iso /srv/iso/Win11_ARM64_26H2.iso --virtio /srv/iso/virtio-win.iso \
   --keep-ubuntu --ubuntu-size 4G --yes
 ```
@@ -92,9 +116,9 @@ ISO が書き込み先ディスクにしかない場合は `--to-ram` を付け�
 ## ローカルでビルド
 
 ```bash
-export ISO=/srv/iso/Win11_ARM64_26H2.iso
-export VIRTIO_ISO=/srv/iso/virtio-win.iso
-scripts/build-image.sh
+sudo ./scripts/build.sh --image build/win11-arm64.qcow2 \
+  --iso /srv/iso/Win11_ARM64_26H2.iso \
+  --virtio /srv/iso/virtio-win.iso --yes
 ```
 
 成果物:
@@ -121,7 +145,7 @@ GitHub Actions では Secrets / Variables が環境変数として渡されま�
 
 ```bash
 WIN_USERNAME=alice WIN_PASSWORD='strong-pass' COMPUTER_NAME=MY-WIN \
-  python3 scripts/render.py --out build/media
+  python3 internal/render.py --out build/media
 ```
 
 > **警告**: `oci-a1` は意図的に弱い既定値です。パスワードは完成イメージに
@@ -137,7 +161,7 @@ WIN_USERNAME=alice WIN_PASSWORD='strong-pass' COMPUTER_NAME=MY-WIN \
 | `ci.yml` | `ubuntu-latest` | shellcheck / XML / render / 秘密情報チェック |
 | `build-image.yml` | **self-hosted** | イメージ生成（qcow2 またはブロックデバイス） |
 
-一発ビルドなら runner を登録せず、A1 上で `scripts/direct-run.sh` を直接
+一発ビルドなら runner を登録せず、A1 上で `scripts/build.sh` を直接
 実行する方が簡単です（[docs/OCI.md](docs/OCI.md)）。
 
 `build-image.yml` は **GitHub ホストランナーでは動きません**。
@@ -154,8 +178,9 @@ WIN_USERNAME=alice WIN_PASSWORD='strong-pass' COMPUTER_NAME=MY-WIN \
 ```text
 autounattend/   無人インストール XML テンプレート
 oem/            初回起動時の PowerShell / CMD
-pipeline/       wimlib apply, WinPE, QEMU, 検査
-scripts/        render, build, direct-run, preflight
+scripts/        入口 3 つ: setup.sh / build.sh / live-grub.sh
+internal/       内部部品: build-image, live-ram, render, preflight ...
+pipeline/       ディスク構築の部品: wimlib apply, WinPE, QEMU, 検査
 config/         既定値
 docs/           OCI / SETUP / BUILD / WORKLOG
 ```

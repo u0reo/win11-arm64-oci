@@ -20,16 +20,16 @@ jobs:
           sudo apt-get install -y shellcheck libxml2-utils
 
       - name: shellcheck
-        run: shellcheck -S warning scripts/*.sh pipeline/*.sh
+        run: shellcheck -S warning scripts/*.sh internal/*.sh pipeline/*.sh
 
       - name: python syntax
-        run: python3 -m py_compile scripts/*.py
+        run: python3 -m py_compile internal/*.py
 
       - name: XML well-formedness
         run: xmllint --noout autounattend/autounattend.template.xml
 
       - name: render with defaults
-        run: python3 scripts/render.py --out build/media --check
+        run: python3 internal/render.py --out build/media --check
 
       - name: render with overrides
         env:
@@ -37,7 +37,7 @@ jobs:
           WIN_PASSWORD: "ci-pass-123"
           COMPUTER_NAME: CI-WIN
         run: |
-          python3 scripts/render.py --out build/media --image-index 1
+          python3 internal/render.py --out build/media --image-index 1
           grep -q '<ComputerName>CI-WIN</ComputerName>' build/media/autounattend.xml
           grep -q 'ci-pass-123' build/media/autounattend.xml
           grep -q 'CIUser' build/media/oem/firstlogon.ps1

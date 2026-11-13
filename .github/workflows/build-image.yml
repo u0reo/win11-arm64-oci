@@ -106,7 +106,7 @@ jobs:
           }
 
       - name: Build
-        run: scripts/build-image.sh
+        run: internal/build-image.sh
 
       - name: Write build summary
         if: always()

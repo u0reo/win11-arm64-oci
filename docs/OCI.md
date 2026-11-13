@@ -39,15 +39,15 @@ OCI のカスタムイメージ取り込みは Object Storage 経由です。
 ```bash
 # 1 枚 + toram（Windows ISO は live 内でダウンロード）
 wget -O /dev/shm/Win11.iso https://example.com/Win11_ARM64.iso
-sudo ./scripts/direct-run.sh --to-ram --disk /dev/sda \
+sudo ./scripts/build.sh --to-ram --disk /dev/sda \
   --iso /dev/shm/Win11.iso --mem 6144 --yes
 
 # 2 枚 + toram（両方ディスク上、RAM にコピーしてから消す）
-sudo ./scripts/direct-run.sh --to-ram --disk /dev/sda \
+sudo ./scripts/build.sh --to-ram --disk /dev/sda \
   --iso /cdrom/Win11.iso --virtio /cdrom/virtio-win.iso --mem 6144 --yes
 
 # インストール済み Ubuntu からデュアルブート（p2 は触らない）
-sudo ./scripts/direct-run.sh --reuse-ubuntu --disk /dev/sda \
+sudo ./scripts/build.sh --reuse-ubuntu --disk /dev/sda \
   --iso /home/ubuntu/Win11.iso --virtio /home/ubuntu/virtio-win.iso --yes
 ```
 
@@ -105,22 +105,22 @@ chainload します。手順と注意点は [DUALBOOT.md](DUALBOOT.md)。
 sudo apt-get update && sudo apt-get install -y git
 git clone https://github.com/<OWNER>/win11-arm64-oci.git
 cd win11-arm64-oci
-sudo ./scripts/bootstrap-ubuntu.sh
+sudo ./scripts/setup.sh
 
 # 書き込み先デバイスを確認（OCI のデータボリュームは /dev/sdb か
 # /dev/oracleoci/oraclevdb）
 lsblk -o NAME,SIZE,MODEL,SERIAL
 
-sudo ./scripts/direct-run.sh \
+sudo ./scripts/build.sh \
   --disk /dev/sdb \
   --iso /srv/iso/Win11_ARM64_26H2.iso \
   --virtio /srv/iso/virtio-win.iso \
   --yes
 ```
 
-`direct-run.sh` は次を確認してから `build-image.sh` を呼びます。
+`scripts/build.sh` は次を確認してから `internal/build-image.sh` を呼びます。
 
-- ブロックデバイスであること
+- ブロックデバイスであること（`--image` のときは qcow2 を作る）
 - マウントされていないこと
 - 実行中のルートデバイスでないこと
 - 40 GiB 以上あること
@@ -182,12 +182,12 @@ oci compute instance action --instance-id <A> --action START
 #### RAM だけで強行する（データボリュームなし）
 
 10 GB のボリュームを足さずに済ませる方法です。手順は
-`scripts/live-ram-run.sh` にまとめてあります。
+`internal/live-ram.sh` にまとめてあります。
 
 1. ライブ ISO をブートボリュームの見える場所に置き、GRUB エントリを作る
 
    ```bash
-   sudo ./scripts/live-grub-entry.sh /srv/iso/ubuntu-26.04-live-server-arm64.iso \
+   sudo ./scripts/live-grub.sh /srv/iso/ubuntu-26.04-live-server-arm64.iso \
      | sudo tee -a /etc/grub.d/40_custom
    sudo update-grub
    ```
@@ -200,8 +200,8 @@ oci compute instance action --instance-id <A> --action START
    sudo apt-get update && sudo apt-get install -y git
    git clone https://github.com/<OWNER>/win11-arm64-oci.git
    cd win11-arm64-oci
-   sudo ./scripts/bootstrap-ubuntu.sh
-   sudo ./scripts/direct-run.sh --to-ram --disk /dev/sda \
+   sudo ./scripts/setup.sh
+   sudo ./scripts/build.sh --to-ram --disk /dev/sda \
      --iso /cdrom/Win11_ARM64_26H2.iso \
      --virtio /cdrom/virtio-win.iso --mem 6144 --yes
    ```
@@ -210,13 +210,13 @@ oci compute instance action --instance-id <A> --action START
    `/dev/shm` にダウンロードしてから `--iso /dev/shm/Win11.iso` を渡します
    （`/dev/shm` は RAM なので、ディスクを消しても残ります）。
 
-`--to-ram` は `live-ram-run.sh` に引き継がれ、次を行います。
+`--to-ram` は `internal/live-ram.sh` に引き継がれ、次を行います。
 
 1. `toram` で起動しているか確認（していなければ中止。`/dev/sda` を消すと
    ライブ環境ごと消えるため）
 2. `MemAvailable` と `/dev/shm` の空きを確認し、足りなければ中止
 3. Windows ISO と virtio-win.iso を `/dev/shm` にコピー
-4. `/dev/sda` のマウントをすべて解除し、`direct-run.sh` に引き継ぐ
+4. `/dev/sda` のマウントをすべて解除し、`scripts/build.sh` に引き継ぐ
 
 **`--mem 6144` を必ず指定してください。** 既定の 8192 だと、コピー後の
 空きメモリが足りず QEMU が OOM で落ちることがあります。4 GiB のゲストでも
@@ -246,27 +246,27 @@ Windows 11 のインストールは通ります。
   復旧するしかありません
 - OCI には CD-ROM デバイスが無いので、grub の `loopback` +
   `iso-scan/filename=` で起動する必要があります
-  （`scripts/live-grub-entry.sh` がエントリを出力します）
+  （`scripts/live-grub.sh` がエントリを出力します）
 - ライブ環境の操作はシリアルコンソール越しになります。SSH を上げるまでが
   面倒です
 - `toram` でも ISO のパーティションがマウントされたままの場合があります。
-  `direct-run.sh` はマウント中のデバイスを拒否するので、先に
+  `scripts/build.sh` はマウント中のデバイスを拒否するので、先に
   `sudo umount /dev/sda1` などで外してください
 
 起動後は方法 A の手順 5 と同じです。ISO を別ボリュームに置ける場合は
-`direct-run.sh` をそのまま使えます。
+`scripts/build.sh` をそのまま使えます。
 
 ```bash
 git clone https://github.com/<OWNER>/win11-arm64-oci.git
 cd win11-arm64-oci
-sudo ./scripts/bootstrap-ubuntu.sh
-sudo ./scripts/direct-run.sh --disk /dev/sda \
+sudo ./scripts/setup.sh
+sudo ./scripts/build.sh --disk /dev/sda \
   --iso /path/to/Win11_ARM64_26H2.iso \
   --virtio /path/to/virtio-win.iso --yes
 ```
 
-ISO が `/dev/sda` 上にしかない場合は `live-ram-run.sh`（上記）を使って
-ください。`direct-run.sh` は書き込み前に ISO が消えるため、そのままでは
+ISO が `/dev/sda` 上にしかない場合は `--to-ram`（上記）を使って
+ください。`scripts/build.sh` は書き込み前に ISO が消えるため、そのままでは
 動きません。
 
 このため、特別な理由がなければ方法 A を使ってください。
@@ -276,7 +276,7 @@ ISO が `/dev/sda` 上にしかない場合は `live-ram-run.sh`（上記）を�
 
 ## ビルドの流れ（共通）
 
-`direct-run.sh` は `build-image.sh` に `DISK` を渡すだけです。
+`scripts/build.sh` は `internal/build-image.sh` に `DISK` を渡すだけです。
 
 1. `render.py` で autounattend / OEM スクリプトを生成
 2. virtio-win の ARM64 ドライバを展開
@@ -292,8 +292,9 @@ ISO が `/dev/sda` 上にしかない場合は `live-ram-run.sh`（上記）を�
 qcow2 を作りたいときは `DISK` を省略します（ローカル検証用）。
 
 ```bash
-ISO=/srv/iso/Win11_ARM64_26H2.iso VIRTIO_ISO=/srv/iso/virtio-win.iso \
-  scripts/build-image.sh
+sudo ./scripts/build.sh --image build/win11-arm64.qcow2 \
+  --iso /srv/iso/Win11_ARM64_26H2.iso \
+  --virtio /srv/iso/virtio-win.iso --yes
 ```
 
 ## 起動後
@@ -313,7 +314,7 @@ ISO=/srv/iso/Win11_ARM64_26H2.iso VIRTIO_ISO=/srv/iso/virtio-win.iso \
 
 ## バックアップと復旧
 
-`direct-run.sh` は対象デバイスを消します。実行前に**ブートボリュームの
+`scripts/build.sh` は対象デバイスを消します。実行前に**ブートボリュームの
 バックアップ**を取ってください。
 
 ```bash
@@ -340,9 +341,9 @@ oci bv boot-volume-backup create \
 | 症状 | 確認 |
 |---|---|
 | `preflight.sh` がディスク不足で止まる | ブートボリュームを 64 GB 以上に |
-| `qemu-system-aarch64: not found` | `bootstrap-ubuntu.sh` |
+| `qemu-system-aarch64: not found` | `scripts/setup.sh` |
 | AAVMF が無い | `qemu-efi-aarch64` パッケージ |
 | ビルドが異常に遅い | `/dev/kvm` の有無。無ければ TCG |
-| `direct-run.sh` が「ルートデバイス」で止まる | 方法 A に切り替える |
+| `scripts/build.sh` が「ルートデバイス」で止まる | 方法 A に切り替える |
 | 起動しない | ESP に `BOOTAA64.EFI` があるか、AnyPages パッチが当たっているか |
 | RDP が繋がらない | セキュリティリスト/NSG で 3389 を許可 |

@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # Download the Windows 11 ARM64 ISO from a URL or an rclone remote.
 #
-#   ./scripts/fetch-iso.sh https://host/Win11.iso build/iso/Win11.iso [sha256]
-#   ./scripts/fetch-iso.sh remote:win11/Win11.iso build/iso/Win11.iso
+#   ./internal/fetch-iso.sh https://host/Win11.iso build/iso/Win11.iso [sha256]
+#   ./internal/fetch-iso.sh remote:win11/Win11.iso build/iso/Win11.iso
 #
 # A local file is linked/copied without network access.
 set -euo pipefail

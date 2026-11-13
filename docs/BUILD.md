@@ -1,14 +1,15 @@
 # ビルドの流れ
 
-`scripts/build-image.sh` は次の順に実行します。
-途中で失敗した場合は、その段階のスクリプトを単体で再実行できます。
+入口は `scripts/build.sh`（引数チェック・確認・安全検査）で、実際の
+13 段階は `internal/build-image.sh` が回します。途中で失敗した場合は、
+その段階のスクリプトを単体で再実行できます。
 
 ## 段階一覧
 
 | # | 処理 | 実体 |
 |---|---|---|
-| 1 | 設定の解決と XML 生成 | `scripts/render.py` |
-| 2 | virtio-win ARM64 ドライバ展開 | `scripts/stage-drivers.sh` |
+| 1 | 設定の解決と XML 生成 | `internal/render.py` |
+| 2 | virtio-win ARM64 ドライバ展開 | `internal/stage-drivers.sh` |
 | 3 | OEMDRV ISO 作成 | `pipeline/make_oemdrv.sh` |
 | 4 | Ubuntu の netplan / SSH 設定を退避（`KEEP_UBUNTU=1`） | `pipeline/save_ubuntu_config.sh` |
 | 5 | ディスク作成 + `install.wim` 適用 | `pipeline/host_apply.sh` |
@@ -17,15 +18,15 @@
 | 8 | 起動用 FAT イメージ作成 | `pipeline/make_bootfat.sh` |
 | 9 | WinPE でドライバ + `bcdboot`（自動） | QEMU phase A |
 | 10 | Windows 初回起動 + 準備完了待ち | QEMU phase B |
-| 11 | ACPI シャットダウン | `scripts/qmp-powerdown.py` |
+| 11 | ACPI シャットダウン | `internal/qmp-powerdown.py` |
 | 12 | ESP パッチ + 検査 | `pipeline/finish_disk.sh` / `pipeline/inspect_image.sh` |
-| 13 | 圧縮（`PACKAGE=1`） | `scripts/package-image.sh` |
+| 13 | 圧縮（`PACKAGE=1`） | `internal/package-image.sh` |
 
 `DISK` を省略すると `build/win11-arm64.qcow2` に書き、`PACKAGE=1` のときだけ
-`scripts/package-image.sh` で圧縮します。`DISK=/dev/sdX` を渡すとブロック
+`internal/package-image.sh` で圧縮します。`DISK=/dev/sdX` を渡すとブロック
 デバイスへ直接書き込み、圧縮は行いません。
 
-`KEEP_UBUNTU=1`（`direct-run.sh --keep-ubuntu`）では、ESP を残したまま
+`KEEP_UBUNTU=1`（`scripts/build.sh --keep-ubuntu`）では、ESP を残したまま
 p2 を `RECOVERY_SIZE`（既定 4 GiB）の Ubuntu Server minimal として作り直し、
 p3 を Windows にします。設定は [DUALBOOT.md](DUALBOOT.md)。
 
@@ -88,8 +89,8 @@ SOFTWARE ハイブを壊したためです。
 export ISO=/srv/iso/Win11_ARM64_26H2.iso
 export BUILD_DIR=$PWD/build
 
-python3 scripts/render.py --out "$BUILD_DIR/media"
-scripts/stage-drivers.sh
+python3 internal/render.py --out "$BUILD_DIR/media"
+internal/stage-drivers.sh
 pipeline/make_oemdrv.sh "$ISO" 1
 pipeline/host_apply.sh "$ISO" "$BUILD_DIR/win11-arm64.qcow2" 1
 
@@ -124,7 +125,7 @@ qcow2 パスを `/dev/sdb` に置き換え、最後に
 | OOBE が始まらない | `Windows/Panther/unattend.xml` の配置 |
 | RDP/WinRM が上がらない | `C:\OEM\boot.log`、`specialize.log` |
 | ゲストが落ちない | QMP ソケット、`build/logs/install-qemu.log` |
-| ディスク不足 | `scripts/preflight.sh` の空き容量表示 |
+| ディスク不足 | `internal/preflight.sh` の空き容量表示 |
 
 ## 既知の制約
 

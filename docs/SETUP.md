@@ -64,7 +64,7 @@ tar xzf runner.tar.gz
 ### 必要なパッケージ
 
 ```bash
-sudo ./scripts/bootstrap-ubuntu.sh
+sudo ./scripts/setup.sh
 ```
 
 手動で入れる場合:
@@ -120,16 +120,15 @@ TCG の場合、数時間かかることがあります。
 qcow2 を作る場合:
 
 ```bash
-export ISO=/srv/iso/Win11_ARM64_26H2.iso
-export VIRTIO_ISO=/srv/iso/virtio-win.iso
-export WIN_PASSWORD='strong-pass'   # 任意
-scripts/build-image.sh
+sudo ./scripts/build.sh --image build/win11-arm64.qcow2 \
+  --iso /srv/iso/Win11_ARM64_26H2.iso \
+  --virtio /srv/iso/virtio-win.iso --yes
 ```
 
 ブロックデバイスへ直接書く場合（OCI のブートボリューム付け替え）:
 
 ```bash
-sudo ./scripts/direct-run.sh \
+sudo ./scripts/build.sh \
   --disk /dev/sdb \
   --iso /srv/iso/Win11_ARM64_26H2.iso \
   --virtio /srv/iso/virtio-win.iso --yes

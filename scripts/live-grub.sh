@@ -2,7 +2,9 @@
 # Print a GRUB menu entry that boots an Ubuntu live ISO with `toram`, which
 # is what method B needs before the disk is wiped.
 #
-#   ./scripts/live-grub-entry.sh /srv/iso/ubuntu-26.04-live-server-arm64.iso
+#   ./scripts/live-grub.sh /srv/iso/ubuntu-26.04-live-server-arm64.iso
+#
+# scripts/build.sh --grub-entry <iso> does the same thing.
 #
 # Append the output to /etc/grub.d/40_custom on the instance, then run
 # `sudo update-grub`.  The ISO must live on a mounted filesystem (its UUID
