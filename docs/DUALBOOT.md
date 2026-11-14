@@ -1,5 +1,8 @@
 # Ubuntu 復旧環境を残して Windows と共存する
 
+> このページは追加情報です。実際の手順は README の
+> [ステージ4](../README.md#ステージ4-ビルド) を参照してください。
+
 Windows 11 を同じブートボリュームに入れつつ、**4 GiB の小さな Ubuntu を
 復旧用に残す**構成です。Ubuntu の GRUB を先に起動するのではなく、
 Windows Boot Manager のメニューから Ubuntu を選ぶ形にします。
@@ -23,92 +26,26 @@ p3  Windows (NTFS, 残り)      wimlib-imagex で適用
 に置きます。**`/etc/shadow` と SSH 秘密鍵を含むので git に入れないでください**
 （`build/` は .gitignore 済み）。ビルドが終わったら削除してください。
 
-## OCI の Ubuntu から始める
+## なぜ live 環境で p2 を作り直すのか
 
-ISO の取得方法は [README の「ISO の入手」](../README.md#iso-の入手) を
-参照してください。最初に用意するのは Ubuntu Server の live ISO 1 枚だけです。
-Windows ISO と virtio-win は live 環境で用意します。
-
-いま起動しているのが OCI の標準 Ubuntu（`/dev/sda2` が 46 GiB の root）
-の場合、**その p2 は縮小できません**（マウント中の ext4 は縮小できない
-ため）。live 環境で p2 を作り直します。
-
-```bash
-# 1. live ISO を GRUB に登録する。
-#    --ssh で ESP を CIDATA にし、authorized_keys を引き継ぐ。
-sudo ./scripts/prepare.sh \
-  /srv/iso/ubuntu-24.04.5-live-server-arm64.iso --write --ssh
-
-# 2. 再起動し、GRUB で "Ubuntu live (toram)" を選ぶ
-sudo reboot
-```
-
-live 環境で Windows ISO と virtio-win を `/dev/shm` に置き、次のどちらかを
-実行します。
-
-```bash
-# Windows のみ（p2 も消える）
-sudo ./scripts/build.sh --disk /dev/sda \
-  --iso /dev/shm/Win11_ARM64_26H2.iso \
-  --virtio /dev/shm/virtio-win.iso --mem 6144 --yes
-
-# Windows + 4 GiB の Ubuntu 復旧環境
-sudo ./scripts/build.sh --keep-ubuntu --disk /dev/sda \
-  --iso /dev/shm/Win11_ARM64_26H2.iso \
-  --virtio /dev/shm/virtio-win.iso --mem 6144 --yes
-```
-
-`--keep-ubuntu` は p2 を 4 GiB で作り直して minimal Ubuntu を debootstrap
-するので、Windows と Ubuntu が 1 回のビルドでできます。ISO が対象ディスク
-上に残っていても、`--yes` の後で `/dev/shm` に自動でコピーされます。
-
-RAM の内訳と、データボリュームを使う場合の注意は
-[OCI.md の「24 GB で足りるか」](OCI.md#24-gb-で足りるか) にあります。
+いま起動しているのが OCI の標準 Ubuntu（`/dev/sda2` が 46 GiB の root）の
+場合、**その p2 は縮小できません**（マウント中の ext4 は縮小できないため）。
+そこで live 環境に切り替えて、p2 を作り直します。live への切り替えは
+README の [ステージ2-B](../README.md#ステージ2-b-live-を-toram-で起動する)
+にあります。
 
 ## 使い方
 
-```bash
-sudo ./scripts/build.sh \
-  --disk /dev/sdb \
-  --iso /srv/iso/Win11_ARM64_26H2.iso \
-  --virtio /srv/iso/virtio-win.iso \
-  --keep-ubuntu --ubuntu-size 4G --yes
-```
+README の [ステージ4](../README.md#ステージ4-ビルド) のコマンドに
+`--keep-ubuntu` を足します。`--ubuntu-size` を省略すると 4 GiB です。
+Ubuntu を 6 GiB にしたければ `--ubuntu-size 6G`。Windows は残り全部
+（100 GB のボリュームなら約 88 GiB）を使います。
 
-`--ubuntu-size` を省略すると 4 GiB です。Ubuntu を 6 GiB にしたければ
-`--ubuntu-size 6G`。Windows は残り全部（100 GB のボリュームなら約 88 GiB）
-を使います。
+`--keep-ubuntu` は p2 を 4 GiB で作り直して minimal Ubuntu を debootstrap
+するので、Windows と Ubuntu が 1 回のビルドでできます。
 
-## 上級者向け: 既に小さな Ubuntu が入っている場合（`--reuse-ubuntu`）
-
-p2 に 4 GiB 程度の Ubuntu を**自分で入れて起動してある**なら、
-`--reuse-ubuntu` で p2 を残したまま Windows を足せます。`prepare.sh` は
-live 起動しか登録しないので、この Ubuntu は別のインストーラや方法 A で
-用意しておく必要があります。通常は `--keep-ubuntu` を使ってください。
-
-```text
-1. p2 に Ubuntu を入れる（p1 ESP は既存のまま）
-   - p2 / を 4 GiB 程度
-   - 残りは「未割り当て」のままにする（ここが p3 になります）
-2. その Ubuntu を起動して SSH で入る
-3. sudo ./scripts/build.sh --reuse-ubuntu --disk /dev/sda \
-     --iso /mnt/data/Win11_ARM64_26H2.iso \
-     --virtio /mnt/data/virtio-win.iso --yes
-```
-
-`--reuse-ubuntu` は p2 を**一切書き換えません**。p3 の作成と ESP への
-`bcdboot` だけを行います。そのため実行中のディスクでも受け付けます
-（他のモードは拒否します）。
-
-注意点:
-
-- p2 の後ろに **40 GiB 以上の未割り当て領域**が必要です。足りない場合は
-  エラーになります。インストール時に 4 GiB だけ使うようにしてください
-- 実行中の ext4 を触らないので `resize2fs` は不要ですが、**QEMU が同じ
-  ディスクを開きます**。ビルド中に p2 のファイルを書き換えたり、電源を
-  切ったりしないでください
-- Windows のみ（p2 を消す）は**できません**。その場合は `toram` で
-  live 環境から実行してください
+RAM の内訳と、データボリュームを使う場合の注意は
+[OCI.md の「24 GB で足りるか」](OCI.md#24-gb-で足りるか) にあります。
 
 ## 中で起きること
 
@@ -123,6 +60,8 @@ live 起動しか登録しないので、この Ubuntu は別のインストー�
 4. Windows を p3 に適用
 5. WinPE で `bcdboot` を ESP に実行し、BCD に
    `BOOTAPP` エントリ（`\EFI\ubuntu\grubaa64.efi`）を追加
+
+## 起動メニュー
 
 再起動すると Windows Boot Manager が 5 秒のメニューを出します。
 
@@ -149,6 +88,36 @@ Ubuntu 側の GRUB が壊れても Windows は起動します。
 - **4 GiB で足りるか**: minimal + カーネル + initramfs で 1.6〜2.2 GiB 程度。
   `apt` のリストとキャッシュは削除済み。`df` の結果がログに出ます
 - **Windows Update**: 大型更新で ESP やブート順が書き換わる可能性があります
+
+## 上級者向け: 既に小さな Ubuntu が入っている場合（`--reuse-ubuntu`）
+
+p2 に 4 GiB 程度の Ubuntu を**自分で入れて起動してある**なら、
+`--reuse-ubuntu` で p2 を残したまま Windows を足せます。`prepare.sh` は
+live 起動しか登録しないので、この Ubuntu は別のインストーラや
+[ステージ2-A](../README.md#ステージ2-a-ボリュームを付け替える) で
+用意しておく必要があります。通常は `--keep-ubuntu` を使ってください。
+
+```text
+1. p2 に Ubuntu を入れる（p1 ESP は既存のまま）
+   - p2 / を 4 GiB 程度
+   - 残りは「未割り当て」のままにする（ここが p3 になります）
+2. その Ubuntu を起動して SSH で入る
+3. README ステージ4 のコマンドに --reuse-ubuntu を足して実行する
+```
+
+`--reuse-ubuntu` は p2 を**一切書き換えません**。p3 の作成と ESP への
+`bcdboot` だけを行います。そのため実行中のディスクでも受け付けます
+（他のモードは拒否します）。
+
+注意点:
+
+- p2 の後ろに **40 GiB 以上の未割り当て領域**が必要です。足りない場合は
+  エラーになります。インストール時に 4 GiB だけ使うようにしてください
+- 実行中の ext4 を触らないので `resize2fs` は不要ですが、**QEMU が同じ
+  ディスクを開きます**。ビルド中に p2 のファイルを書き換えたり、電源を
+  切ったりしないでください
+- Windows のみ（p2 を消す）は**できません**。その場合は `toram` で
+  live 環境から実行してください
 
 ## 復旧環境の使い方
 

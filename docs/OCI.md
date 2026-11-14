@@ -1,5 +1,9 @@
 # OCI Ampere A1 を Windows に置き換える
 
+> このページは追加情報です。実際の手順は README の
+> [ステージ2](../README.md#ステージ2-ビルド環境を作る) から
+> [ステージ6](../README.md#ステージ6-後片付け) を参照してください。
+
 GitHub ホストランナーでは作れません（14 GB SSD / 6 時間 / KVM なし）。
 OCI の Ampere A1 をビルド機にして、**ブートボリュームの中身を Windows に
 置き換える**のがこのリポジトリの想定です。
@@ -19,54 +23,11 @@ OCI のカスタムイメージ取り込みは Object Storage 経由です。
 そこで「イメージを作って配る」のをやめ、**ブートボリュームを直接書き換える**
 方針にしました。
 
-## どの組み合わせが可能か
-
-起動方法は **live Ubuntu を `toram` で RAM に載せる一択**です。
-OCI の標準 Ubuntu は p2 が 46 GiB の root で、マウント中の ext4 は縮小
-できないため、インストーラで p2 を作り直す経路は取りません。
-live 環境で、仕上がりだけを選びます。`build.sh` は、実行中のルートや
-live ISO が対象ディスク上にある場合は実行を拒否します（`--reuse-ubuntu`
-を除く）。
-
-| 仕上がり | コマンド | p2 |
-|---|---|---|
-| Windows のみ | `--disk /dev/sda` | 消える（Windows が全体を使う） |
-| Windows + 4 GiB Ubuntu | `--keep-ubuntu --disk /dev/sda` | 4 GiB で作り直す |
-
-Windows ISO と virtio-win の置き場所は 2 通りです。
-
-| 置き場所 | メモリ | 失敗時の再試行 |
-|---|---|---|
-| `/dev/shm`（RAM） | 6.2 + 0.7 GB を使う | ディスクを消すと消える |
-| 10 GB のデータボリューム | 使わない | 残る（推奨） |
-
-```bash
-# RAM に置く（データボリュームなし）
-sudo ./scripts/build.sh --disk /dev/sda \
-  --iso /dev/shm/Win11.iso --virtio /dev/shm/virtio-win.iso \
-  --mem 6144 --yes
-
-# 10 GB のデータボリュームから読む（/mnt/data の例は下の注意を参照）
-sudo ./scripts/build.sh --disk /dev/sda \
-  --iso /mnt/data/Win11.iso --virtio /mnt/data/virtio-win.iso \
-  --mem 6144 --yes
-
-# 4 GiB の Ubuntu 復旧環境も残す
-sudo ./scripts/build.sh --keep-ubuntu --disk /dev/sda \
-  --iso /dev/shm/Win11.iso --virtio /dev/shm/virtio-win.iso \
-  --mem 6144 --yes
-```
-
-すでに p2 に 4 GiB 程度の Ubuntu を入れて起動してある場合だけ、
-`--reuse-ubuntu` で p2 を残せます（上級者向け。
-[DUALBOOT.md](DUALBOOT.md)）。`prepare.sh` は live 起動しか登録しないので、
-その Ubuntu は別途インストーラ等で入れておく必要があります。
-
-## 方法 A: ボリュームを付け替える
+## ステージ2-A ボリュームを付け替える
 
 OCI は「停止したインスタンスからブートボリュームを切り離し、別の
 インスタンスにデータボリュームとして付ける」ことを公式に認めています。
-これを使うと、ライブ CD も grub 細工も RAM ディスクも不要です。
+これを使うと、live ISO も grub 細工も RAM ディスクも不要です。
 
 > 「ブートボリュームとブロックボリュームは変換できない」は正しいのですが、
 > **変換は不要**です。ブートボリュームを停止中に detach し、ブロック
@@ -82,60 +43,9 @@ OCI は「停止したインスタンスからブートボリュームを切り�
 > と明記されています。リソース種別はブートボリュームのままですが、
 > データボリュームとして見える、という扱いです。
 
-```text
-1. ターゲット A を作る（Ubuntu 26.04 minimal aarch64、ブート 50 GB）
-2. A を停止し、ブートボリュームを切り離す
-3. ビルダー B を作る（Ubuntu、ブート 50 GB、同じ AD）
-4. A のブートボリュームを B にデータボリュームとして接続する
-5. B でビルドする（書き込み先は /dev/sdb など）
-6. B を停止し、ボリュームを切り離して A のブートボリュームとして再接続
-7. A を起動すると Windows が立ち上がる
-```
-
-ボリュームは 50 + 50 = 100 GB で、Always Free の 200 GB に収まります。
-A は手順 7 まで一度も起動し直さないので、失敗しても A の Ubuntu は無傷です
-（ボリュームの中身は変わっていますが、付け替えれば調べられます）。
-
-50 GB は OCI の Linux イメージの既定サイズであり、Windows の実データは
-約 28 GB なので収まります。ただし Microsoft の公式要件は 64 GB なので、
-Windows Update の余裕を考えるなら A だけ 64 GB にしても構いません
-（50 + 64 = 114 GB で無料枠内）。
-
-Ubuntu を 4 GiB の復旧環境として残す場合は `--keep-ubuntu` を付けます。
-ESP を保持したまま p2 を作り直し、Windows Boot Manager から GRUB を
-chainload します。手順と注意点は [DUALBOOT.md](DUALBOOT.md)。
-
-### 手順
-
-```bash
-# B にログイン
-sudo apt-get update && sudo apt-get install -y git
-git clone https://github.com/<OWNER>/win11-arm64-oci.git
-cd win11-arm64-oci
-sudo ./scripts/setup.sh
-
-# 書き込み先デバイスを確認（OCI のデータボリュームは /dev/sdb か
-# /dev/oracleoci/oraclevdb）
-lsblk -o NAME,SIZE,MODEL,SERIAL
-
-sudo ./scripts/build.sh \
-  --disk /dev/sdb \
-  --iso /srv/iso/Win11_ARM64_26H2.iso \
-  --virtio /srv/iso/virtio-win.iso \
-  --yes
-```
-
-`scripts/build.sh` は次を確認してから `internal/build-image.sh` を呼びます。
-
-- ブロックデバイスであること（`--image` のときは qcow2 を作る）
-- 実行中のルートが対象デバイスでないこと（`--reuse-ubuntu` を除く）
-- live ISO の loop が対象デバイス上にないこと（`toram` 起動か）
-- 40 GiB 以上あること
-
-`--yes` の後、対象デバイス上に残っている Windows ISO / virtio-win を
-`/dev/shm` にコピーし、対象デバイスのマウントをすべて解除します。
-
-`--yes` を付けないと、対象デバイスの model / serial / size を表示して止まります。
+手順の全体像は README の
+[ステージ2-A](../README.md#ステージ2-a-ボリュームを付け替える) にあります。
+ここでは OCI CLI の操作と容量の考え方だけを示します。
 
 ### OCI CLI で付け替える
 
@@ -164,11 +74,30 @@ oci compute instance action --instance-id <A> --action START
 `boot-volume-attachment attach` は**ブートボリュームの OCID** を取ります。
 混同しやすいので注意してください。コンソールでも同じことができます。
 
-## 方法 B: ライブ CD を RAM に載せて sda を書き換える
+### 容量と無料枠
+
+ボリュームは 50 + 50 = 100 GB で、Always Free の 200 GB に収まります。
+A はビルド中に一度も起動し直さないので、失敗しても A の Ubuntu は無傷です
+（ボリュームの中身は変わっていますが、付け替えれば調べられます）。
+
+50 GB は OCI の Linux イメージの既定サイズであり、Windows の実データは
+約 28 GB なので収まります。ただし Microsoft の公式要件は 64 GB なので、
+Windows Update の余裕を考えるなら A だけ 64 GB にしても構いません
+（50 + 64 = 114 GB で無料枠内）。
+
+Ubuntu を 4 GiB の復旧環境として残す場合は `--keep-ubuntu` を付けます。
+ESP を保持したまま p2 を作り直し、Windows Boot Manager から GRUB を
+chainload します。詳細は [DUALBOOT.md](DUALBOOT.md)。
+
+## ステージ2-B live を toram で起動する
 
 1 インスタンスで完結させたい場合の方法です。Ubuntu のライブ ISO を
 ブートボリュームの 1 パーティションに置き、grub の `loopback` で起動し、
 `toram` でメモリに展開してから `/dev/sda` を丸ごと上書きします。
+
+起動方法は **live Ubuntu を `toram` で RAM に載せる一択**です。
+OCI の標準 Ubuntu は p2 が 46 GiB の root で、マウント中の ext4 は縮小
+できないため、インストーラで p2 を作り直す経路は取りません。
 
 ### 24 GB で足りるか
 
@@ -191,55 +120,54 @@ virtio-win（0.7 GB）を `/dev/shm`（RAM）に置いても、24 GB に収ま�
 以前の「p2 を 8 GiB にする」案は不要です。live の RAM で賄うので、
 ディスク上の Ubuntu は `--keep-ubuntu` の 4 GiB だけです。
 
-#### 手順
+### `prepare.sh --ssh` の仕組み
 
-1. Ubuntu live ISO をブートボリュームに置き、GRUB エントリを作る
-   （ISO の入手は [README の「ISO の入手」](../README.md#iso-の入手)）
+`--write` は `/etc/grub.d/40_custom` に追記して `update-grub` まで
+実行します（何度実行してもエントリは 1 つに保たれます）。
 
-   ```bash
-   sudo ./scripts/prepare.sh \
-     /srv/iso/ubuntu-24.04.5-live-server-arm64.iso --write --ssh
-   ```
+`--ssh` は ESP に cloud-init の seed を書き、ESP のラベルを `CIDATA` に
+して、live 起動時から `authorized_keys` で SSH できるようにします。
+元のラベルは ESP の `win11-arm64-oci-esp-label` に保存され、復元コマンドも
+表示されます。
 
-   `--write` は `/etc/grub.d/40_custom` に追記して `update-grub` まで
-   実行します（何度実行してもエントリは 1 つに保たれます）。
-   `--ssh` は ESP に cloud-init の seed を書き、ESP のラベルを `CIDATA` に
-   して、live 起動時から `authorized_keys` で SSH できるようにします。
-   元のラベルは ESP の `win11-arm64-oci-esp-label` に保存され、復元コマンドも
-   表示されます。
+Ubuntu Server live には cloud-init と openssh-server が入っており、
+`ssh.socket` が最初から有効です（seed 側の `systemctl enable --now ssh`
+は念のためで、無くても 22 番は開きます）。sshd が上がらないときは
+`sudo cloud-init status --long` を見てください。live のホスト鍵は毎回
+変わるので、`known_hosts` の警告が出たら `ssh-keygen -R <ip>` で消して
+ください。ESP のラベルはビルド後に戻せます（`prepare.sh` が表示する
+`fatlabel` コマンド）。
 
-2. 再起動し、GRUB で `Ubuntu live (toram)` を選ぶ
+`prepare.sh --ssh` の seed は、Ubuntu 24.04.5 live-server arm64 ISO を
+QEMU（AAVMF + TCG）で起動して確認済みです。cloud-init が `CIDATA` を
+自動検出し、`ubuntu` ユーザー作成・`authorized_keys` でのログイン・
+パスワードなし sudo・22 番の listen まで通りました。TCG では systemd の
+起動完了まで実時間で 15 分ほどかかります。`meta-data` の
+`local-hostname` は live では効かず、ホスト名は `ubuntu-server` のままに
+なります（動作に影響はありません）。
 
-3. live 環境で Windows ISO と virtio-win を `/dev/shm` に用意する
-   （取得方法は README の「ISO の入手」）
+### 注意点
 
-4. ビルドする
+- `toram` で起動しても、**書き換えた瞬間に grub エントリと ISO が消えます**。
+  失敗するとライブ環境に戻れず、ボリュームを別インスタンスに付けて
+  復旧するしかありません
+- OCI には CD-ROM デバイスが無いので、grub の `loopback` +
+  `iso-scan/filename=` で起動する必要があります
+  （`scripts/prepare.sh` がエントリを作ります）
+- `toram` でも対象ディスクのパーティションがマウントされたままの場合があります。
+  `scripts/build.sh` は `--yes` の後で自動的に解除します。解除できない場合は
+  `fuser -vm <mountpoint>` で使用中プロセスを確認してください
 
-   ```bash
-   sudo apt-get update && sudo apt-get install -y git
-   git clone https://github.com/<OWNER>/win11-arm64-oci.git
-   cd win11-arm64-oci
-   sudo ./scripts/setup.sh
-   sudo ./scripts/build.sh --disk /dev/sda \
-     --iso /dev/shm/Win11_ARM64_26H2.iso \
-     --virtio /dev/shm/virtio-win.iso --mem 6144 --yes
-   ```
+## ISO の置き場所
 
-   `--keep-ubuntu` を足すと 4 GiB の Ubuntu 復旧環境も一緒に作ります。
+Windows ISO と virtio-win の置き場所は 2 通りです。
 
-`--yes` を付けると、`build.sh` は次を行います。
+| 置き場所 | メモリ | 失敗時の再試行 |
+|---|---|---|
+| `/dev/shm`（RAM） | 6.2 + 0.7 GB を使う | ディスクを消すと消える |
+| 10 GB のデータボリューム | 使わない | 残る（推奨） |
 
-1. 実行中の環境が `/dev/sda` に依存していないか確認（ルートが `/dev/sda`
-   上、または live ISO の loop が `/dev/sda` 上なら中止）
-2. Windows ISO と virtio-win.iso が `/dev/sda` 上にある場合だけ、
-   `MemAvailable` と `/dev/shm` の空きを確認して `/dev/shm` にコピー
-3. `/dev/sda` のマウントをすべて解除してから書き込み開始
-
-`--mem` の既定は 6144 MiB です。RAM が 24 GB の A1 で ISO を `/dev/shm`
-に置く場合、`--mem 8192` は OOM の危険があります。`--mem 6144` のままに
-してください。
-
-#### 10 GB のデータボリュームに置く場合
+### 10 GB のデータボリュームに置く場合
 
 ISO をディスクに残せるので、失敗時の再試行が楽です。
 
@@ -255,10 +183,13 @@ ISO をディスクに残せるので、失敗時の再試行が楽です。
 `/dev/sda` の書き換えの影響を受けません。100 GB（ブート）+ 10 GB
 （ISO）= 110 GB で無料枠に収まります。
 
-**Desktop ISO は使わず Server ISO にしてください。** また `MEM` を 16 GB に
-すると破綻します（6 GiB のままで十分です）。
+**Ubuntu の live ISO は Desktop ではなく Server を使ってください。** また
+`--mem` を 16 GB にすると破綻します（6 GiB のままで十分です）。
 
-#### データボリュームのデバイス名は固定ではない
+ISO が `/mnt/data` にある場合、`build.sh` はコピーしません
+（`/mnt/data` が `/dev/sda` 上にある場合だけ `/dev/shm` にコピーします）。
+
+### データボリュームのデバイス名は固定ではない
 
 OCI のデータボリュームは `/dev/sdb` になるとは限りません
 （`/dev/oracleoci/oraclevdb` のこともあります）。再起動や付け替えで
@@ -281,94 +212,72 @@ findmnt /mnt/data
 以降は `/dev/sdb` ではなく `/mnt/data` を渡します。デバイス名を確認
 したいときは `findmnt -no SOURCE /mnt/data` です。
 
-データボリュームを増やさず、Cloudflare R2 / Backblaze B2 / OCI Object Storage /
-WebDAV を一時置き場にする方法は、README の
-[「一時ストレージをマウントする」](../README.md#一時ストレージをマウントするおすすめ)
-にまとめています。GRUB は FUSE を読めないので、live ISO だけは実ディスクに
-置いてください。
+### 一時ストレージをマウントする（おすすめ）
 
-ISO が `/mnt/data` にある場合、`build.sh` はコピーしません
-（`/mnt/data` が `/dev/sda` 上にある場合だけ `/dev/shm` にコピーします）。
+Windows ISO（6 GB 前後）と virtio-win（0.7 GB）の置き場だけなら、
+無料枠のあるクラウドストレージをマウントするのが手軽です。
+**一定期間で消えてもよい**一時用途に向くものを挙げます。
 
-### 注意点
+| サービス | 無料枠 | つなぎ方 | メモ |
+|---|---|---|---|
+| Cloudflare R2 | 10 GB | S3（rclone / s3fs） | 下り転送が無料。ISO の置き場に最適 |
+| Backblaze B2 | 10 GB | S3 / B2（rclone） | 下りは容量の 3 倍/日まで無料 |
+| OCI Object Storage | 10 GB 程度（Always Free） | S3 互換（rclone / OCI CLI） | 同一リージョンなら速い |
+| pCloud | 10 GB | WebDAV（rclone / davfs2） | 設定が簡単 |
+| Koofr | 10 GB | WebDAV | 同上 |
+| InfiniCLOUD | 20 GB | WebDAV | 枠が大きい |
+| Google Drive | 15 GB | rclone | 手元にあることが多い |
+| MEGA | 20 GB | rclone | 枠が大きい |
 
-- `toram` で起動しても、**書き換えた瞬間に grub エントリと ISO が消えます**。
-  失敗するとライブ環境に戻れず、ボリュームを別インスタンスに付けて
-  復旧するしかありません
-- OCI には CD-ROM デバイスが無いので、grub の `loopback` +
-  `iso-scan/filename=` で起動する必要があります
-  （`scripts/prepare.sh` がエントリを作ります）
-- ライブ環境の操作は基本シリアルコンソールです。`prepare.sh --ssh` を
-  付けておくと、ESP を `CIDATA` にして cloud-init の seed を置くので、
-  live 起動時から `ubuntu` ユーザー（パスワードなし sudo）で SSH できます。
-  Ubuntu Server live には cloud-init と openssh-server が入っており、
-  `ssh.socket` が最初から有効です（seed 側の `systemctl enable --now ssh`
-  は念のためで、無くても 22 番は開きます）。
-  sshd が上がらないときは `sudo cloud-init status --long` を見てください。
-  live のホスト鍵は毎回変わるので、`known_hosts` の警告が出たら
-  `ssh-keygen -R <ip>` で消してください。ESP のラベルはビルド後に戻せます
-  （`prepare.sh` が表示する `fatlabel` コマンド）
-- `prepare.sh --ssh` の seed は、Ubuntu 24.04.5 live-server arm64 ISO を
-  QEMU（AAVMF + TCG）で起動して確認済みです。cloud-init が `CIDATA` を
-  自動検出し、`ubuntu` ユーザー作成・`authorized_keys` でのログイン・
-  パスワードなし sudo・22 番の listen まで通りました。TCG では systemd の
-  起動完了まで実時間で 15 分ほどかかります。`meta-data` の
-  `local-hostname` は live では効かず、ホスト名は `ubuntu-server` のままに
-  なります（動作に影響はありません）
-- `toram` でも対象ディスクのパーティションがマウントされたままの場合があります。
-  `scripts/build.sh` は `--yes` の後で自動的に解除します。解除できない場合は
-  `fuser -vm <mountpoint>` で使用中プロセスを確認してください
-
-ISO を別ボリューム（`/mnt/data`）に置く場合も、コマンドは同じです。
-`/dev/sda` 上に無ければコピーは起きず、RAM 起動かどうかの安全確認だけが
-行われます。
-
-方法 A（別インスタンスのビルダーから書き込む）と方法 B（1 インスタンスで
-完結）は、どちらも同じディスクを作ります。ビルド機を分けたいなら方法 A、
-1 インスタンスで済ませたいなら方法 B です。
-
-方法 B で完了した場合は、付け替えは不要です。ライブ環境から
-`sudo reboot` すると、`/dev/sda` の Windows が起動します。
-
-## ビルドの流れ（共通）
-
-`scripts/build.sh` は `internal/build-image.sh` に `DISK` を渡すだけです。
-
-1. `render.py` で autounattend / OEM スクリプトを生成
-2. virtio-win の ARM64 ドライバを展開
-3. OEMDRV ISO を作成
-4. `wimlib-imagex apply` で対象ディスクへ展開
-5. `boot.wim` の `Setup\CmdLine` を書き換えて WinPE を自動実行
-6. **phase A**: WinPE がドライバ追加と `bcdboot` を行い、`wpeutil shutdown`
-7. **phase B**: ディスクから Windows が初回起動し、OOBE と OEM スクリプト
-8. WinRM の応答を確認して QMP で正常シャットダウン
-9. ESP の `bootmgfw.efi` / `bootaa64.efi` に AnyPages パッチ
-10. 検査
-
-qcow2 を作りたいときは `DISK` を省略します（ローカル検証用）。
+R2 / B2 / OCI は S3 互換なので、rclone の `s3` バックエンド 1 つで扱えます。
 
 ```bash
-sudo ./scripts/build.sh --image build/win11-arm64.qcow2 \
-  --iso /srv/iso/Win11_ARM64_26H2.iso \
-  --virtio /srv/iso/virtio-win.iso --yes
+# 例: R2 を rclone でマウント（ランダム読み込みに備えてキャッシュする）
+rclone config            # s3 プロバイダで R2 を登録
+rclone mount r2:win11-iso /mnt/iso --vfs-cache-mode full --daemon
+
+# 例: WebDAV を davfs2 でマウント
+sudo apt-get install -y davfs2
+sudo mkdir -p /mnt/iso
+sudo mount -t davfs https://webdav.pcloud.com /mnt/iso
 ```
 
-## 起動後
+注意点:
 
-- OCI のファームウェアは UEFI です。ESP の `\EFI\BOOT\BOOTAA64.EFI` から
-  起動します
-- ネットワークは DHCP で VNIC の IP を取ります
-- RDP 3389 / WinRM 5985 が開いています（NLA 無効・ファイアウォール無効）
-- **OCI エージェントは入っていない**ので、コンソールのパスワードリセットは
-  使えません。ビルド時のパスワードで入ってください
-- シリアルコンソールに Windows の出力は出ません。RDP で接続します
+- **GRUB は FUSE マウントを読めません。** `prepare.sh` に渡す Ubuntu live ISO は
+  実ブロックデバイス上のファイルシステム（`/srv/iso` など）に置きます。
+  クラウドは live 起動後の Windows ISO / virtio-win 用です。
+- QEMU は ISO をシークしながら読むため、WAN 越しの直接マウントは遅いです。
+  `/dev/shm`（RAM）かデータボリュームにコピーしてからビルドします。
+- ビルド中にアンマウントすると QEMU が止まります。コピーしてから外します。
+- 資格情報は `~/.config/rclone/rclone.conf` や `/etc/davfs2/secrets` に残ります。
+  ビルドが終わったら削除してください。
+- `file.io` / `0x0.st` / `transfer.sh` のような期限付きファイル置き場は HTTP だけで、
+  マウントできません。単発の受け渡しには使えますが、6 GB の ISO には向きません。
 
-### セキュリティ
+## ステージ4 ビルドの補足
 
-3389 を `0.0.0.0/0` に開けないでください。セキュリティリストか NSG で
-自分の IP か VPN に限定します。
+仕上がりの組み合わせは次のとおりです。コマンドは README の
+[ステージ4](../README.md#ステージ4-ビルド) にあります。
 
-## バックアップと復旧
+| 仕上がり | 追加フラグ | p2 |
+|---|---|---|
+| Windows のみ | なし | 消える（Windows が全体を使う） |
+| Windows + 4 GiB Ubuntu | `--keep-ubuntu` | 4 GiB で作り直す |
+| 既存の 4 GiB Ubuntu を残す | `--reuse-ubuntu` | そのまま（上級者向け） |
+
+`--reuse-ubuntu` は、すでに p2 に 4 GiB 程度の Ubuntu を入れて起動して
+ある場合だけ使えます。`prepare.sh` は live 起動しか登録しないので、その
+Ubuntu は別途インストーラ等で入れておく必要があります。詳細は
+[DUALBOOT.md](DUALBOOT.md)。
+
+`--mem` の既定は 6144 MiB です。RAM が 24 GB の A1 で ISO を `/dev/shm`
+に置く場合、`--mem 8192` は OOM の危険があります。`--mem 6144` のままに
+してください。
+
+## ステージ6 後片付け
+
+### バックアップと復旧
 
 `scripts/build.sh` は対象デバイスを消します。実行前に**ブートボリュームの
 バックアップ**を取ってください。
@@ -381,7 +290,7 @@ oci bv boot-volume-backup create \
 失敗したら、バックアップから復元するか、ボリュームを別インスタンスに
 データボリュームとして付けて中身を調べます。
 
-## コスト
+### コスト
 
 | 項目 | 無料枠 | 超えた場合 |
 |---|---|---|
@@ -396,10 +305,11 @@ oci bv boot-volume-backup create \
 
 | 症状 | 確認 |
 |---|---|
-| `preflight.sh` がディスク不足で止まる | ブートボリュームを 64 GB 以上に |
+| `setup.sh --check` が `not enough disk space` で止まる | ホストの `/` の空きを増やす（20 GB 以上） |
+| ビルド中にディスク不足になる | ブートボリュームを 64 GB 以上に |
 | `qemu-system-aarch64: not found` | `scripts/setup.sh` |
 | AAVMF が無い | `qemu-efi-aarch64` パッケージ |
 | ビルドが異常に遅い | `/dev/kvm` の有無。無ければ TCG |
-| `scripts/build.sh` が「ルートデバイス」で止まる | 方法 A に切り替える |
+| `scripts/build.sh` が「ルートデバイス」で止まる | ステージ2-A に切り替える |
 | 起動しない | ESP に `BOOTAA64.EFI` があるか、AnyPages パッチが当たっているか |
 | RDP が繋がらない | セキュリティリスト/NSG で 3389 を許可 |

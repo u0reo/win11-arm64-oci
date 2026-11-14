@@ -9,59 +9,70 @@ RDP / WinRM で操作できる状態まで自動構築するためのスクリ�
 > Windows の ISO は各自で用意してください。完成イメージの再配布は
 > Microsoft の EULA に反するため行いません。
 
-## 何をするか
+OCI の Ubuntu を一時的なビルド機にし、ブートボリュームの中身を Windows に
+置き換えます。`build.sh` が `install.wim` の適用、WinPE でのドライバ追加と
+`bcdboot`、OOBE、RDP / WinRM の有効化、AnyPages パッチまでを自動で行います
+（内部の流れは [docs/BUILD.md](docs/BUILD.md)）。
 
-1. Windows 11 ARM64 ISO の `install.wim` をホスト側でディスクに適用（`wimlib-imagex`）
-2. WinPE を自動起動し、virtio ドライバ追加と `bcdboot` を実行
-3. 初回起動で OOBE・OEM スクリプトを無人実行
-4. RDP / WinRM を有効化し、準備完了を確認
-5. ESP の `bootmgfw.efi` に OCI A1 向け AnyPages パッチを適用
-6. 検査（qcow2 にしたい場合のみ任意で圧縮）
+## 全体の流れ
 
-## 使い方は 3 つだけ
-
-`scripts/` にあるのは入口 3 つです。内部部品は `internal/` にあり、直接は叩きません。
-
-| やること | コマンド | いつ |
+| ステージ | やること | 詳細 |
 |---|---|---|
-| ホストの準備と検査 | `sudo ./scripts/setup.sh` | 最初に 1 回（冪等） |
-| ディスクを作る | `sudo ./scripts/build.sh --disk /dev/sdb --iso ... --yes` | ビルドするとき |
-| ISO を GRUB に登録 | `sudo ./scripts/prepare.sh <iso> --write` | OCI の Ubuntu から方法 B を始めるとき |
+| [ステージ1](#ステージ1-準備) | 前提を確認し、Ubuntu live ISO を入手する | — |
+| [ステージ2-A](#ステージ2-a-ボリュームを付け替える) | 2 インスタンスでビルドする（付け替え） | [docs/OCI.md](docs/OCI.md#ステージ2-a-ボリュームを付け替える) |
+| [ステージ2-B](#ステージ2-b-live-を-toram-で起動する) | 1 インスタンスで完結する（live `toram`） | [docs/OCI.md](docs/OCI.md#ステージ2-b-live-を-toram-で起動する) |
+| [ステージ3](#ステージ3-windows-iso-と-virtio-win) | Windows ISO と virtio-win を配置する | [docs/OCI.md](docs/OCI.md#iso-の置き場所) |
+| [ステージ4](#ステージ4-ビルド) | `build.sh` を実行する | [docs/BUILD.md](docs/BUILD.md) |
+| [ステージ5](#ステージ5-起動と接続) | 起動して RDP / WinRM で接続する | — |
+| [ステージ6](#ステージ6-後片付け) | 停止・バックアップ・後片付け | [docs/OCI.md](docs/OCI.md#ステージ6-後片付け) |
+| [付録A](#付録a-github-actions-で回す) | GitHub Actions で回す | [docs/GITHUB.md](docs/GITHUB.md) |
+| [付録B](#付録b-ローカルで-qcow2-を作る) | ローカルで qcow2 を作る | [docs/BUILD.md](docs/BUILD.md) |
 
-```text
-setup.sh ──> build.sh ──> 完成したディスク
-                │
-                ├─ --image FILE.qcow2    qcow2 を作る（ローカル検証）
-                └─ --keep-ubuntu         Ubuntu 復旧環境を同居させる
-```
+`scripts/` にある入口は 3 つだけです。内部部品は `internal/` にあり、直接は叩きません。
 
-`build.sh` は `--disk`（ブロックデバイス）か `--image`（qcow2）のどちらかを
-必ず取ります。`--yes` を付けるまで実際には書き込みません。
+| スクリプト | 用途 | 使うステージ |
+|---|---|---|
+| `scripts/setup.sh` | ホストの準備と検査（冪等） | 1・2-A・2-B |
+| `scripts/build.sh` | ディスクを作る唯一の入口 | 4 |
+| `scripts/prepare.sh` | live ISO を GRUB に登録する | 2-B |
 
-OCI の Ubuntu から始める場合、`prepare.sh` が live ISO を GRUB に登録します。
+## ステージ1 準備
+
+### 前提
+
+| 項目 | 要件 |
+|---|---|
+| ホスト | Linux x86_64 または ARM64。直接書き込みなら空き 20GB、qcow2 を作るなら 100GB 以上 |
+| CPU/RAM | 4 コア / 16GB 以上を推奨（TCG は遅い） |
+| KVM | x86 ホストで ARM64 ゲストを動かす場合、KVM は使えない（TCG） |
+| Windows ISO | Windows 11 ARM64 26H2（各自で用意） |
+| virtio-win | ARM64 ドライバ入り ISO または展開済みディレクトリ |
+| sudo | `qemu-nbd` / `mount` のため NOPASSWD を想定 |
+
+OCI の無料枠とボリューム容量は
+[docs/OCI.md](docs/OCI.md#コスト) を参照してください。
+
+### パッケージ
 
 ```bash
-# live を RAM に載せて起動するエントリを登録する。
-# --ssh を付けると ESP を CIDATA にして、live 起動時から SSH できる。
-sudo ./scripts/prepare.sh /srv/iso/ubuntu-24.04.5-live-server-arm64.iso \
-  --write --ssh
+sudo ./scripts/setup.sh          # 入れてから検査
+./scripts/setup.sh --check       # 検査だけ（何も変更しない）
 ```
 
-再起動して GRUB の `Ubuntu live (toram)` を選び、live 環境で
-Windows ISO と virtio-win を用意して `build.sh` を実行します
-（[docs/OCI.md](docs/OCI.md#方法-b-ライブ-cd-を-ram-に載せて-sda-を書き換える)）。
-書き込み先ディスク上に残っている ISO は、`--yes` の後で自動的に
-`/dev/shm` にコピーされます。
+手動で入れる場合:
 
-すでに p2 に小さな Ubuntu が入っている場合だけ `--reuse-ubuntu` も使えます
-（上級者向け。[docs/DUALBOOT.md](docs/DUALBOOT.md)）。
+```bash
+sudo apt-get install -y \
+  qemu-system-arm qemu-utils qemu-efi-aarch64 wimtools \
+  libhivex-bin python3-hivex python3-pefile \
+  mtools dosfstools ntfs-3g xorriso gdisk zstd \
+  curl rclone age jq
+```
 
-## ISO の入手
+### Ubuntu live ISO を入手する
 
-### 先に用意するもの（Ubuntu live だけ）
-
-方法 B では、まず Ubuntu Server の live ISO を 1 枚だけブートボリュームに
-置きます。これがビルド環境になります。
+ステージ2-A では不要です。ステージ2-B では、Ubuntu Server の live ISO を
+1 枚だけブートボリュームに置きます。
 
 ```bash
 sudo mkdir -p /srv/iso
@@ -75,13 +86,78 @@ curl -sLO https://releases.ubuntu.com/24.04/SHA256SUMS
 grep live-server-arm64 SHA256SUMS | sha256sum -c -
 ```
 
-`--keep-ubuntu` の 4 GiB Ubuntu は、`debootstrap` でネットワークから作ります。
-別途 minimal イメージをダウンロードする必要はありません。
+`--keep-ubuntu` の 4 GiB Ubuntu は `debootstrap` でネットワークから作ります。
+別途 minimal イメージをダウンロードする必要はありません
+（[docs/DUALBOOT.md](docs/DUALBOOT.md)）。
 
-### live 環境で用意するもの（Windows / virtio-win）
+## ステージ2 ビルド環境を作る
 
-Windows 11 ARM64 の ISO と virtio-win は、**live に切り替わってから**
-用意します。`/dev/shm`（RAM）に置けば、これから消すディスクに依存しません。
+次のどちらか一方を選びます。作られるディスクは同じです。
+
+- **ステージ2-A**: ターゲットとビルダーの 2 インスタンス。既存の Ubuntu を
+  ビルド機にでき、live ISO も `toram` も不要です。
+- **ステージ2-B**: 1 インスタンスで完結。live ISO を `toram` で RAM に載せます。
+
+### ステージ2-A ボリュームを付け替える
+
+```text
+1. ターゲット A を作る（Ubuntu 26.04 minimal aarch64、ブート 50 GB）
+2. A を停止し、ブートボリュームを切り離す
+3. ビルダー B を作る（Ubuntu、ブート 50 GB、同じ AD）
+4. A のブートボリュームを B にデータボリュームとして接続する
+5. B でビルドする（ステージ3〜4）
+6. B を停止し、ボリュームを切り離して A のブートボリュームとして再接続
+7. A を起動すると Windows が立ち上がる
+```
+
+```bash
+# B にログイン
+git clone https://github.com/<OWNER>/win11-arm64-oci.git
+cd win11-arm64-oci
+sudo ./scripts/setup.sh
+
+# 書き込み先デバイスを確認する。OCI のデータボリュームは /dev/sdb とは
+# 限らず、/dev/oracleoci/oraclevdb のこともある
+lsblk -o NAME,SIZE,MODEL,SERIAL
+```
+
+OCI CLI での付け替え、容量の考え方、無料枠は
+[docs/OCI.md](docs/OCI.md#ステージ2-a-ボリュームを付け替える) を参照してください。
+
+### ステージ2-B live を toram で起動する
+
+1 インスタンスで完結します。live ISO を GRUB に登録し、`toram` で RAM に
+載せてから `/dev/sda` を上書きします。
+
+```bash
+# 既存の Ubuntu にログイン
+git clone https://github.com/<OWNER>/win11-arm64-oci.git
+cd win11-arm64-oci
+
+# live ISO を GRUB に登録する
+# --ssh は ESP を CIDATA にして、live 起動時から SSH できるようにする
+sudo ./scripts/prepare.sh \
+  /srv/iso/ubuntu-24.04.5-live-server-arm64.iso --write --ssh
+
+sudo reboot
+```
+
+GRUB で `Ubuntu live (toram)` を選びます。live の root は RAM 上なので、
+リポジトリをもう一度 clone してから `setup.sh` を実行します。
+
+```bash
+git clone https://github.com/<OWNER>/win11-arm64-oci.git
+cd win11-arm64-oci
+sudo ./scripts/setup.sh
+```
+
+RAM の内訳、`--ssh` の仕組み、`toram` の注意点は
+[docs/OCI.md](docs/OCI.md#ステージ2-b-live-を-toram-で起動する) を参照してください。
+
+## ステージ3 Windows ISO と virtio-win
+
+ビルド機（ステージ2-A なら B、ステージ2-B なら live）に、Windows 11 ARM64 の
+ISO と virtio-win を置きます。
 
 ```bash
 cd /dev/shm
@@ -90,7 +166,7 @@ cd /dev/shm
 curl -LO https://fedorapeople.org/groups/virt/virtio-win/direct-downloads/stable-virtio/virtio-win.iso
 
 # Windows 11 ARM64 ISO は Microsoft から取得するか、scp / rclone で転送
-# scp Win11_ARM64_26H2.iso ubuntu@<live-host>:/dev/shm/
+# scp Win11_ARM64_26H2.iso ubuntu@<host>:/dev/shm/
 ```
 
 > **言語**: `autounattend.xml` は言語を指定しません。インストール後の表示
@@ -99,144 +175,62 @@ curl -LO https://fedorapeople.org/groups/virt/virtio-win/direct-downloads/stable
 > 経路では Setup の言語選択画面は出ません。確認方法と例は
 > [docs/BUILD.md の「言語」](docs/BUILD.md#言語) を参照してください。
 
-ISO が書き込み先ディスク（`/dev/sda`）上にある場合、`build.sh` は
-`--yes` の後で `/dev/shm`（RAM）にコピーしてから書き込みます。最初から
-`/dev/shm` や別ボリュームにあるならコピーは起きません。ただし、live ISO
-そのものは `toram` で RAM に載っている必要があります。
+ISO が書き込み先ディスク上にある場合、`build.sh` は `--yes` の後で
+`/dev/shm`（RAM）にコピーしてから書き込みます。最初から `/dev/shm` や
+別ボリュームにあるならコピーは起きません。
 
-#### 一時ストレージをマウントする（おすすめ）
+10 GB のデータボリュームに置くと、失敗時の再試行が楽です。置き場所の判断と、
+クラウドストレージを一時的にマウントする方法は
+[docs/OCI.md](docs/OCI.md#iso-の置き場所) を参照してください。
 
-Windows ISO（6 GB 前後）と virtio-win（0.7 GB）の置き場だけなら、
-無料枠のあるクラウドストレージをマウントするのが手軽です。
-**一定期間で消えてもよい**一時用途に向くものを挙げます。
-
-| サービス | 無料枠 | つなぎ方 | メモ |
-|---|---|---|---|
-| Cloudflare R2 | 10 GB | S3（rclone / s3fs） | 下り転送が無料。ISO の置き場に最適 |
-| Backblaze B2 | 10 GB | S3 / B2（rclone） | 下りは容量の 3 倍/日まで無料 |
-| OCI Object Storage | 10 GB 程度（Always Free） | S3 互換（rclone / OCI CLI） | 同一リージョンなら速い |
-| pCloud | 10 GB | WebDAV（rclone / davfs2） | 設定が簡単 |
-| Koofr | 10 GB | WebDAV | 同上 |
-| InfiniCLOUD | 20 GB | WebDAV | 枠が大きい |
-| Google Drive | 15 GB | rclone | 手元にあることが多い |
-| MEGA | 20 GB | rclone | 枠が大きい |
-
-R2 / B2 / OCI は S3 互換なので、rclone の `s3` バックエンド 1 つで扱えます。
+## ステージ4 ビルド
 
 ```bash
-# 例: R2 を rclone でマウント（ランダム読み込みに備えてキャッシュする）
-rclone config            # s3 プロバイダで R2 を登録
-rclone mount r2:win11-iso /mnt/iso --vfs-cache-mode full --daemon
-
-# 例: WebDAV を davfs2 でマウント
-sudo apt-get install -y davfs2
-sudo mkdir -p /mnt/iso
-sudo mount -t davfs https://webdav.pcloud.com /mnt/iso
-```
-
-注意点:
-
-- **GRUB は FUSE マウントを読めません。** `prepare.sh` に渡す Ubuntu live ISO は
-  実ブロックデバイス上のファイルシステム（`/srv/iso` など）に置きます。
-  クラウドは live 起動後の Windows ISO / virtio-win 用です。
-- QEMU は ISO をシークしながら読むため、WAN 越しの直接マウントは遅いです。
-  `/dev/shm`（RAM）かデータボリュームにコピーしてからビルドします。
-- ビルド中にアンマウントすると QEMU が止まります。コピーしてから外します。
-- 資格情報は `~/.config/rclone/rclone.conf` や `/etc/davfs2/secrets` に残ります。
-  ビルドが終わったら削除してください。
-- `file.io` / `0x0.st` / `transfer.sh` のような期限付きファイル置き場は HTTP だけで、
-  マウントできません。単発の受け渡しには使えますが、6 GB の ISO には向きません。
-
-## 必要なもの
-
-| 項目 | 要件 |
-|---|---|
-| ホスト | Linux x86_64 または ARM64。直接書き込みなら空き 20GB、qcow2 を作るなら 100GB 以上 |
-| CPU/RAM | 4 コア / 16GB 以上を推奨（TCG は遅い） |
-| KVM | x86 ホストで ARM64 ゲストを動かす場合、KVM は使えない（TCG） |
-| Windows ISO | Windows 11 ARM64 26H2（各自で用意） |
-| virtio-win | ARM64 ドライバ入り ISO または展開済みディレクトリ |
-| sudo | `qemu-nbd` / `mount` のため NOPASSWD を想定 |
-
-### パッケージ（Debian/Ubuntu）
-
-```bash
-sudo ./scripts/setup.sh
-```
-
-手動で入れる場合:
-
-```bash
-sudo apt-get install -y \
-  qemu-system-arm qemu-utils qemu-efi-aarch64 wimtools \
-  libhivex-bin python3-hivex python3-pefile \
-  mtools dosfstools ntfs-3g xorriso gdisk zstd \
-  curl rclone age jq
-```
-
-## OCI A1 でビルド（推奨）
-
-GitHub ホストランナーでは作れません（14 GB SSD / 6 時間 / KVM なし）。
-Ampere A1 の Ubuntu を一時的なビルド機にします。
-
-```bash
-# 1. ターゲット A（Ubuntu 26.04 minimal aarch64、ブート 50 GB）を作って停止
-#    64 GB にすると Windows Update の余裕が増える（50+64=114 GB で無料枠内）
-# 2. A のブートボリュームを切り離し、ビルダー B（ブート 50 GB）に
-#    データボリュームとして接続
-# 3. B にログインして
-git clone https://github.com/<OWNER>/win11-arm64-oci.git
-cd win11-arm64-oci
-sudo ./scripts/setup.sh
-
-# 4. A のボリュームへ直接書き込む（デバイス名は lsblk で確認。
-#    /dev/sdb とは限らず、/dev/oracleoci/oraclevdb のこともある）
-sudo ./scripts/build.sh \
-  --disk /dev/sdb \
-  --iso /srv/iso/Win11_ARM64_26H2.iso \
-  --virtio /srv/iso/virtio-win.iso --yes
-
-# 5. ボリュームを A のブートボリュームとして戻して起動
-```
-
-qcow2 も圧縮ファイルも作りません。ビルドが終わればそのボリュームが
-Windows ディスクになります。付け替え手順と、1 インスタンスで完結させる
-ライブ CD 方式（`toram`）は [docs/OCI.md](docs/OCI.md)。
-
-4 GiB の Ubuntu 復旧環境を残す場合は `--keep-ubuntu` を足します
-（Windows Boot Manager のメニューから起動。ネットワークと SSH の設定は
-元の Ubuntu から引き継ぎます）。詳細は
-[docs/DUALBOOT.md](docs/DUALBOOT.md)。
-
-```bash
+# ステージ2-A: A のブートボリュームへ書く
 sudo ./scripts/build.sh --disk /dev/sdb \
-  --iso /srv/iso/Win11_ARM64_26H2.iso --virtio /srv/iso/virtio-win.iso \
-  --keep-ubuntu --ubuntu-size 4G --yes
+  --iso /dev/shm/Win11_ARM64_26H2.iso \
+  --virtio /dev/shm/virtio-win.iso --yes
+
+# ステージ2-B: live から /dev/sda を書き換える
+sudo ./scripts/build.sh --disk /dev/sda \
+  --iso /dev/shm/Win11_ARM64_26H2.iso \
+  --virtio /dev/shm/virtio-win.iso --mem 6144 --yes
 ```
 
-ISO が書き込み先ディスクにしかない場合でも、`--yes` の後で自動的に
-`/dev/shm` にコピーしてから書き込みます。組み合わせの一覧は
-[docs/OCI.md](docs/OCI.md#どの組み合わせが可能か)。
+`--yes` を付けるまで実際には書き込みません。`--yes` を付けると、対象デバイスの
+model / serial / size を表示し、ISO のコピーとマウント解除を行ってから
+書き込みを始めます。
 
-## ローカルでビルド
+4 GiB の Ubuntu 復旧環境も残す場合は `--keep-ubuntu` を足します。
 
 ```bash
-sudo ./scripts/build.sh --image build/win11-arm64.qcow2 \
-  --iso /srv/iso/Win11_ARM64_26H2.iso \
-  --virtio /srv/iso/virtio-win.iso --yes
+sudo ./scripts/build.sh --keep-ubuntu --ubuntu-size 4G --disk /dev/sdb \
+  --iso /dev/shm/Win11_ARM64_26H2.iso \
+  --virtio /dev/shm/virtio-win.iso --yes
 ```
 
-成果物:
+パーティション構成、残す設定、起動メニューは
+[docs/DUALBOOT.md](docs/DUALBOOT.md) を参照してください。
 
-```text
-build/win11-arm64.qcow2
-```
+`build.sh` の中で何が起きるか（13 段階、WinPE、QEMU 2 回、手動フォールバック）は
+[docs/BUILD.md](docs/BUILD.md) を参照してください。
 
-`PACKAGE=1` を付けたときだけ `build/artifacts/` に zstd 圧縮版と SHA256 を
-作ります。ブロックデバイスへ直接書く場合（`DISK=/dev/sdb`）は何も
-パッケージしません。
+## ステージ5 起動と接続
 
-## 既定の資格情報
+- **ステージ2-A**: B を停止し、ボリュームを A のブートボリュームとして
+  再接続して A を起動します。
+- **ステージ2-B**: live から `sudo reboot` します。
+
+起動後:
+
+- OCI のファームウェアは UEFI です。ESP の `\EFI\BOOT\BOOTAA64.EFI` から起動します
+- ネットワークは DHCP で VNIC の IP を取ります
+- RDP 3389 / WinRM 5985 が開いています（NLA 無効・ファイアウォール無効）
+- **OCI エージェントは入っていない**ので、コンソールのパスワードリセットは
+  使えません。ビルド時のパスワードで入ってください
+- シリアルコンソールに Windows の出力は出ません。RDP で接続します
+
+### 資格情報
 
 | 項目 | 既定値 | 上書き |
 |---|---|---|
@@ -283,15 +277,30 @@ sudo env WIN_USERNAME="$WIN_USERNAME" WIN_PASSWORD="$WIN_PASSWORD" \
 > インターネットへ直接公開しないでください。VPN / Tailscale / OCI の
 > プライベートサブネット内でのみ使用してください。
 
-## GitHub Actions
+### セキュリティ
+
+3389 を `0.0.0.0/0` に開けないでください。セキュリティリストか NSG で、
+自分の IP か VPN に限定します。方針は [SECURITY.md](SECURITY.md) を参照して
+ください。
+
+## ステージ6 後片付け
+
+- **ステージ2-A**: ビルダー B を停止します。B のブートボリュームを残すと
+  その分だけ課金対象になります。
+- **ステージ2-B**: `prepare.sh --ssh` が ESP のラベルを `CIDATA` に変えて
+  います。表示された `fatlabel` コマンドで元に戻します。
+- ビルド前のバックアップ、失敗時の復旧、コストの内訳は
+  [docs/OCI.md](docs/OCI.md#ステージ6-後片付け) を参照してください。
+
+## 付録A GitHub Actions で回す
 
 | ワークフロー | ランナー | 用途 |
 |---|---|---|
 | `ci.yml` | `ubuntu-latest` | shellcheck / XML / render / 秘密情報チェック |
 | `build-image.yml` | **self-hosted** | イメージ生成（qcow2 またはブロックデバイス） |
 
-一発ビルドなら runner を登録せず、A1 上で `scripts/build.sh` を直接
-実行する方が簡単です（[docs/OCI.md](docs/OCI.md)）。
+一発ビルドなら runner を登録せず、A1 上で `scripts/build.sh` を直接実行する
+方が簡単です（ステージ4）。
 
 `build-image.yml` は **GitHub ホストランナーでは動きません**。
 
@@ -300,7 +309,19 @@ sudo env WIN_USERNAME="$WIN_USERNAME" WIN_PASSWORD="$WIN_PASSWORD" \
 - ジョブ上限 6 時間
 - ISO を Artifact / Release に置けない（Release は 1 ファイル 2GB）
 
-セットアップ手順は [docs/SETUP.md](docs/SETUP.md) を参照してください。
+リポジトリ設定、Secrets / Variables、self-hosted runner の準備は
+[docs/GITHUB.md](docs/GITHUB.md) を参照してください。
+
+## 付録B ローカルで qcow2 を作る
+
+```bash
+sudo ./scripts/build.sh --image build/win11-arm64.qcow2 \
+  --iso /srv/iso/Win11_ARM64_26H2.iso \
+  --virtio /srv/iso/virtio-win.iso --yes
+```
+
+ローカルで起動して確認する方法は [docs/BUILD.md](docs/BUILD.md) を参照して
+ください。
 
 ## リポジトリ構成
 
@@ -310,15 +331,17 @@ oem/            初回起動時の PowerShell / CMD
 scripts/        入口 3 つ: setup.sh / build.sh / prepare.sh
 internal/       内部部品: build-image, render, preflight ...
 pipeline/       ディスク構築の部品: wimlib apply, WinPE, QEMU, 検査
-docs/           OCI / SETUP / BUILD / WORKLOG
+docs/           OCI / GITHUB / BUILD / DUALBOOT / WORKLOG
 ```
 
 ## ドキュメント
 
-- [docs/OCI.md](docs/OCI.md) — OCI A1 のブートボリュームを Windows にする手順
-- [docs/SETUP.md](docs/SETUP.md) — Secrets、runner の準備
+- [docs/OCI.md](docs/OCI.md) — OCI 固有の判断、付け替え、データボリューム、コスト、バックアップ
+- [docs/GITHUB.md](docs/GITHUB.md) — GitHub リポジトリ、Secrets、self-hosted runner
 - [docs/BUILD.md](docs/BUILD.md) — パイプラインの各段階と手動フォールバック
+- [docs/DUALBOOT.md](docs/DUALBOOT.md) — Ubuntu 復旧環境を残す場合の詳細
 - [docs/WORKLOG.md](docs/WORKLOG.md) — 26H2 構築までの作業ログ（サニタイズ済み）
+- [SECURITY.md](SECURITY.md) — セキュリティ方針
 
 ## ライセンス
 

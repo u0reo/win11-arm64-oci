@@ -9,7 +9,8 @@
 - OCID / クラウドキー → `REDACTED`
 
 元ログは 2026-10 から 2026-11 にかけての試行錯誤を含みます。
-現在の再現手順は [BUILD.md](BUILD.md) と [SETUP.md](SETUP.md) を参照してください。
+現在の再現手順は [README](../README.md) を参照してください。内部の流れは
+[BUILD.md](BUILD.md)、GitHub Actions は [GITHUB.md](GITHUB.md) にあります。
 
 ---
 

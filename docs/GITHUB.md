@@ -1,6 +1,11 @@
-# セットアップ
+# GitHub リポジトリと Actions の設定
 
-## 1. GitHub リポジトリ
+> このページは追加情報です。通常のビルドは README の
+> [ステージ4](../README.md#ステージ4-ビルド) で `scripts/build.sh` を
+> 直接実行します。このページは GitHub Actions と self-hosted runner を
+> 使う場合の設定です。
+
+## 1. リポジトリ
 
 1. Public リポジトリを作成して push する。
 2. `Settings > Branches` で `main` を保護する。
@@ -20,33 +25,25 @@
 
 `Settings > Secrets and variables > Actions` に登録します。
 
-### Secrets
+Secrets は `WIN_USERNAME` / `WIN_PASSWORD` / `COMPUTER_NAME` の 3 つです。
+既定値は README の [「資格情報」](../README.md#資格情報) と同じです。Secret が
+空なら Variable、それも空なら `internal/render.py` の組み込み既定値になります。
 
-| 名前 | 既定 | 必須 | 説明 |
-|---|---|---|---|
-| `WIN_USERNAME` | `User` | 任意 | ローカルアカウント名 |
-| `WIN_PASSWORD` | `oci-a1` | 任意 | パスワード |
-| `COMPUTER_NAME` | `OCI-WIN` | 任意 | PC 名（15 文字以内） |
+> `TIMEZONE` は `build-image.yml` では渡していないので、Actions からビルド
+> すると既定の `Tokyo Standard Time` になります。変える場合は workflow の
+> `env:` に `TIMEZONE` を追加してください。
 
 ### Variables
 
-| 名前 | 既定 | 説明 |
-|---|---|---|
-| `COMPUTER_NAME` | `OCI-WIN` | Secret より優先度は低い |
-| `ISO_PATH` | — | runner 上の ISO パス |
-| `ISO_SHA256` | — | ISO の期待ハッシュ |
-| `VIRTIO_ISO` | — | virtio-win.iso のパス |
+| 名前 | 説明 |
+|---|---|
+| `COMPUTER_NAME` | Secret より優先度は低い |
+| `ISO_PATH` | runner 上の ISO パス |
+| `ISO_SHA256` | ISO の期待ハッシュ |
+| `VIRTIO_ISO` | virtio-win.iso のパス |
 
-優先順位（render.py）:
-
-```text
-Secret (env)  >  Variable (env)  >  組み込み既定値
-```
-
-設定ファイルはありません。ローカルで対話的に決めるときは README の
-[「既定の資格情報」](../README.md#既定の資格情報) の `read` 例を使ってください。
-
-`COMPUTER_NAME` は Secret が空なら Variable、それも空なら `OCI-WIN` になります。
+`COMPUTER_NAME` は Secret が空なら Variable、それも空なら `OCI-WIN` に
+なります。
 
 ## 3. self-hosted runner
 
@@ -66,19 +63,8 @@ tar xzf runner.tar.gz
 
 ### 必要なパッケージ
 
-```bash
-sudo ./scripts/setup.sh
-```
-
-手動で入れる場合:
-
-```bash
-sudo apt-get install -y \
-  qemu-system-arm qemu-utils qemu-efi-aarch64 wimtools \
-  libhivex-bin python3-hivex python3-pefile \
-  mtools dosfstools ntfs-3g xorriso gdisk zstd \
-  curl rclone age jq shellcheck libxml2-utils
-```
+README の [ステージ1](../README.md#ステージ1-準備) と同じです。runner でも
+`sudo ./scripts/setup.sh` を実行してください。
 
 ### sudo
 
@@ -93,6 +79,11 @@ sudo chmod 440 /etc/sudoers.d/win11-builder
 > NOPASSWD を渡すと、リポジトリが乗っ取られた時点で root 相当です。
 
 ### ISO の配置
+
+runner 上に ISO を置き、Variables にパスを設定します。ISO の入手方法は
+README の [ステージ1](../README.md#ステージ1-準備) と
+[ステージ3](../README.md#ステージ3-windows-iso-と-virtio-win) を参照して
+ください。
 
 ```bash
 sudo mkdir -p /srv/iso
@@ -118,23 +109,6 @@ gh workflow run build-image.yml \
 `release` environment の承認後、runner 上でビルドが始まります。
 TCG の場合、数時間かかることがあります。
 
-## 5. ローカル実行
-
-qcow2 を作る場合:
-
-```bash
-sudo ./scripts/build.sh --image build/win11-arm64.qcow2 \
-  --iso /srv/iso/Win11_ARM64_26H2.iso \
-  --virtio /srv/iso/virtio-win.iso --yes
-```
-
-ブロックデバイスへ直接書く場合（OCI のブートボリューム付け替え）:
-
-```bash
-sudo ./scripts/build.sh \
-  --disk /dev/sdb \
-  --iso /srv/iso/Win11_ARM64_26H2.iso \
-  --virtio /srv/iso/virtio-win.iso --yes
-```
-
-手順の詳細は [OCI.md](OCI.md) を参照してください。
+ローカルで実行する場合のコマンドは README の
+[ステージ4](../README.md#ステージ4-ビルド) と
+[付録B](../README.md#付録b-ローカルで-qcow2-を作る) にあります。
