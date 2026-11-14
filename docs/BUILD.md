@@ -116,6 +116,48 @@ qcow2 パスを `/dev/sdb` に置き換え、最後に
 `pipeline/finish_disk.sh /dev/sdb` と `pipeline/inspect_image.sh /dev/sdb`
 を実行します。`DISK=/dev/sdb` を各スクリプトに渡しても同じです。
 
+## 言語
+
+`autounattend.xml` は言語を指定しません（`<Language>` / `<InputLocale>` /
+`<SystemLocale>` / `<UILanguage>` / `<UserLocale>` はありません）。インストール
+後の表示言語は、ISO の `sources/install.wim`（または `install.esd`）に含まれる
+イメージの既定言語に従います。`wimlib-imagex apply` は WIM をそのまま展開し、
+Setup の言語選択画面を通らないため、ビルド中に言語を選ぶ機会はありません。
+
+使用する ISO の言語は次のように確認できます。
+
+```bash
+sudo mount -o loop,ro /srv/iso/Win11_ARM64_26H2.iso /mnt
+cat /mnt/sources/lang.ini
+WIM=$(ls /mnt/sources/install.wim /mnt/sources/install.esd 2>/dev/null | head -1)
+wimlib-imagex info "$WIM" | grep -E 'Index|Name|Languages|Default'
+sudo umount /mnt
+```
+
+このリポジトリで検証した ISO（`tiny11_arm64_26h2.iso`）の例:
+
+```text
+[Available UI Languages]
+ja-jp = 3
+
+[Fallback Languages]
+ja-jp = en-us
+```
+
+```text
+Index:                  1
+Name:                   Windows 11 Pro
+Languages:              ja-JP
+Default Language:       ja-JP
+```
+
+- 日本語 ISO → インストール後も ja-JP
+- 英語 ISO → en-US
+- タイムゾーンは言語とは別で、`TIMEZONE` 環境変数（既定
+  `Tokyo Standard Time`）で決まります
+- 別の表示言語にしたい場合は、その言語の ISO を使ってください。言語パックの
+  追加はこのビルドの範囲外です
+
 ## トラブルシューティング
 
 | 症状 | 確認 |

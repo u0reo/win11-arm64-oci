@@ -96,7 +96,8 @@ curl -LO https://fedorapeople.org/groups/virt/virtio-win/direct-downloads/stable
 > **言語**: `autounattend.xml` は言語を指定しません。インストール後の表示
 > 言語は ISO の `install.wim` の既定（`sources/lang.ini`）に従います。
 > 日本語 ISO なら ja-JP、英語 ISO なら en-US です。`wimlib-imagex apply`
-> 経路では Setup の言語選択画面は出ません。
+> 経路では Setup の言語選択画面は出ません。確認方法と例は
+> [docs/BUILD.md の「言語」](docs/BUILD.md#言語) を参照してください。
 
 ISO が書き込み先ディスク（`/dev/sda`）上にある場合、`build.sh` は
 `--yes` の後で `/dev/shm`（RAM）にコピーしてから書き込みます。最初から
