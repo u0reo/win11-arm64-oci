@@ -3,8 +3,9 @@
 これは Windows 11 ARM64 26H2 を OCI A1 向けに構築したときの作業ログです。
 公開用に次の置換を行っています。
 
-- ユーザー名 / ホスト名 / パスワード → `User` / `OCI-WIN` / `REDACTED`
+- ユーザー名 / ホスト名 / パスワード → `User`（Linux は `$USER`） / `OCI-WIN` / `REDACTED`
 - ホームディレクトリ → `$HOME`
+- プライベート IP / MAC アドレス → `<private-ip>` / `<mac>`
 - OCID / クラウドキー → `REDACTED`
 
 元ログは 2026-10 から 2026-11 にかけての試行錯誤を含みます。
