@@ -40,8 +40,11 @@
 優先順位（render.py）:
 
 ```text
-Secret (env)  >  Variable (env)  >  config/defaults.env  >  組み込み既定値
+Secret (env)  >  Variable (env)  >  組み込み既定値
 ```
+
+設定ファイルはありません。ローカルで対話的に決めるときは README の
+[「既定の資格情報」](../README.md#既定の資格情報) の `read` 例を使ってください。
 
 `COMPUTER_NAME` は Secret が空なら Variable、それも空なら `OCI-WIN` になります。
 

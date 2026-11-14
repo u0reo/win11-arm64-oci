@@ -3,18 +3,19 @@
 
 Values are resolved with this precedence:
 
-    environment variable  >  config/defaults.env  >  built-in default
+    environment variable  >  built-in default
 
-The defaults are:
+The built-in defaults are:
 
     WIN_USERNAME   User
     WIN_PASSWORD   oci-a1
     COMPUTER_NAME  OCI-WIN
     TIMEZONE       Tokyo Standard Time
 
-In GitHub Actions the workflow maps repository secrets/variables to these
-environment variables, so `WIN_USERNAME`, `WIN_PASSWORD` and `COMPUTER_NAME`
-can be overridden without editing any file.
+Set the environment variables before running build.sh.  Use `read -rsp`
+for the password so it does not end up in the shell history.  In GitHub
+Actions the workflow maps repository secrets/variables to these
+environment variables.
 
 The rendered autounattend.xml contains the password in clear text.  It is
 written with mode 0600 and the output directory is expected to be ignored by
@@ -42,42 +43,12 @@ USER_RE = re.compile(r"^[A-Za-z0-9._-]{1,20}$")
 COMPUTER_RE = re.compile(r"^[A-Za-z0-9-]{1,15}$")
 
 
-def parse_env_file(path: Path) -> dict[str, str]:
-    values: dict[str, str] = {}
-    if not path.is_file():
-        return values
-    for raw in path.read_text(encoding="utf-8").splitlines():
-        line = raw.strip()
-        if not line or line.startswith("#"):
-            continue
-        if line.startswith("export "):
-            line = line[7:].lstrip()
-        if "=" not in line:
-            continue
-        key, value = line.split("=", 1)
-        value = value.strip()
-        if len(value) >= 2 and value[0] == value[-1] and value[0] in "'\"":
-            value = value[1:-1]
-        values[key.strip()] = value
-    return values
-
-
-def resolve(repo: Path) -> tuple[dict[str, str], str]:
-    file_values = parse_env_file(repo / "config" / "defaults.env")
+def resolve() -> dict[str, str]:
     resolved: dict[str, str] = {}
-    sources: dict[str, str] = {}
     for key, builtin in BUILTIN.items():
-        if key in os.environ and os.environ[key] != "":
-            resolved[key] = os.environ[key]
-            sources[key] = "env"
-        elif key in file_values and file_values[key] != "":
-            resolved[key] = file_values[key]
-            sources[key] = "config/defaults.env"
-        else:
-            resolved[key] = builtin
-            sources[key] = "builtin"
-    source = "env" if any(s == "env" for s in sources.values()) else "defaults"
-    return resolved, source
+        value = os.environ.get(key, "")
+        resolved[key] = value if value else builtin
+    return resolved
 
 
 def validate(values: dict[str, str]) -> None:
@@ -223,7 +194,7 @@ def main() -> int:
         return 2
 
     repo = Path(args.repo).resolve()
-    values, _ = resolve(repo)
+    values = resolve()
     validate(values)
 
     print("render: resolved configuration")

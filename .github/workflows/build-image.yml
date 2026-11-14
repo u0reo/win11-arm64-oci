@@ -66,7 +66,7 @@ jobs:
     timeout-minutes: 720
     environment: release
     env:
-      # Secrets override the defaults in config/defaults.env.
+      # Secrets override the built-in defaults in internal/render.py.
       WIN_USERNAME: ${{ secrets.WIN_USERNAME || 'User' }}
       WIN_PASSWORD: ${{ secrets.WIN_PASSWORD || 'oci-a1' }}
       COMPUTER_NAME: ${{ secrets.COMPUTER_NAME || vars.COMPUTER_NAME || 'OCI-WIN' }}

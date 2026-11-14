@@ -93,6 +93,11 @@ curl -LO https://fedorapeople.org/groups/virt/virtio-win/direct-downloads/stable
 # scp Win11_ARM64_26H2.iso ubuntu@<live-host>:/dev/shm/
 ```
 
+> **言語**: `autounattend.xml` は言語を指定しません。インストール後の表示
+> 言語は ISO の `install.wim` の既定（`sources/lang.ini`）に従います。
+> 日本語 ISO なら ja-JP、英語 ISO なら en-US です。`wimlib-imagex apply`
+> 経路では Setup の言語選択画面は出ません。
+
 ISO が書き込み先ディスク（`/dev/sda`）上にある場合、`build.sh` は
 `--yes` の後で `/dev/shm`（RAM）にコピーしてから書き込みます。最初から
 `/dev/shm` や別ボリュームにあるならコピーは起きません。ただし、live ISO
@@ -239,16 +244,37 @@ build/win11-arm64.qcow2
 | PC 名 | `OCI-WIN` | `COMPUTER_NAME` |
 | タイムゾーン | `Tokyo Standard Time` | `TIMEZONE` |
 
-優先順位は **環境変数 > `config/defaults.env` > 組み込み既定値** です。
+優先順位は **環境変数 > 組み込み既定値** です。設定ファイルはありません。
 GitHub Actions では Secrets / Variables が環境変数として渡されます。
 
+対話的に決める場合は `read` を使うと、パスワードがシェル履歴に残りません。
+
 ```bash
-WIN_USERNAME=alice WIN_PASSWORD='strong-pass' COMPUTER_NAME=MY-WIN \
-  python3 internal/render.py --check
+read -rp 'ユーザー名 [User]: ' WIN_USERNAME
+read -rsp 'パスワード [oci-a1]: ' WIN_PASSWORD; echo
+read -rp 'PC 名 [OCI-WIN]: ' COMPUTER_NAME
+read -rp 'タイムゾーン [Tokyo Standard Time]: ' TIMEZONE
+
+# 空欄なら既定値を使う
+: "${WIN_USERNAME:=User}"
+: "${WIN_PASSWORD:=oci-a1}"
+: "${COMPUTER_NAME:=OCI-WIN}"
+: "${TIMEZONE:=Tokyo Standard Time}"
+export WIN_USERNAME WIN_PASSWORD COMPUTER_NAME TIMEZONE
+
+# 解決後の値を確認（ファイルは書かない）
+python3 internal/render.py --check
+
+# ビルド（sudo には明示的に値を渡す）
+sudo env WIN_USERNAME="$WIN_USERNAME" WIN_PASSWORD="$WIN_PASSWORD" \
+  COMPUTER_NAME="$COMPUTER_NAME" TIMEZONE="$TIMEZONE" \
+  ./scripts/build.sh --disk /dev/sda ...
 ```
 
-`--check` は解決後の値を表示するだけで、ファイルは書きません。実際の
-ビルドでは同じ環境変数を `scripts/build.sh` に渡してください。
+`sudo VAR=value command`（または `sudo env VAR=value command`）は、
+`sudo -E` と違って sudoers の `env_reset` 設定に左右されず、そのコマンドに
+だけ値を渡せます。`scripts/build.sh` は内部で `internal/build-image.sh` を
+同じプロセスで呼ぶので、この値が `render.py` まで届きます。
 
 > **警告**: `oci-a1` は意図的に弱い既定値です。パスワードは完成イメージに
 > 平文で埋め込まれます。Secrets は「リポジトリに出さない」だけで、
@@ -283,7 +309,6 @@ oem/            初回起動時の PowerShell / CMD
 scripts/        入口 3 つ: setup.sh / build.sh / prepare.sh
 internal/       内部部品: build-image, render, preflight ...
 pipeline/       ディスク構築の部品: wimlib apply, WinPE, QEMU, 検査
-config/         既定値
 docs/           OCI / SETUP / BUILD / WORKLOG
 ```
 

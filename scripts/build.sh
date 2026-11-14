@@ -373,5 +373,5 @@ fi
 cat <<EOF
 
 The Windows account and password are the ones rendered into the image
-(see config/defaults.env or the GitHub Secrets used for the build).
+(from WIN_USERNAME / WIN_PASSWORD / COMPUTER_NAME / TIMEZONE).
 EOF

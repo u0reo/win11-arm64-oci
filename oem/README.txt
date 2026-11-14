@@ -14,8 +14,9 @@ Accounts:
   Administrator  / <WIN_PASSWORD>       (enabled)
 
 The password is not stored here.  It is rendered into autounattend.xml and
-the OEM PowerShell scripts from config/defaults.env or from GitHub Secrets,
-and it is embedded in the finished image in clear text.
+the OEM PowerShell scripts from the WIN_PASSWORD environment variable (or
+from GitHub Secrets), and it is embedded in the finished image in clear
+text.
 
 Services:
   RDP  3389/tcp  (NLA disabled for lab compatibility)
