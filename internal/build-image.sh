@@ -72,9 +72,9 @@ step() { echo; echo "==== $* ===="; }
 
 step "0/13 preflight"
 if [ "$RAW" = 1 ]; then
-    MIN_FREE_GB=${MIN_FREE_GB:-15} "$HERE/preflight.sh"
+    TARGET_MODE=raw TARGET="$DISK" "$HERE/preflight.sh"
 else
-    MIN_FREE_GB=${MIN_FREE_GB:-80} "$HERE/preflight.sh"
+    TARGET_MODE=qcow2 TARGET="$DISK" "$HERE/preflight.sh"
 fi
 echo "  target: $DISK ($([ "$RAW" = 1 ] && echo 'raw block device' || echo 'qcow2'))"
 

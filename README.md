@@ -42,7 +42,7 @@ OCI の Ubuntu を一時的なビルド機にし、ブートボリュームの�
 
 | 項目 | 要件 |
 |---|---|
-| ホスト | Linux x86_64 または ARM64。直接書き込みなら空き 20GB、qcow2 を作るなら 100GB 以上 |
+| ホスト | Linux x86_64 または ARM64。直接書き込みなら一時ファイル用に空き 8GB、qcow2 を作るなら 80GB 以上 |
 | CPU/RAM | 4 コア / 16GB 以上を推奨（TCG は遅い） |
 | KVM | x86 ホストで ARM64 ゲストを動かす場合、KVM は使えない（TCG） |
 | Windows ISO | Windows 11 ARM64 26H2（各自で用意） |
@@ -102,9 +102,21 @@ grep -F " *$ISO" SHA256SUMS | sha256sum -c -
 （冪等）。パッケージの導入とホスト検査をまとめて行います。
 
 ```bash
-sudo ./scripts/setup.sh          # 入れてから検査
+sudo ./scripts/setup.sh          # 入れてから検査（直接書き込みが既定）
 ./scripts/setup.sh --check       # 検査だけ（何も変更しない）
+
+# 書き込み先まで確認する（サイズ・ルートデバイスかどうか）
+./scripts/setup.sh --check --disk /dev/sdb
+
+# qcow2 を作る場合は 80GB 必要なので、モードを指定する
+./scripts/setup.sh --check --image build/win11-arm64.qcow2
 ```
+
+既定は `build.sh --disk` の直接書き込みです。この場合、`build/` に置くのは
+`boot.wim`・`bootfat.img`・OEMDRV などの一時ファイルだけなので、8GB で
+足ります。qcow2 はディスク全体を 1 ファイルに保持するため 80GB 必要です。
+一時ファイルを別の場所に置くときは `--build-dir`、判定を変えたいときは
+`--min-free-gb` を使います。
 
 手動で入れる場合:
 

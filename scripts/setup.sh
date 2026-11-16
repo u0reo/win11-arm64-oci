@@ -2,28 +2,39 @@
 # Prepare an Ubuntu 24.04/26.04 ARM64 host (for example an OCI Ampere A1
 # instance) and check that it can build the Windows 11 ARM64 disk.
 #
-#   sudo ./scripts/setup.sh            # install packages, then check
-#   ./scripts/setup.sh --check         # check only, changes nothing
+#   sudo ./scripts/setup.sh                  # install packages, then check
+#   ./scripts/setup.sh --check               # check only, changes nothing
+#   ./scripts/setup.sh --check --disk /dev/sdb
+#   ./scripts/setup.sh --check --image build/win11-arm64.qcow2
 #
 # It is idempotent: running it twice only re-checks the packages.
 #
-# MIN_FREE_GB (default 20) is the space the check requires.  A direct write
-# to a block device needs about 20 GiB for temporary files; a qcow2 build
-# needs 80 GiB, so use MIN_FREE_GB=80 for that.
+# The default is a direct write (build.sh --disk): only the staging files
+# (boot.wim, bootfat.img, OEMDRV) go in the build directory, so 8 GiB is
+# enough.  A qcow2 build (--image) keeps the whole disk in a file and needs
+# 80 GiB.  --build-dir moves the staging directory; --min-free-gb overrides
+# the requirement.
 set -euo pipefail
 
 HERE=$(cd "$(dirname "$0")" && pwd)
-MIN_FREE_GB=${MIN_FREE_GB:-20}
+MODE=raw
+TARGET=""
+BUILD_DIR=${BUILD_DIR:-}
+MIN_FREE_GB=${MIN_FREE_GB:-}
 CHECK=0
 
 usage() {
-    sed -n '2,12p' "$0" | sed 's/^# \{0,1\}//'
+    sed -n '2,/^set -euo/{/^set -euo/d;p}' "$0" | sed 's/^# \{0,1\}//'
     exit "${1:-0}"
 }
 
 while [ $# -gt 0 ]; do
     case "$1" in
         --check) CHECK=1; shift ;;
+        --disk) MODE=raw; TARGET=${2:?--disk needs a device}; shift 2 ;;
+        --image) MODE=qcow2; TARGET=${2:?--image needs a path}; shift 2 ;;
+        --build-dir) BUILD_DIR=${2:?--build-dir needs a path}; shift 2 ;;
+        --min-free-gb) MIN_FREE_GB=${2:?--min-free-gb needs a number}; shift 2 ;;
         -h|--help) usage 0 ;;
         *) echo "setup: unknown argument: $1" >&2; usage 1 ;;
     esac
@@ -76,7 +87,11 @@ else
 fi
 
 echo
-MIN_FREE_GB="$MIN_FREE_GB" "$HERE/../internal/preflight.sh" || {
+PREFLIGHT_ENV=(TARGET_MODE="$MODE")
+[ -n "$TARGET" ] && PREFLIGHT_ENV+=(TARGET="$TARGET")
+[ -n "$BUILD_DIR" ] && PREFLIGHT_ENV+=(BUILD_DIR="$BUILD_DIR")
+[ -n "$MIN_FREE_GB" ] && PREFLIGHT_ENV+=(MIN_FREE_GB="$MIN_FREE_GB")
+env "${PREFLIGHT_ENV[@]}" "$HERE/../internal/preflight.sh" || {
     echo "setup: the host check failed; fix the items above and re-run" >&2
     exit 1
 }
@@ -85,9 +100,21 @@ cat <<EOF
 
 setup: OK
 next: put the Windows ISO on the host, then
+EOF
+if [ "$MODE" = qcow2 ]; then
+    cat <<EOF
 
-  sudo ./scripts/build.sh --disk /dev/sdb \\
+  sudo ./scripts/build.sh --image ${TARGET:-build/win11-arm64.qcow2} \\
     --iso /path/to/Win11_ARM64_26H2.iso --virtio /path/to/virtio-win.iso --yes
+EOF
+else
+    cat <<EOF
+
+  sudo ./scripts/build.sh --disk ${TARGET:-/dev/sdb} \\
+    --iso /path/to/Win11_ARM64_26H2.iso --virtio /path/to/virtio-win.iso --yes
+EOF
+fi
+cat <<EOF
 
 Need the Ubuntu or virtio-win ISO?  See "ISO の入手" in README.md.
 

@@ -337,7 +337,7 @@ oci bv boot-volume-backup create \
 
 | 症状 | 確認 |
 |---|---|
-| `setup.sh --check` が `not enough disk space` で止まる | ホストの `/` の空きを増やす（20 GB 以上） |
+| `setup.sh --check` が `not enough disk space` で止まる | 直接書き込みなら `build/` に 8 GB、qcow2 なら 80 GB。`--build-dir` で別の場所を指定できる |
 | ビルド中にディスク不足になる | ブートボリュームを 64 GB 以上に |
 | `qemu-system-aarch64: not found` | `scripts/setup.sh` |
 | AAVMF が無い | `qemu-efi-aarch64` パッケージ |
