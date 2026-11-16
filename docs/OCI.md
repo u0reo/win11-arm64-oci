@@ -86,8 +86,10 @@ Windows Update の余裕を考えるなら A だけ 64 GB にしても構いま�
 （50 + 64 = 114 GB で無料枠内）。
 
 Ubuntu を 4 GiB の復旧環境として残す場合は `--keep-ubuntu` を付けます。
-ESP を保持したまま p2 を作り直し、Windows Boot Manager から GRUB を
-chainload します。詳細は [DUALBOOT.md](DUALBOOT.md)。
+ESP を保持したまま古い Ubuntu root と BOOT を作り直し、Windows Boot
+Manager から GRUB を chainload します。ESP は GPT の種別から探すため、
+`p1=root, p13=BOOT, p15=ESP` の OCI 標準レイアウトでも動きます。
+詳細は [DUALBOOT.md](DUALBOOT.md)。
 
 ## ステージ2-B live を toram で起動する
 
@@ -96,8 +98,9 @@ chainload します。詳細は [DUALBOOT.md](DUALBOOT.md)。
 `toram` でメモリに展開してから `/dev/sda` を丸ごと上書きします。
 
 起動方法は **live Ubuntu を `toram` で RAM に載せる一択**です。
-OCI の標準 Ubuntu は p2 が 46 GiB の root で、マウント中の ext4 は縮小
-できないため、インストーラで p2 を作り直す経路は取りません。
+OCI の ARM64 標準 Ubuntu は p1 が 49 GiB の root、p13 が BOOT、p15 が
+ESP で、マウント中の ext4 は縮小できないため、インストーラで root を
+作り直す経路は取りません。
 
 ### 24 GB で足りるか
 
@@ -120,14 +123,14 @@ virtio-win（0.7 GB、RPM なら 0.3 GB）を `/dev/shm/iso`（RAM）に置い�
 
 合計 23 GB 前後。`--mem 6144` なら入ります。`--mem 8192` や 16 GB に
 すると足りなくなります（Windows 11 のインストールは 6 GiB で通ります）。
-`--keep-ubuntu` の 4 GiB はディスク上の p2 なので、メモリは増えません。
+`--keep-ubuntu` の 4 GiB はディスク上の復旧パーティションなので、メモリは増えません。
 
 `/dev/shm` の上限が 24 GB でも、QEMU の 6 GiB を除いた分しか実際には
 使えません。`df -h /dev/shm` の空きだけで判断せず、ビルド中の
 `MemAvailable` も見てください。
 
-以前の「p2 を 8 GiB にする」案は不要です。live の RAM で賄うので、
-ディスク上の Ubuntu は `--keep-ubuntu` の 4 GiB だけです。
+以前の「Ubuntu パーティションを 8 GiB にする」案は不要です。live の RAM で
+賄うので、ディスク上の Ubuntu は `--keep-ubuntu` の 4 GiB だけです。
 
 staging（`boot.wim` や OEMDRV など）は `BUILD_DIR` を省略すると
 `/dev/shm/build` になります。ISO を `$HOME` や overlay の `/` に置くと
@@ -311,15 +314,16 @@ sudo mount -t davfs https://webdav.pcloud.com /mnt/iso
 仕上がりの組み合わせは次のとおりです。コマンドは README の
 [ステージ4](../README.md#ステージ4-ビルド) にあります。
 
-| 仕上がり | 追加フラグ | p2 |
+| 仕上がり | 追加フラグ | Ubuntu の扱い |
 |---|---|---|
 | Windows のみ | なし | 消える（Windows が全体を使う） |
-| Windows + 4 GiB Ubuntu | `--keep-ubuntu` | 4 GiB で作り直す |
-| 既存の 4 GiB Ubuntu を残す | `--reuse-ubuntu` | そのまま（上級者向け） |
+| Windows + 4 GiB Ubuntu | `--keep-ubuntu` | 古い root/BOOT を置き換えて 4 GiB で作り直す |
+| 既存の 4 GiB Ubuntu を残す | `--reuse-ubuntu` | p2 のまま（上級者向け） |
 
 `--reuse-ubuntu` は、すでに p2 に 4 GiB 程度の Ubuntu を入れて起動して
-ある場合だけ使えます。`prepare.sh` は live 起動しか登録しないので、その
-Ubuntu は別途インストーラ等で入れておく必要があります。詳細は
+ある場合だけ使えます（`p1=ESP, p2=Ubuntu` のレイアウト専用）。
+`prepare.sh` は live 起動しか登録しないので、その Ubuntu は別途
+インストーラ等で入れておく必要があります。詳細は
 [DUALBOOT.md](DUALBOOT.md)。
 
 `--mem` の既定は 6144 MiB です。RAM が 24 GB の A1 で ISO を `/dev/shm/iso`

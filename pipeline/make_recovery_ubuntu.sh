@@ -1,11 +1,14 @@
 #!/usr/bin/env bash
-# Install a small Ubuntu Server (recovery only) into partition 2.
+# Install a small Ubuntu Server (recovery only) into the ext4 recovery
+# partition created by host_apply.sh.
 #
 #   sudo ./pipeline/make_recovery_ubuntu.sh /dev/sdb build/ubuntu-config
 #
-# Partition 2 must already exist and be formatted ext4 (host_apply.sh does
-# that in KEEP_UBUNTU mode).  Partition 1 is the ESP and is left untouched
-# apart from the GRUB files, which land in \EFI\ubuntu.
+# The recovery partition must already exist and be formatted ext4
+# (host_apply.sh does that in KEEP_UBUNTU mode).  Both it and the ESP are
+# found by their GPT type, so the stock OCI layout (p15=ESP, p13=BOOT,
+# p1=root) and the older p1=ESP, p2=root layout both work.  The ESP is left
+# untouched apart from the GRUB files, which land in \EFI\ubuntu.
 #
 # The point is a login you can fall back to when Windows misbehaves, so the
 # install is deliberately minimal: no snapd, no cloud-init, no firmware.
@@ -15,6 +18,9 @@
 # Requires debootstrap on the builder (scripts/setup.sh installs it).
 set -euo pipefail
 
+HERE=$(cd "$(dirname "$0")" && pwd)
+# shellcheck source=partitions.sh
+. "$HERE/partitions.sh"
 DISK=${1:?usage: $0 <disk> <config-dir>}
 CONFIG=${2:?usage: $0 <disk> <config-dir>}
 
@@ -31,18 +37,21 @@ command -v debootstrap >/dev/null || {
 
 if [ "$(id -u)" -eq 0 ]; then SUDO=(); else SUDO=(sudo -n); fi
 
-part() {
-    if [[ "$1" =~ [0-9]$ ]]; then printf '%sp%s' "$1" "$2"
-    else printf '%s%s' "$1" "$2"; fi
+ESPDEV=$(find_esp "$DISK")
+ROOTDEV=$(find_ubuntu_root "$DISK")
+[ -n "$ESPDEV" ] || { echo "recovery: no EFI System partition on $DISK" >&2; exit 1; }
+[ -n "$ROOTDEV" ] || { echo "recovery: no ext2/3/4 recovery partition on $DISK" >&2; exit 1; }
+[ "$ESPDEV" != "$ROOTDEV" ] || {
+    echo "recovery: the ESP and the recovery root are the same partition" >&2
+    exit 1
 }
 
-P1=$(part "$DISK" 1)
-P2=$(part "$DISK" 2)
-[ -b "$P1" ] || { echo "recovery: no ESP at $P1" >&2; exit 1; }
-[ -b "$P2" ] || { echo "recovery: no root partition at $P2" >&2; exit 1; }
-
-if [ -z "$RELEASE" ] && [ -f "$CONFIG/etc/os-release" ]; then
-    RELEASE=$(sed -n 's/^VERSION_CODENAME=//p' "$CONFIG/etc/os-release" | tr -d '"')
+if [ -z "$RELEASE" ]; then
+    for f in "$CONFIG/etc/os-release" "$CONFIG/usr/lib/os-release"; do
+        [ -f "$f" ] || continue
+        RELEASE=$(sed -n 's/^VERSION_CODENAME=//p' "$f" | tr -d '"' | head -1)
+        [ -n "$RELEASE" ] && break
+    done
 fi
 [ -n "$RELEASE" ] || {
     echo "recovery: cannot determine the Ubuntu release; set RELEASE=noble" >&2
@@ -63,7 +72,7 @@ cleanup() {
 }
 trap cleanup EXIT
 
-"${SUDO[@]}" mount "$P2" "$MNT"
+"${SUDO[@]}" mount "$ROOTDEV" "$MNT"
 
 echo "[1/6] debootstrap $RELEASE"
 # debootstrap refuses a non-empty target, so the ESP is mounted only after
@@ -97,7 +106,7 @@ run apt-get install -y --no-install-recommends \
 
 echo "[3/6] GRUB (EFI)"
 "${SUDO[@]}" mkdir -p "$MNT/boot/efi"
-"${SUDO[@]}" mount "$P1" "$MNT/boot/efi"
+"${SUDO[@]}" mount "$ESPDEV" "$MNT/boot/efi"
 run apt-get install -y --no-install-recommends grub-efi-arm64 || \
     echo "  WARN: grub-efi-arm64 postinst failed; retrying by hand"
 run grub-install --target=arm64-efi --efi-directory=/boot/efi \
@@ -206,8 +215,8 @@ if compgen -G "$CONFIG/ssh/hostkeys/*" >/dev/null; then
     echo "  reused the SSH host keys"
 fi
 
-ROOT_UUID=$("${SUDO[@]}" blkid -s UUID -o value "$P2")
-ESP_UUID=$("${SUDO[@]}" blkid -s UUID -o value "$P1")
+ROOT_UUID=$("${SUDO[@]}" blkid -s UUID -o value "$ROOTDEV")
+ESP_UUID=$("${SUDO[@]}" blkid -s UUID -o value "$ESPDEV")
 "${SUDO[@]}" tee "$MNT/etc/fstab" >/dev/null <<EOF
 UUID=$ROOT_UUID  /          ext4  errors=remount-ro  0 1
 UUID=$ESP_UUID   /boot/efi  vfat  umask=0077         0 1
@@ -232,7 +241,7 @@ run update-initramfs -u -k all >/dev/null 2>&1 || echo "  WARN: update-initramfs
     echo "  WARN: \\EFI\\ubuntu\\grubaa64.efi is missing on the ESP" >&2
 
 echo
-echo "OK: recovery Ubuntu $RELEASE installed on $P2"
+echo "OK: recovery Ubuntu $RELEASE installed on $ROOTDEV"
 echo "    accounts:$CREATED"
 [ -n "$RECOVERY_PASSWORD" ] && echo "    password for ubuntu: $RECOVERY_PASSWORD"
 echo "    Windows Boot Manager will chainload \\EFI\\ubuntu\\grubaa64.efi"

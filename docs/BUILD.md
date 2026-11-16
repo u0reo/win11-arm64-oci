@@ -34,8 +34,11 @@ live (`toram`) で `BUILD_DIR` を省略すると、staging は `/dev/shm/build`
 Windows ISO と virtio-win は `/dev/shm/iso` に置くのが既定です。
 
 `KEEP_UBUNTU=1`（`scripts/build.sh --keep-ubuntu`）では、ESP を残したまま
-p2 を `RECOVERY_SIZE`（既定 4 GiB）の Ubuntu Server minimal として作り直し、
-p3 を Windows にします。設定は [DUALBOOT.md](DUALBOOT.md)。
+古い Ubuntu root と BOOT を `RECOVERY_SIZE`（既定 4 GiB）の Ubuntu Server
+minimal として作り直し、残りを Windows にします。ESP は GPT の種別から探す
+ため、`p1=root, p13=BOOT, p15=ESP` の OCI 標準レイアウトでも
+`p1=ESP, p2=root` の古いレイアウトでも動きます。設定は
+[DUALBOOT.md](DUALBOOT.md)。
 
 ## virtio-win の指定
 

@@ -13,9 +13,16 @@ echo ============================================================
 echo.
 
 echo [1/6] Assigning the ESP to S:
+rem host_apply.sh writes the ESP partition number to OEM\esp-part.txt on
+rem the Windows volume.  Keep partition 1 as the fallback for fresh disks.
+set ESPPART=1
+if exist "%OEM%\esp-part.txt" set /p ESPPART=<%OEM%\esp-part.txt
+if exist %WIN%\OEM\esp-part.txt set /p ESPPART=<%WIN%\OEM\esp-part.txt
+if "%ESPPART%"=="" set ESPPART=1
+echo   using partition %ESPPART% on disk 0
 (
 echo select disk 0
-echo select partition 1
+echo select partition %ESPPART%
 echo assign letter=S
 echo exit
 ) > %TEMP%\assign_esp.txt

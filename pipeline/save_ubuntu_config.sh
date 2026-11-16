@@ -8,18 +8,15 @@
 # out of git (build/ is ignored) and delete it when the build is done.
 set -euo pipefail
 
+HERE=$(cd "$(dirname "$0")" && pwd)
+# shellcheck source=partitions.sh
+. "$HERE/partitions.sh"
 DISK=${1:?usage: $0 <disk> <out-dir>}
 OUT=${2:?usage: $0 <disk> <out-dir>}
 
 [ -b "$DISK" ] || { echo "save-config: $DISK is not a block device" >&2; exit 1; }
 
-part() {
-    if [[ "$1" =~ [0-9]$ ]]; then printf '%sp%s' "$1" "$2"
-    else printf '%s%s' "$1" "$2"; fi
-}
-
-ROOTPART=$(lsblk -lnpbo NAME,FSTYPE,SIZE "$DISK" |
-    awk '$2 ~ /^ext[234]$/ {print $3, $1}' | sort -n | tail -1 | awk '{print $2}')
+ROOTPART=$(find_ubuntu_root "$DISK")
 [ -n "$ROOTPART" ] || { echo "save-config: no ext2/3/4 root on $DISK" >&2; exit 1; }
 echo "save-config: reading $ROOTPART"
 
@@ -75,7 +72,13 @@ copy etc/hostname etc/
 copy etc/hosts etc/
 copy etc/timezone etc/
 copy etc/localtime etc/
-copy etc/os-release etc/
+# /etc/os-release is normally a symlink to ../usr/lib/os-release, which is
+# not part of the saved subset.  Dereference it so make_recovery_ubuntu.sh
+# can still read VERSION_CODENAME from a real file.
+if [ -e "$MNT/etc/os-release" ]; then
+    sudo -n rm -f "$OUT/etc/os-release"
+    sudo -n cp -L "$MNT/etc/os-release" "$OUT/etc/os-release"
+fi
 copy etc/default/keyboard etc/
 
 sudo -n umount "$MNT"

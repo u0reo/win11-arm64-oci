@@ -8,9 +8,19 @@ Windows 11 を同じブートボリュームに入れつつ、**4 GiB の小さ�
 Windows Boot Manager のメニューから Ubuntu を選ぶ形にします。
 
 ```text
-p1  ESP (FAT32, 512 MB)      既存を保持。Windows と Ubuntu の両方の EFI を置く
-p2  Ubuntu (ext4, 4 GiB)     Ubuntu Server minimal を新規インストール
-p3  Windows (NTFS, 残り)      wimlib-imagex で適用
+ESP (FAT32)                  既存を保持。Windows と Ubuntu の両方の EFI を置く
+Ubuntu recovery (ext4, 4 GiB) Ubuntu Server minimal を新規インストール
+Windows (NTFS, 残り)          wimlib-imagex で適用
+```
+
+パーティション番号はディスクによって変わります。スクリプトは番号ではなく
+GPT のパーティション種別（EFI System）で ESP を探します。
+
+```text
+OCI ARM64 の標準:  p1=Ubuntu root (49 GiB), p13=BOOT (923 MiB), p15=ESP
+                   → 復旧 Ubuntu は p1、Windows は p2、ESP は p15 のまま
+古い構成:          p1=ESP, p2=Ubuntu
+                   → 復旧 Ubuntu は p2、Windows は p3、ESP は p1 のまま
 ```
 
 ## 何を残して何を捨てるか
@@ -28,13 +38,13 @@ p3  Windows (NTFS, 残り)      wimlib-imagex で適用
 （`build/` は .gitignore 済み、`/dev/shm` は再起動で消えます）。
 ビルドが終わったら削除してください。
 
-## なぜ live 環境で p2 を作り直すのか
+## なぜ live 環境で Ubuntu root を作り直すのか
 
-いま起動しているのが OCI の標準 Ubuntu（`/dev/sda2` が 46 GiB の root）の
-場合、**その p2 は縮小できません**（マウント中の ext4 は縮小できないため）。
-そこで live 環境に切り替えて、p2 を作り直します。live への切り替えは
-README の [ステージ2-B](../README.md#ステージ2-b-live-を-toram-で起動する)
-にあります。
+いま起動しているのが OCI の標準 Ubuntu（ARM64 では `p1` が 49 GiB の
+root、`p13` が BOOT、`p15` が ESP）の場合、**その root は縮小できません**
+（マウント中の ext4 は縮小できないため）。そこで live 環境に切り替えて、
+root を作り直します。live への切り替えは README の
+[ステージ2-B](../README.md#ステージ2-b-live-を-toram-で起動する) にあります。
 
 ## 使い方
 
@@ -43,25 +53,28 @@ README の [ステージ4](../README.md#ステージ4-ビルド) のコマンド
 Ubuntu を 6 GiB にしたければ `--ubuntu-size 6G`。Windows は残り全部
 （100 GB のボリュームなら約 88 GiB）を使います。
 
-`--keep-ubuntu` は p2 を 4 GiB で作り直して minimal Ubuntu を debootstrap
-するので、Windows と Ubuntu が 1 回のビルドでできます。
+`--keep-ubuntu` は古い Ubuntu root（と OCI の BOOT パーティション）を
+4 GiB（`--ubuntu-size` で変更可）の復旧環境として作り直して minimal Ubuntu を
+debootstrap するので、Windows と Ubuntu が 1 回のビルドでできます。
 
 RAM の内訳と、データボリュームを使う場合の注意は
 [OCI.md の「24 GB で足りるか」](OCI.md#24-gb-で足りるか) にあります。
 
 ## 中で起きること
 
-1. `save_ubuntu_config.sh` が既存 p2 を read-only でマウントし、設定を退避
-2. `host_apply.sh` が p2 を削除して 4 GiB で作り直し、p3 を残り全部で作成
+1. `save_ubuntu_config.sh` が既存 root（最大の ext4）をマウントし、設定を退避
+2. `host_apply.sh` が GPT 種別から ESP を探し、古い root と BOOT を削除。
+   空いた領域に復旧 Ubuntu と Windows を、空いている番号で作成
    （ESP はフォーマットしない。空き 40 MiB 未満なら中止）
-3. `make_recovery_ubuntu.sh` が p2 に debootstrap で minimal Ubuntu を構築
+3. `make_recovery_ubuntu.sh` が復旧パーティションに debootstrap で
+   minimal Ubuntu を構築
    - netplan と SSH 設定をコピー
    - 同じ SSH ホスト鍵を使うので、既存の `known_hosts` がそのまま通る
    - `/etc/fstab` は新しい PARTUUID で生成
    - `grub-install --bootloader-id=ubuntu` → `\EFI\ubuntu\grubaa64.efi`
-4. Windows を p3 に適用
-5. WinPE で `bcdboot` を ESP に実行し、BCD に
-   `BOOTAPP` エントリ（`\EFI\ubuntu\grubaa64.efi`）を追加
+4. Windows を新しい NTFS パーティションに適用
+5. WinPE で `OEM\esp-part.txt` に記録した ESP 番号を選び、`bcdboot` を実行。
+   BCD に `BOOTAPP` エントリ（`\EFI\ubuntu\grubaa64.efi`）を追加
 
 ## 起動メニュー
 
@@ -95,6 +108,10 @@ Ubuntu 側の GRUB が壊れても Windows は起動します。
 - **Windows Update**: 大型更新で ESP やブート順が書き換わる可能性があります
 
 ## 上級者向け: 既に小さな Ubuntu が入っている場合（`--reuse-ubuntu`）
+
+`--reuse-ubuntu` は `p1=ESP, p2=Ubuntu` のレイアウト専用です（OCI の
+標準 ARM64 レイアウトには対応しません。その場合は `--keep-ubuntu` を
+使ってください）。
 
 p2 に 4 GiB 程度の Ubuntu を**自分で入れて起動してある**なら、
 `--reuse-ubuntu` で p2 を残したまま Windows を足せます。`prepare.sh` は

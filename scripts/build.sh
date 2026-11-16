@@ -13,8 +13,10 @@
 # a third of the size and is read without mounting (rpm2cpio + cpio).
 #
 # Add --keep-ubuntu to keep a small Ubuntu recovery system on the same disk
-# (Windows Boot Manager chainloads its GRUB).  The old Ubuntu is replaced by
-# a fresh minimal install; its netplan and SSH settings are copied over.
+# (Windows Boot Manager chainloads its GRUB).  The old Ubuntu root is replaced
+# by a fresh minimal install; its netplan and SSH settings are copied over.
+# The ESP is found by GPT type, so the OCI ARM64 layout (p1=root, p13=BOOT,
+# p15=ESP) works as well as the older p1=ESP, p2=ubuntu layout.
 #
 # Add --reuse-ubuntu instead when you already installed a small Ubuntu on
 # partition 2 and booted it: partition 2 is left alone and only the free
@@ -291,10 +293,12 @@ if [ "$REUSE_UBUNTU" = 1 ]; then
 EOF
 elif [ "$KEEP_UBUNTU" = 1 ]; then
     cat <<EOF
-  The ESP and the partition table stay.  Partition 2 is recreated as a
-  ${RECOVERY_SIZE} ext4 recovery Ubuntu (fresh minimal install) and
-  partition 3 takes the rest for Windows.  Its netplan and SSH settings
-  are copied from the current Ubuntu before it is erased.
+  The ESP stays.  The old Ubuntu root (and the OCI BOOT partition, if
+  present) is replaced by a ${RECOVERY_SIZE} ext4 recovery Ubuntu (fresh
+  minimal install) and the rest becomes Windows.  Existing partition
+  numbers are not assumed: the ESP is found by its GPT type and the new
+  partitions use the next free numbers.  Its netplan and SSH settings are
+  copied from the current Ubuntu before it is erased.
   EVERYTHING ELSE ON $DISK WILL BE DESTROYED.
 EOF
 elif [ "$FILE_TARGET" = 1 ]; then
@@ -426,8 +430,9 @@ EOF
 
 if [ "$KEEP_UBUNTU" = 1 ]; then
     cat <<EOF
-The ${RECOVERY_SIZE} recovery Ubuntu is on partition 2.  The Windows Boot
-Manager menu shows it as "Ubuntu (recovery)" (${BOOT_MENU} second timeout).
+The ${RECOVERY_SIZE} recovery Ubuntu is installed on the same disk.  The
+Windows Boot Manager menu shows it as "Ubuntu (recovery)" (${BOOT_MENU}
+second timeout).
 EOF
 elif [ "$REUSE_UBUNTU" = 1 ]; then
     cat <<EOF

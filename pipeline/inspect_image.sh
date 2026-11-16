@@ -3,6 +3,9 @@
 # Usage: ./inspect_image.sh /path/to/disk.qcow2 | /path/to/disk.raw | /dev/sdX
 set -euo pipefail
 
+HERE=$(cd "$(dirname "$0")" && pwd)
+# shellcheck source=partitions.sh
+. "$HERE/partitions.sh"
 IMG=${1:?usage: $0 <disk.qcow2|disk.raw|/dev/sdX>}
 [ -f "$IMG" ] || [ -b "$IMG" ] || { echo "missing $IMG" >&2; exit 1; }
 
@@ -38,21 +41,19 @@ fi
 sudo -n partprobe "$DEV" 2>/dev/null || true
 sleep 1
 
-# /dev/sda -> /dev/sda1, /dev/nbd0 -> /dev/nbd0p1, /dev/nvme0n1 -> p1
-part() {
-    if [[ "$1" =~ [0-9]$ ]]; then
-        printf '%sp%s' "$1" "$2"
-    else
-        printf '%s%s' "$1" "$2"
-    fi
-}
-
 echo "=== partitions ==="
 lsblk -o NAME,SIZE,FSTYPE,LABEL,UUID "$DEV" || true
 sudo -n sgdisk -p "$DEV" 2>/dev/null | sed -n '1,25p' || true
 
-sudo -n mount -t vfat -o ro "$(part "$DEV" 1)" "$ESP"
-sudo -n mount -t ntfs-3g -o ro "$(part "$DEV" 3)" "$WIN"
+ESPDEV=$(find_esp "$DEV")
+WINPART=$(find_windows "$DEV")
+[ -n "$ESPDEV" ] || { echo "no EFI System partition found on $DEV" >&2; exit 1; }
+[ -n "$WINPART" ] || { echo "no Windows/NTFS partition found on $DEV" >&2; exit 1; }
+echo "ESP:      $ESPDEV"
+echo "Windows:  $WINPART"
+
+sudo -n mount -t vfat -o ro "$ESPDEV" "$ESP"
+sudo -n mount -t ntfs-3g -o ro "$WINPART" "$WIN"
 
 echo "=== ESP files ==="
 find "$ESP/EFI" -maxdepth 3 -type f -printf '%10s %p\n' 2>/dev/null | sort -k2 | head -40 || true

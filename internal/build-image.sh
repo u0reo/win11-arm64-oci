@@ -24,7 +24,8 @@
 #   SIZE=50G             qcow2 virtual size (ignored for a block device)
 #   MEM=8192             guest RAM in MiB
 #   SMP=4                guest vCPUs
-#   KEEP_UBUNTU=1        keep a small Ubuntu recovery system on the disk
+#   KEEP_UBUNTU=1        keep the ESP (found by GPT type) and replace the
+#                        Ubuntu root/BOOT with a recovery system + Windows
 #   RECOVERY_SIZE=4G     size of that recovery partition
 #   REUSE_UBUNTU=1       p2 is an installed Ubuntu; only use the free space
 #   BOOT_MENU_TIMEOUT=1  seconds to show the Windows boot menu (0 = off)

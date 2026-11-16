@@ -7,6 +7,8 @@
 set -euo pipefail
 
 HERE=$(cd "$(dirname "$0")" && pwd)
+# shellcheck source=partitions.sh
+. "$HERE/partitions.sh"
 IMG=${1:?usage: $0 <disk.qcow2|/dev/sdX>}
 
 RAW=0
@@ -16,14 +18,6 @@ elif [ ! -f "$IMG" ]; then
     echo "missing $IMG" >&2
     exit 1
 fi
-
-part() {
-    if [[ "$1" =~ [0-9]$ ]]; then
-        printf '%sp%s' "$1" "$2"
-    else
-        printf '%s%s' "$1" "$2"
-    fi
-}
 
 if pgrep -f "qemu-system-aarch64.*$IMG" >/dev/null 2>&1; then
     echo "QEMU still references $IMG" >&2
@@ -56,8 +50,14 @@ fi
 
 sudo -n partprobe "$DEV" 2>/dev/null || true
 sleep 1
-P1=$(part "$DEV" 1)
-sudo -n mount -t vfat "$P1" "$ESP"
+ESPDEV=$(find_esp "$DEV")
+[ -n "$ESPDEV" ] || {
+    echo "no EFI System partition found on $DEV" >&2
+    lsblk -o NAME,SIZE,FSTYPE,PARTTYPENAME "$DEV" >&2
+    exit 1
+}
+echo "  ESP: $ESPDEV"
+sudo -n mount -t vfat "$ESPDEV" "$ESP"
 
 echo "[3/4] patch ESP boot managers"
 for rel in EFI/Microsoft/Boot/bootmgfw.efi EFI/Boot/bootaa64.efi; do

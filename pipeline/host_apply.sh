@@ -6,19 +6,28 @@
 #
 # The target can be a qcow2 file (created from scratch) or a raw block
 # device such as /dev/sdb.  A block device is wiped completely, unless
-# KEEP_UBUNTU=1 is set: then the ESP is kept and partition 2 is recreated as
-# a small ext4 recovery system (RECOVERY_SIZE, default 4G) instead of being
-# deleted.  pipeline/make_recovery_ubuntu.sh fills it afterwards.
+# KEEP_UBUNTU=1 is set: then the ESP is kept (found by its GPT type, not by
+# a fixed partition number) and the old Ubuntu root - plus the separate BOOT
+# partition used by the stock OCI ARM64 image - is replaced by a small ext4
+# recovery system (RECOVERY_SIZE, default 4G) and a new Windows partition.
+# pipeline/make_recovery_ubuntu.sh fills the recovery partition afterwards.
+#
+# KEEP_UBUNTU=1 accepts both layouts:
+#   p1=ESP, p2=Ubuntu                        (older, pre-shrunk)
+#   p15=ESP, p13=BOOT, p1=Ubuntu root        (stock OCI ARM64)
 #
 # Usage: ./host_apply.sh <windows-arm64.iso> <disk.qcow2|/dev/sdX> [index]
 #
 # The ESP boot files and offline driver injection are done afterwards by
 # booting WinPE with manual_start.finish.cmd, which detects the existing
-# Windows and calls manual_finish.cmd.
+# Windows and calls manual_finish.cmd.  The ESP partition number is written
+# to OEM\esp-part.txt on the Windows partition for that script.
 set -euo pipefail
 
 HERE=$(cd "$(dirname "$0")" && pwd)
 ROOT=$(cd "$HERE/.." && pwd)
+# shellcheck source=partitions.sh
+. "$HERE/partitions.sh"
 ISO=${1:?usage: $0 <iso> <disk.qcow2|/dev/sdX> [index]}
 IMG=${2:?usage: $0 <iso> <disk.qcow2|/dev/sdX> [index]}
 INDEX=${3:-1}
@@ -36,15 +45,6 @@ RAW=0
 if [ -b "$IMG" ]; then
     RAW=1
 fi
-
-# /dev/sda -> /dev/sda1, /dev/nvme0n1 -> /dev/nvme0n1p1
-part() {
-    if [[ "$1" =~ [0-9]$ ]]; then
-        printf '%sp%s' "$1" "$2"
-    else
-        printf '%s%s' "$1" "$2"
-    fi
-}
 
 esp_free_kb() {
     local mnt
@@ -86,6 +86,46 @@ require_two_partitions() {
         echo "the layout must be p1=ESP, p2=Ubuntu, and p3 must not exist" >&2
         exit 1
     fi
+}
+
+# Bytes for a size such as 4G.  A bare number is treated as bytes.
+size_bytes() {
+    case "$1" in
+        *[Kk]) awk -v n="${1%[Kk]}" 'BEGIN{printf "%.0f", n*1024}' ;;
+        *[Mm]) awk -v n="${1%[Mm]}" 'BEGIN{printf "%.0f", n*1024*1024}' ;;
+        *[Gg]) awk -v n="${1%[Gg]}" 'BEGIN{printf "%.0f", n*1024*1024*1024}' ;;
+        *[Tt]) awk -v n="${1%[Tt]}" 'BEGIN{printf "%.0f", n*1024*1024*1024*1024}' ;;
+        *) printf '%s\n' "$1" ;;
+    esac
+}
+
+# Print the lowest WANT free partition slots (numbers) on DISK.  Read the
+# on-disk GPT with sgdisk here: lsblk can still show deleted partitions for
+# a moment after sgdisk, which would make us pick an occupied slot.
+free_slots() {
+    local disk=$1 want=$2 n=1 found=0 used
+    used=$(sudo -n sgdisk -p "$disk" |
+        awk '$1 ~ /^[0-9]+$/ { print $1 }' | sort -n)
+    while [ "$found" -lt "$want" ]; do
+        if ! printf '%s\n' "$used" | grep -qx "$n"; then
+            printf '%s ' "$n"
+            found=$((found + 1))
+        fi
+        n=$((n + 1))
+    done
+    printf '\n'
+}
+
+wait_part() {
+    local dev=$1 num=$2
+    for _ in $(seq 1 15); do
+        if [ -b "$(part "$dev" "$num")" ]; then
+            return 0
+        fi
+        sudo -n partx -a "$dev" 2>/dev/null || true
+        sleep 1
+    done
+    return 1
 }
 
 [ -f "$ISO" ] || { echo "missing ISO: $ISO" >&2; exit 1; }
@@ -176,14 +216,15 @@ if [ "$REUSE_UBUNTU" = 1 ]; then
     P2=$(part "$DEV" 2)
     [ -b "$P1" ] || { echo "no ESP at $P1" >&2; exit 1; }
     [ -b "$P2" ] || { echo "no Ubuntu partition at $P2" >&2; exit 1; }
-    [ "$(lsblk -no FSTYPE "$P1" | tr -d ' ')" = vfat ] || {
+    [ "$(fs_type "$P1")" = vfat ] || {
         echo "$P1 is not FAT32; the ESP must stay as it is" >&2; exit 1; }
-    case "$(lsblk -no FSTYPE "$P2" | tr -d ' ')" in
+    case "$(fs_type "$P2")" in
         ext2|ext3|ext4) ;;
         *) echo "$P2 is not ext4; refusing to build next to it" >&2; exit 1 ;;
     esac
     require_two_partitions "$DEV"
     require_esp_free "$P1"
+    ESP_N=$(part_number "$P1")
 
     FREE_GIB=$(free_gib "$DEV")
     echo "  free space: ${FREE_GIB} GiB"
@@ -201,42 +242,142 @@ if [ "$REUSE_UBUNTU" = 1 ]; then
         sudo -n partx -a "$DEV" 2>/dev/null || true
         sleep 1
     done
-    P3=$(part "$DEV" 3)
-    [ -b "$P3" ] || { echo "partition 3 did not appear" >&2; exit 1; }
+    WINPART=$(part "$DEV" 3)
+    [ -b "$WINPART" ] || { echo "partition 3 did not appear" >&2; exit 1; }
     lsblk -o NAME,SIZE,FSTYPE,PARTTYPENAME "$DEV"
-    P3START=$(lsblk -no START "$P3" | tr -d ' ')
-    [ -n "$P3START" ] || { echo "cannot determine p3 start sector" >&2; exit 1; }
-    sudo -n mkntfs -f -F -L Windows -p "$P3START" -H 255 -S 63 "$P3" >/dev/null
-    echo "  formatted (p3 starts at sector $P3START)"
+    WIN_START=$(lsblk -no START "$WINPART" | tr -d ' ')
+    [ -n "$WIN_START" ] || { echo "cannot determine the Windows start sector" >&2; exit 1; }
+    sudo -n mkntfs -f -F -L Windows -p "$WIN_START" -H 255 -S 63 "$WINPART" >/dev/null
+    echo "  formatted ($WINPART starts at sector $WIN_START)"
 elif [ "$KEEP_UBUNTU" = 1 ]; then
-    echo "[3/6] keep the ESP, shrink Ubuntu to $RECOVERY_SIZE, add Windows"
+    echo "[3/6] keep the ESP, replace the Ubuntu root with $RECOVERY_SIZE, add Windows"
     sudo -n partprobe "$DEV" 2>/dev/null || true
     sleep 1
-    P1=$(part "$DEV" 1)
-    P2=$(part "$DEV" 2)
-    [ -b "$P1" ] || { echo "no ESP at $P1" >&2; exit 1; }
-    [ -b "$P2" ] || { echo "no Ubuntu partition at $P2" >&2; exit 1; }
-    ESP_FS=$(lsblk -no FSTYPE "$P1" | tr -d ' ')
-    [ "$ESP_FS" = vfat ] || { echo "$P1 is not FAT32 ($ESP_FS)" >&2; exit 1; }
-    require_two_partitions "$DEV"
-    require_esp_free "$P1"
 
-    P2START=$(cat "/sys/class/block/$(basename "$P2")/start")
-    sudo -n sgdisk -d 2 "$DEV" >/dev/null
-    sudo -n sgdisk \
-        -n "2:${P2START}:+${RECOVERY_SIZE}" -t 2:8300 -c 2:"Ubuntu" \
-        -n 3:0:0 -t 3:0700 -c 3:"Windows" \
-        "$DEV" >/dev/null
+    ESPDEV=$(find_esp "$DEV")
+    [ -n "$ESPDEV" ] || {
+        echo "no EFI System partition found on $DEV" >&2
+        lsblk -o NAME,SIZE,FSTYPE,PARTTYPENAME "$DEV" >&2
+        exit 1
+    }
+    ESP_N=$(part_number "$ESPDEV")
+    ESP_FS=$(fs_type "$ESPDEV")
+    [ "$ESP_FS" = vfat ] || { echo "$ESPDEV is not FAT32 ($ESP_FS)" >&2; exit 1; }
+
+    ROOTDEV=$(find_ubuntu_root "$DEV")
+    [ -n "$ROOTDEV" ] || {
+        echo "no ext2/3/4 Ubuntu root found on $DEV" >&2
+        lsblk -o NAME,SIZE,FSTYPE,PARTTYPENAME "$DEV" >&2
+        exit 1
+    }
+    [ "$ROOTDEV" != "$ESPDEV" ] || { echo "the ESP is also the Ubuntu root?" >&2; exit 1; }
+
+    BOOTDEV=$(find_linux_boot "$DEV")
+    [ "$BOOTDEV" != "$ROOTDEV" ] || BOOTDEV=""
+
+    EXISTING_WIN=$(find_windows "$DEV")
+    if [ -n "$EXISTING_WIN" ]; then
+        echo "a Windows/NTFS partition already exists at $EXISTING_WIN" >&2
+        echo "refusing to create a second one" >&2
+        exit 1
+    fi
+
+    echo "  ESP:   $ESPDEV (partition $ESP_N, kept)"
+    echo "  root:  $ROOTDEV (replaced)"
+    [ -n "$BOOTDEV" ] && echo "  boot:  $BOOTDEV (removed)"
+    require_esp_free "$ESPDEV"
+
+    # Space that becomes available after the old root and BOOT are removed.
+    TOTAL_BYTES=$(sudo -n blockdev --getsize64 "$DEV")
+    AVAIL_BYTES=$TOTAL_BYTES
+    while read -r name bytes; do
+        [ -n "$name" ] || continue
+        [ "$name" = "$ROOTDEV" ] && continue
+        [ -n "$BOOTDEV" ] && [ "$name" = "$BOOTDEV" ] && continue
+        AVAIL_BYTES=$((AVAIL_BYTES - bytes))
+    done < <(lsblk -lnpbo NAME,TYPE,SIZE "$DEV" | awk '$2=="part"{print $1, $3}')
+    AVAIL_BYTES=$((AVAIL_BYTES - 2 * 1024 * 1024))
+    AVAIL_GIB=$((AVAIL_BYTES / 1024 / 1024 / 1024))
+    NEED_BYTES=$(( $(size_bytes "$RECOVERY_SIZE") + 40 * 1024 * 1024 * 1024 ))
+    echo "  space for Windows + recovery: ${AVAIL_GIB} GiB"
+    if [ "$AVAIL_BYTES" -lt "$NEED_BYTES" ]; then
+        echo "not enough space for Windows (need 40 GiB plus $RECOVERY_SIZE)" >&2
+        echo "  free some space on $DEV first" >&2
+        exit 1
+    fi
+
+    # Start the recovery partition where the removed partitions began.  On
+    # the stock OCI layout this reclaims both the 923 MiB BOOT partition and
+    # the 49 GiB root, leaving one large contiguous area for Windows.
+    FIRST_START=$(cat "/sys/class/block/$(basename "$ROOTDEV")/start")
+    if [ -n "$BOOTDEV" ]; then
+        BOOT_START=$(cat "/sys/class/block/$(basename "$BOOTDEV")/start")
+        [ "$BOOT_START" -lt "$FIRST_START" ] && FIRST_START=$BOOT_START
+    fi
+    FIRST_START=$(( (FIRST_START + 2047) / 2048 * 2048 ))
+
+    ESP_START=$(cat "/sys/class/block/$(basename "$ESPDEV")/start")
+    ESP_PARTUUID=$(sudo -n blkid -s PARTUUID -o value "$ESPDEV" 2>/dev/null || true)
+
+    DEL=(-d "$(part_number "$ROOTDEV")")
+    if [ -n "$BOOTDEV" ]; then
+        DEL+=(-d "$(part_number "$BOOTDEV")")
+    fi
+    echo "  removing partition(s): ${DEL[*]}"
+    sudo -n sgdisk "${DEL[@]}" "$DEV" >/dev/null
     sudo -n partprobe "$DEV" 2>/dev/null || true
     sleep 2
-    P2=$(part "$DEV" 2)
-    P3=$(part "$DEV" 3)
+
+    read -r RECOVERY_N _ < <(free_slots "$DEV" 2)
+    [ -n "$RECOVERY_N" ] || { echo "cannot find a free partition number" >&2; exit 1; }
+    echo "  creating recovery at sector $FIRST_START (slot $RECOVERY_N)"
+    sudo -n sgdisk \
+        -n "$RECOVERY_N:${FIRST_START}:+$RECOVERY_SIZE" \
+        -t "$RECOVERY_N:8300" -c "$RECOVERY_N:Ubuntu" \
+        "$DEV" >/dev/null
+    sudo -n partprobe "$DEV" 2>/dev/null || true
+    if ! wait_part "$DEV" "$RECOVERY_N"; then
+        echo "recovery partition did not appear" >&2
+        exit 1
+    fi
+    RECPART=$(part "$DEV" "$RECOVERY_N")
+    REC_START=$(cat "/sys/class/block/$(basename "$RECPART")/start")
+    REC_BYTES=$(sudo -n blockdev --getsize64 "$RECPART")
+    WIN_START=$(( (REC_START + REC_BYTES / 512 + 2047) / 2048 * 2048 ))
+
+    read -r WINDOWS_N < <(free_slots "$DEV" 1)
+    [ -n "$WINDOWS_N" ] || { echo "cannot find a free partition number" >&2; exit 1; }
+    echo "  creating Windows at sector $WIN_START (slot $WINDOWS_N)"
+    sudo -n sgdisk \
+        -n "$WINDOWS_N:${WIN_START}:0" \
+        -t "$WINDOWS_N:0700" -c "$WINDOWS_N:Windows" \
+        "$DEV" >/dev/null
+    sudo -n partprobe "$DEV" 2>/dev/null || true
+    if ! wait_part "$DEV" "$WINDOWS_N"; then
+        echo "Windows partition did not appear" >&2
+        exit 1
+    fi
+    WINPART=$(part "$DEV" "$WINDOWS_N")
+
     lsblk -o NAME,SIZE,FSTYPE,PARTTYPENAME "$DEV"
-    P3START=$(lsblk -no START "$P3" | tr -d ' ')
-    [ -n "$P3START" ] || { echo "cannot determine p3 start sector" >&2; exit 1; }
-    sudo -n mkfs.ext4 -F -L Ubuntu "$P2" >/dev/null
-    sudo -n mkntfs -f -F -L Windows -p "$P3START" -H 255 -S 63 "$P3" >/dev/null
-    echo "  formatted (p2 $RECOVERY_SIZE ext4, p3 starts at sector $P3START)"
+
+    # The ESP must still be exactly where it was: same slot and same start.
+    [ -n "$ESP_N" ] && [ -b "$ESPDEV" ] || { echo "the ESP disappeared" >&2; exit 1; }
+    [ "$(cat "/sys/class/block/$(basename "$ESPDEV")/start")" = "$ESP_START" ] || {
+        echo "the ESP moved; refusing to overwrite it" >&2; exit 1; }
+    if [ -n "$ESP_PARTUUID" ]; then
+        NEW_ESP_PARTUUID=$(sudo -n blkid -s PARTUUID -o value "$ESPDEV" 2>/dev/null || true)
+        [ "$NEW_ESP_PARTUUID" = "$ESP_PARTUUID" ] || {
+            echo "the ESP PARTUUID changed; refusing to overwrite it" >&2; exit 1; }
+    fi
+
+    WIN_START=$(cat "/sys/class/block/$(basename "$WINPART")/start")
+    sudo -n wipefs -a "$RECPART" >/dev/null 2>&1 || true
+    sudo -n wipefs -a "$WINPART" >/dev/null 2>&1 || true
+    sudo -n mkfs.ext4 -F -L Ubuntu "$RECPART" >/dev/null
+    sudo -n mkntfs -f -F -L Windows -p "$WIN_START" -H 255 -S 63 "$WINPART" >/dev/null
+    echo "  formatted ($RECPART $RECOVERY_SIZE ext4, $WINPART NTFS from sector $WIN_START)"
+    echo "  ESP kept as $ESPDEV (partition $ESP_N)"
 else
     echo "[3/6] partition and format"
     sudo -n sgdisk --zap-all "$DEV" >/dev/null
@@ -247,37 +388,44 @@ else
         "$DEV" >/dev/null
     sudo -n partprobe "$DEV" 2>/dev/null || true
     sleep 2
-    P1=$(part "$DEV" 1)
-    P3=$(part "$DEV" 3)
+    ESPDEV=$(part "$DEV" 1)
+    WINPART=$(part "$DEV" 3)
+    ESP_N=1
     lsblk -o NAME,SIZE,FSTYPE,PARTTYPENAME "$DEV"
-    P3START=$(lsblk -no START "$P3" | tr -d ' ')
-    [ -n "$P3START" ] || { echo "cannot determine p3 start sector" >&2; exit 1; }
+    WIN_START=$(lsblk -no START "$WINPART" | tr -d ' ')
+    [ -n "$WIN_START" ] || { echo "cannot determine the Windows start sector" >&2; exit 1; }
     # -f is a quick format: without it mkntfs zeroes the whole volume, which
     # balloons the qcow2 and is extremely slow over NBD.  -p/-H/-S give the
     # NTFS BPB the same geometry Windows uses, so Windows can boot from it.
-    sudo -n mkfs.vfat -F32 -n SYSTEM "$P1" >/dev/null
-    sudo -n mkntfs -f -F -L Windows -p "$P3START" -H 255 -S 63 "$P3" >/dev/null
-    echo "  formatted (p3 starts at sector $P3START)"
+    sudo -n mkfs.vfat -F32 -n SYSTEM "$ESPDEV" >/dev/null
+    sudo -n mkntfs -f -F -L Windows -p "$WIN_START" -H 255 -S 63 "$WINPART" >/dev/null
+    echo "  formatted ($WINPART starts at sector $WIN_START)"
 fi
 
+[ -b "$WINPART" ] || { echo "no Windows partition to apply to" >&2; exit 1; }
+
 echo "[4/6] apply image $INDEX with wimlib-imagex"
-time sudo -n wimlib-imagex apply "$WIM" "$INDEX" "$P3"
+time sudo -n wimlib-imagex apply "$WIM" "$INDEX" "$WINPART"
 
 echo "[5/6] stage unattend, OEM scripts and drivers"
-sudo -n mount -t ntfs-3g "$P3" "$WIN_MNT"
+sudo -n mount -t ntfs-3g "$WINPART" "$WIN_MNT"
 WIN_MOUNTED=1
 sudo -n mkdir -p "$WIN_MNT/Windows/Panther"
 sudo -n cp "$MEDIA/autounattend.xml" "$WIN_MNT/Windows/Panther/unattend.xml"
 sudo -n cp -a "$MEDIA/oem" "$WIN_MNT/OEM"
 sudo -n cp -a "$DRIVERS" "$WIN_MNT/drivers"
 [ -d "$DRIVERS_EXTRA" ] && sudo -n cp -a "$DRIVERS_EXTRA" "$WIN_MNT/drivers-extra"
+# manual_finish.cmd runs in WinPE before it has mounted the ESP.  Record the
+# partition number on the Windows volume (and in the staging dir for logs).
+printf '%s\r\n' "$ESP_N" | sudo -n tee "$WIN_MNT/OEM/esp-part.txt" >/dev/null
+printf '%s\n' "$ESP_N" > "$BUILD/esp-part.txt"
 sudo -n sync
 sudo -n umount "$WIN_MNT"
 WIN_MOUNTED=0
-echo "  staged"
+echo "  staged (ESP is partition $ESP_N; WinPE reads OEM\\esp-part.txt)"
 
 echo "[5b/6] clear the NTFS dirty flag (avoids a forced autochk on first boot)"
-sudo -n ntfsfix -d "$P3" || true
+sudo -n ntfsfix -d "$WINPART" || true
 
 echo "[6/6] verify and disconnect"
 if [ "$NBD" = 1 ]; then
