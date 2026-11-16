@@ -63,7 +63,7 @@ tar xzf runner.tar.gz
 
 ### 必要なパッケージ
 
-README の [ステージ1](../README.md#ステージ1-準備) と同じです。runner でも
+README の [ステージ2](../README.md#ステージ2-ビルド環境を作る) と同じです。runner でも
 `sudo ./scripts/setup.sh` を実行してください。
 
 ### sudo

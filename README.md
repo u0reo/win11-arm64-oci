@@ -32,7 +32,7 @@ OCI の Ubuntu を一時的なビルド機にし、ブートボリュームの�
 
 | スクリプト | 用途 | 使うステージ |
 |---|---|---|
-| `scripts/setup.sh` | ホストの準備と検査（冪等） | 1・2-A・2-B |
+| `scripts/setup.sh` | ホストの準備と検査（冪等） | 2-A・2-B |
 | `scripts/build.sh` | ディスクを作る唯一の入口 | 4 |
 | `scripts/prepare.sh` | live ISO を GRUB に登録し、自動起動を設定する | 2-B |
 
@@ -52,22 +52,8 @@ OCI の Ubuntu を一時的なビルド機にし、ブートボリュームの�
 OCI の無料枠とボリューム容量は
 [docs/OCI.md](docs/OCI.md#コスト) を参照してください。
 
-### パッケージ
-
-```bash
-sudo ./scripts/setup.sh          # 入れてから検査
-./scripts/setup.sh --check       # 検査だけ（何も変更しない）
-```
-
-手動で入れる場合:
-
-```bash
-sudo apt-get install -y \
-  qemu-system-arm qemu-utils qemu-efi-aarch64 wimtools \
-  libhivex-bin python3-hivex python3-pefile \
-  mtools dosfstools ntfs-3g xorriso gdisk zstd \
-  curl rclone age jq
-```
+パッケージの導入とホスト検査は、ステージ2でビルド機にログインしてから
+`setup.sh` で行います。
 
 ### Ubuntu live ISO を入手する
 
@@ -109,6 +95,26 @@ grep -F " *$ISO" SHA256SUMS | sha256sum -c -
 - **ステージ2-A**: ターゲットとビルダーの 2 インスタンス。既存の Ubuntu を
   ビルド機にでき、live ISO も `toram` も不要です。
 - **ステージ2-B**: 1 インスタンスで完結。live ISO を `toram` で RAM に載せます。
+
+### ビルド機のパッケージ
+
+どちらの方法でも、ビルド機にログインしたら最初に `setup.sh` を実行します
+（冪等）。パッケージの導入とホスト検査をまとめて行います。
+
+```bash
+sudo ./scripts/setup.sh          # 入れてから検査
+./scripts/setup.sh --check       # 検査だけ（何も変更しない）
+```
+
+手動で入れる場合:
+
+```bash
+sudo apt-get install -y \
+  qemu-system-arm qemu-utils qemu-efi-aarch64 wimtools \
+  libhivex-bin python3-hivex python3-pefile \
+  mtools dosfstools ntfs-3g xorriso gdisk zstd \
+  curl rclone age jq
+```
 
 ### ステージ2-A ボリュームを付け替える
 
