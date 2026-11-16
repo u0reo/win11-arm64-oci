@@ -143,7 +143,8 @@ Ubuntu Server live には cloud-init と openssh-server が入っており、
 QEMU（AAVMF + TCG）で起動して確認済みです。cloud-init が `CIDATA` を
 自動検出し、`ubuntu` ユーザー作成・`authorized_keys` でのログイン・
 パスワードなし sudo・22 番の listen まで通りました。TCG では systemd の
-起動完了まで実時間で 15 分ほどかかります。`meta-data` の
+起動完了まで実時間で 15 分ほどかかります。26.04 も同じ cloud-init と
+`CIDATA` の仕組みなので、seed の内容はそのまま使えます。`meta-data` の
 `local-hostname` は live では効かず、ホスト名は `ubuntu-server` のままに
 なります（動作に影響はありません）。
 

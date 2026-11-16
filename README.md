@@ -78,13 +78,25 @@ sudo apt-get install -y \
 sudo mkdir -p /srv/iso
 cd /srv/iso
 
-# arm64 を選ぶ。live もビルド環境もこの 1 枚で足りる
-VER=24.04.5   # releases.ubuntu.com/24.04/ で最新を確認
-curl -LO "https://releases.ubuntu.com/24.04/ubuntu-${VER}-live-server-arm64.iso"
+# arm64 を選ぶ。live もビルド環境もこの 1 枚で足りる。
+# ARM64 のイメージは releases.ubuntu.com ではなく cdimage.ubuntu.com に
+# ある（releases.ubuntu.com/26.04/ は amd64 のみ）。
+BASE=https://cdimage.ubuntu.com/releases/26.04/release
 
-curl -sLO https://releases.ubuntu.com/24.04/SHA256SUMS
-grep live-server-arm64 SHA256SUMS | sha256sum -c -
+# SHA256SUMS から最新の live-server arm64 を選ぶ（26.04.1 など）
+curl -fsSLO "$BASE/SHA256SUMS"
+ISO=$(awk '/live-server-arm64\.iso$/ {print $2}' SHA256SUMS |
+  sed 's/^\*//' | sort -V | tail -1)
+echo "$ISO"
+curl -fsSLO "$BASE/$ISO"
+
+grep -F " *$ISO" SHA256SUMS | sha256sum -c -
 ```
+
+`+largemem` 付きの ISO は大きなメモリ向けなので、通常は選ばれません。
+ファイル名を固定したい場合は、上の `echo "$ISO"` で表示された名前を
+そのまま使ってください（この記事の例では
+`ubuntu-26.04.1-live-server-arm64.iso`）。
 
 `--keep-ubuntu` の 4 GiB Ubuntu は `debootstrap` でネットワークから作ります。
 別途 minimal イメージをダウンロードする必要はありません
@@ -138,7 +150,7 @@ cd win11-arm64-oci
 # --ssh   は ESP を CIDATA にして、live 起動時から SSH できるようにする
 # --once  は次の 1 回だけ live を自動起動する（--default なら毎回）
 sudo ./scripts/prepare.sh \
-  /srv/iso/ubuntu-24.04.5-live-server-arm64.iso --write --ssh --once
+  /srv/iso/ubuntu-26.04.1-live-server-arm64.iso --write --ssh --once
 
 sudo reboot
 ```
