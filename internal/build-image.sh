@@ -30,11 +30,16 @@
 #   BOOT_MENU_TIMEOUT=1  seconds to show the Windows boot menu (0 = off)
 #   PACKAGE=1            compress the qcow2 when the build finishes
 #   WIN_USERNAME / WIN_PASSWORD / COMPUTER_NAME   (render.py overrides)
+#
+# On live (toram), BUILD_DIR defaults to /dev/shm/build and /dev/shm is
+# remounted at SHM_SIZE (default 100% of RAM) when possible.
 set -euo pipefail
 
 HERE=$(cd "$(dirname "$0")" && pwd)
 ROOT=$(cd "$HERE/.." && pwd)
-BUILD=${BUILD_DIR:-$ROOT/build}
+# shellcheck source=live.sh
+. "$HERE/live.sh"
+BUILD=$(default_build_dir "$ROOT/build")
 PIPE="$ROOT/pipeline"
 
 ISO=${ISO:?set ISO=/path/to/Win11_ARM64.iso}
@@ -42,6 +47,7 @@ IMAGE_INDEX=${IMAGE_INDEX:-1}
 SIZE=${SIZE:-50G}
 MEM=${MEM:-8192}
 SMP=${SMP:-4}
+SHM_SIZE=${SHM_SIZE:-100%}
 WINRM_PORT=${WINRM_PORT:-15985}
 DISK=${DISK:-$ROOT/build/win11-arm64.qcow2}
 KEEP_UBUNTU=${KEEP_UBUNTU:-0}
@@ -59,12 +65,16 @@ if [ "$BOOT_MENU_TIMEOUT" = 0 ] && { [ "$KEEP_UBUNTU" = 1 ] || [ "$REUSE_UBUNTU"
 fi
 export BOOT_MENU_TIMEOUT
 
+if is_live_ram && ! live_shm_max; then
+    echo "build: warning: could not remount /dev/shm at $SHM_SIZE" >&2
+fi
+
 RAW=0
 if [ -b "$DISK" ]; then
     RAW=1
 fi
-# If DISK was left at the default under $ROOT/build but BUILD_DIR moved, keep them together.
-if [ "$DISK" = "$ROOT/build/win11-arm64.qcow2" ] && [ -n "${BUILD_DIR:-}" ]; then
+# If DISK was left at the default under $ROOT/build but BUILD moved, keep them together.
+if [ "$DISK" = "$ROOT/build/win11-arm64.qcow2" ] && [ "$BUILD" != "$ROOT/build" ]; then
     DISK="$BUILD/win11-arm64.qcow2"
 fi
 if [ "$KEEP_UBUNTU" = 1 ] && [ "$RAW" != 1 ]; then
@@ -100,6 +110,9 @@ if [ -z "${BUILD_DIR:-}" ]; then
             fi
         done
     fi
+fi
+if is_live_ram && [ -z "${BUILD_DIR:-}" ] && [ "$BUILD" = /dev/shm/build ]; then
+    echo "build: live/toram: staging is $BUILD (media: /dev/shm/iso)"
 fi
 export BUILD_DIR="$BUILD"
 

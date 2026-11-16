@@ -118,6 +118,11 @@ sudo ./scripts/setup.sh          # 入れてから検査（直接書き込みが
 一時ファイルを別の場所に置くときは `--build-dir`、判定を変えたいときは
 `--min-free-gb` を使います。
 
+live (`toram`) では `setup.sh` が `/dev/shm` を RAM の 100%
+（`SHM_SIZE`、または `--shm-size` で変更）に再マウントします。staging は
+`/dev/shm/build` が既定で、Windows ISO と virtio-win は `/dev/shm/iso`
+に置きます。`setup.sh --check` は何も変更しません。
+
 手動で入れる場合:
 
 ```bash
@@ -199,6 +204,10 @@ cd win11-arm64-oci
 sudo ./scripts/setup.sh
 ```
 
+`setup.sh` は live (`toram`) を検出すると `/dev/shm` を RAM の 100% に
+再マウントし、`/dev/shm/iso` と `/dev/shm/build` を作ります。`--ssh` で
+起動した場合は cloud-init も起動時に同じ設定を行います。
+
 RAM の内訳、`--ssh` の仕組み、`toram` の注意点は
 [docs/OCI.md](docs/OCI.md#ステージ2-b-live-を-toram-で起動する) を参照してください。
 
@@ -207,8 +216,11 @@ RAM の内訳、`--ssh` の仕組み、`toram` の注意点は
 ビルド機（ステージ2-A なら B、ステージ2-B なら live）に、Windows 11 ARM64 の
 ISO と virtio-win を置きます。
 
+live (`toram`) では `/dev/shm/iso`（RAM）が既定で推奨です。
+
 ```bash
-cd /dev/shm
+mkdir -p /dev/shm/iso
+cd /dev/shm/iso
 
 # virtio-win（ARM64 ドライバ入り）。ISO か RPM のどちらか一方でよい。
 # RPM は ISO の約 1/3（283 MiB）で、マウントせずに読める。
@@ -216,7 +228,7 @@ curl -LO https://fedorapeople.org/groups/virt/virtio-win/direct-downloads/stable
 curl -LO https://fedorapeople.org/groups/virt/virtio-win/direct-downloads/archive-virtio/virtio-win-0.1.302-1/virtio-win-0.1.302-1.noarch.rpm
 
 # Windows 11 ARM64 ISO は Microsoft から取得するか、scp / rclone で転送
-# scp Win11_ARM64_26H2.iso ubuntu@<host>:/dev/shm/
+# scp Win11_ARM64_26H2.iso ubuntu@<host>:/dev/shm/iso/
 ```
 
 `--virtio` は拡張子で ISO と RPM を判定します。RPM を渡すと
@@ -226,8 +238,8 @@ curl -LO https://fedorapeople.org/groups/virt/virtio-win/direct-downloads/archiv
 
 ```bash
 sudo ./scripts/build.sh --disk /dev/sdb \
-  --iso /dev/shm/Win11_ARM64_26H2.iso \
-  --virtio /dev/shm/virtio-win-0.1.302-1.noarch.rpm --yes
+  --iso /dev/shm/iso/Win11_ARM64_26H2.iso \
+  --virtio /dev/shm/iso/virtio-win-0.1.302-1.noarch.rpm --yes
 ```
 
 一度ビルドした後の `build/drivers/` を保存しておけば、次回は `--drivers`
@@ -240,10 +252,11 @@ sudo ./scripts/build.sh --disk /dev/sdb \
 > [docs/BUILD.md の「言語」](docs/BUILD.md#言語) を参照してください。
 
 ISO が書き込み先ディスク上にある場合、`build.sh` は `--yes` の後で
-`/dev/shm`（RAM）にコピーしてから書き込みます。最初から `/dev/shm` や
-別ボリュームにあるならコピーは起きません。
+`/dev/shm/iso`（RAM）にコピーしてから書き込みます。最初から `/dev/shm/iso`
+や別ボリュームにあるならコピーは起きません。
 
-10 GB のデータボリュームに置くと、失敗時の再試行が楽です。置き場所の判断と、
+live (`toram`) の既定は `/dev/shm/iso` です。再起動をまたいで再試行したい
+場合だけ、10 GB のデータボリュームに置きます。置き場所の判断と、
 クラウドストレージを一時的にマウントする方法は
 [docs/OCI.md](docs/OCI.md#iso-の置き場所) を参照してください。
 
@@ -252,13 +265,13 @@ ISO が書き込み先ディスク上にある場合、`build.sh` は `--yes` �
 ```bash
 # ステージ2-A: A のブートボリュームへ書く
 sudo ./scripts/build.sh --disk /dev/sdb \
-  --iso /dev/shm/Win11_ARM64_26H2.iso \
-  --virtio /dev/shm/virtio-win.iso --yes
+  --iso /dev/shm/iso/Win11_ARM64_26H2.iso \
+  --virtio /dev/shm/iso/virtio-win.iso --yes
 
 # ステージ2-B: live から /dev/sda を書き換える
 sudo ./scripts/build.sh --disk /dev/sda \
-  --iso /dev/shm/Win11_ARM64_26H2.iso \
-  --virtio /dev/shm/virtio-win.iso --mem 6144 --yes
+  --iso /dev/shm/iso/Win11_ARM64_26H2.iso \
+  --virtio /dev/shm/iso/virtio-win.iso --mem 6144 --yes
 ```
 
 `--yes` を付けるまで実際には書き込みません。`--yes` を付けると、対象デバイスの
@@ -278,16 +291,16 @@ SAC (EMS) は**常に有効**で、出来上がった Windows は COM1 で `SAC>
 ```bash
 # 例: 5 秒に伸ばす（既定は 1 秒）
 sudo ./scripts/build.sh --boot-menu 5 --disk /dev/sdb \
-  --iso /dev/shm/Win11_ARM64_26H2.iso \
-  --virtio /dev/shm/virtio-win.iso --yes
+  --iso /dev/shm/iso/Win11_ARM64_26H2.iso \
+  --virtio /dev/shm/iso/virtio-win.iso --yes
 ```
 
 4 GiB の Ubuntu 復旧環境も残す場合は `--keep-ubuntu` を足します。
 
 ```bash
 sudo ./scripts/build.sh --keep-ubuntu --ubuntu-size 4G --disk /dev/sdb \
-  --iso /dev/shm/Win11_ARM64_26H2.iso \
-  --virtio /dev/shm/virtio-win.iso --yes
+  --iso /dev/shm/iso/Win11_ARM64_26H2.iso \
+  --virtio /dev/shm/iso/virtio-win.iso --yes
 ```
 
 パーティション構成、残す設定、起動メニューは
@@ -413,7 +426,7 @@ sudo ./scripts/build.sh --image build/win11-arm64.qcow2 \
 autounattend/   無人インストール XML テンプレート
 oem/            初回起動時の PowerShell / CMD
 scripts/        入口 3 つ: setup.sh / build.sh / prepare.sh
-internal/       内部部品: build-image, render, preflight ...
+internal/       内部部品: build-image, live, render, preflight ...
 pipeline/       ディスク構築の部品: wimlib apply, WinPE, QEMU, 検査
 docs/           OCI / GITHUB / BUILD / DUALBOOT / WORKLOG
 ```

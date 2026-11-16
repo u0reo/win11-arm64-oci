@@ -29,6 +29,10 @@
 `internal/package-image.sh` で圧縮します。`DISK=/dev/sdX` を渡すとブロック
 デバイスへ直接書き込み、圧縮は行いません。
 
+live (`toram`) で `BUILD_DIR` を省略すると、staging は `/dev/shm/build`
+になります。`/dev/shm` は 100%（`SHM_SIZE`）まで再マウントされ、
+Windows ISO と virtio-win は `/dev/shm/iso` に置くのが既定です。
+
 `KEEP_UBUNTU=1`（`scripts/build.sh --keep-ubuntu`）では、ESP を残したまま
 p2 を `RECOVERY_SIZE`（既定 4 GiB）の Ubuntu Server minimal として作り直し、
 p3 を Windows にします。設定は [DUALBOOT.md](DUALBOOT.md)。
@@ -103,9 +107,11 @@ SOFTWARE ハイブを壊したためです。
 自動化がうまくいかないときは、段階ごとに実行できます。
 
 ```bash
-export ISO=/srv/iso/Win11_ARM64_26H2.iso
-export VIRTIO_ISO=/srv/iso/virtio-win.iso      # or VIRTIO_RPM=/srv/iso/virtio-win-0.1.302-1.noarch.rpm
-export BUILD_DIR=$PWD/build
+# live (toram) default; stage 2-A can use a data volume such as /srv/iso
+export ISO=/dev/shm/iso/Win11_ARM64_26H2.iso
+export VIRTIO_ISO=/dev/shm/iso/virtio-win.iso  # or VIRTIO_RPM=.../virtio-win-0.1.302-1.noarch.rpm
+export BUILD_DIR=/dev/shm/build                 # live (toram)
+# export BUILD_DIR=$PWD/build                   # stage 2-A
 
 python3 internal/render.py --out "$BUILD_DIR/media"
 internal/stage-drivers.sh
@@ -127,7 +133,8 @@ NAME=install WITH_ISO=0 BOOTFAT="" OEMDRV="" \
 ```
 
 VNC は `127.0.0.1:1` で見られます（`VNC_DISPLAY`）。
-シリアルログは `build/logs/*-serial.log` です。
+シリアルログは `build/logs/*-serial.log`（live の既定では
+`/dev/shm/build/logs/*-serial.log`）です。
 
 ブロックデバイスへ書く場合は、上の `host_apply.sh` / `run-qemu.sh` の
 qcow2 パスを `/dev/sdb` に置き換え、最後に
@@ -204,7 +211,7 @@ Default Language:       ja-JP
 | OOBE が始まらない | `Windows/Panther/unattend.xml` の配置 |
 | RDP/WinRM が上がらない | `C:\OEM\boot.log`、`specialize.log` |
 | ゲストが落ちない | QMP ソケット、`build/logs/install-qemu.log` |
-| ディスク不足 | `internal/preflight.sh` の空き容量表示 |
+| ディスク不足 | `internal/preflight.sh` の空き容量表示。live では staging が `/dev/shm/build` にあり、`/dev/shm` は 100% に再マウント済みか確認する |
 
 ## 既知の制約
 

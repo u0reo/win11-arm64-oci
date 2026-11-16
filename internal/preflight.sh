@@ -4,10 +4,13 @@ set -euo pipefail
 
 HERE=$(cd "$(dirname "$0")" && pwd)
 ROOT=$(cd "$HERE/.." && pwd)
+# shellcheck source=live.sh
+. "$HERE/live.sh"
 TARGET_MODE=${TARGET_MODE:-qcow2}
-BUILD=${BUILD_DIR:-$ROOT/build}
+BUILD=$(default_build_dir "$ROOT/build")
 TARGET=${TARGET:-}
 MEM=${MEM:-6144}
+SHM_SIZE=${SHM_SIZE:-100%}
 
 case "$TARGET_MODE" in
     raw)   DEFAULT_MIN_FREE_GB=3 ;;    # staging only (boot.wim/bootfat/OEMDRV); target written in place
@@ -155,11 +158,23 @@ elif [ "$MEM_AVAIL_MB" -ge $(( MEM + OVERHEAD_MB )) ]; then
 else
     bad "not enough RAM for guest (available ${MEM_AVAIL_MB} MiB, need >= guest ${MEM} + overhead)"
 fi
-if findmnt -no FSTYPE / 2>/dev/null | grep -q overlay; then
+if findmnt -no FSTYPE -T / 2>/dev/null | grep -q overlay; then
     cow_free=$(disk_free_gb / 2>/dev/null || echo 0)
     shm_free=$(disk_free_gb /dev/shm 2>/dev/null || echo 0)
     tmp_free=$(disk_free_gb /tmp 2>/dev/null || echo 0)
     echo "  live/overlay root: / ${cow_free} GiB free, /dev/shm ${shm_free} GiB, /tmp ${tmp_free} GiB (tmpfs mounts share RAM; use BUILD_DIR on a roomy tmpfs)"
+fi
+if is_live_ram; then
+    SHM_KB=$(shm_total_kb)
+    MEM_KB=$(mem_total_kb)
+    SHM_GB=$(( SHM_KB / 1024 / 1024 ))
+    MEM_GB=$(( MEM_KB / 1024 / 1024 ))
+    if shm_meets; then
+        ok "/dev/shm ${SHM_GB} GiB (live/toram)"
+    else
+        warn "/dev/shm is ${SHM_GB} GiB of ${MEM_GB} GiB RAM; setup.sh/build.sh remounts it at $SHM_SIZE"
+    fi
+    echo "  staging default: /dev/shm/build (media: /dev/shm/iso)"
 fi
 
 echo "== firmware =="

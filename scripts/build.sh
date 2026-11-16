@@ -2,12 +2,12 @@
 # Build the Windows 11 ARM64 disk: a block device (--disk) or a qcow2 (--image).
 #
 #   sudo ./scripts/build.sh --disk /dev/sdb \
-#     --iso /srv/iso/Win11_ARM64_26H2.iso \
-#     --virtio /srv/iso/virtio-win.iso --yes
+#     --iso /dev/shm/iso/Win11_ARM64_26H2.iso \
+#     --virtio /dev/shm/iso/virtio-win.iso --yes
 #
 #   sudo ./scripts/build.sh --image build/win11-arm64.qcow2 \
-#     --iso /srv/iso/Win11_ARM64_26H2.iso \
-#     --virtio /srv/iso/virtio-win.iso --yes
+#     --iso /dev/shm/iso/Win11_ARM64_26H2.iso \
+#     --virtio /dev/shm/iso/virtio-win.iso --yes
 #
 # --virtio accepts virtio-win.iso or virtio-win-*.noarch.rpm.  The RPM is about
 # a third of the size and is read without mounting (rpm2cpio + cpio).
@@ -33,6 +33,11 @@
 # still lives on the target disk is copied into RAM before anything is
 # written, so the ISO may sit on the disk that is about to be wiped.
 #
+# On live (toram), /dev/shm is remounted at SHM_SIZE (default 100% of RAM),
+# BUILD_DIR defaults to /dev/shm/build and the ISO/virtio-win belong in
+# /dev/shm/iso.  That keeps the media and staging out of the overlay's
+# RAM-backed copy-on-write layer.  --shm-size SIZE overrides SHM_SIZE.
+#
 # Nothing is packaged and nothing is uploaded: the target itself becomes the
 # Windows disk.  On OCI, detach the volume and reattach it as the boot volume
 # of the target instance afterwards.
@@ -41,6 +46,8 @@
 set -euo pipefail
 
 HERE=$(cd "$(dirname "$0")" && pwd)
+# shellcheck source=../internal/live.sh
+. "$HERE/../internal/live.sh"
 
 DISK=""
 IMG=""
@@ -59,6 +66,8 @@ RECOVERY_SIZE=${RECOVERY_SIZE:-4G}
 BOOT_MENU=${BOOT_MENU_TIMEOUT:-}
 BUILD_DIR=${BUILD_DIR:-}
 MIN_FREE_GB=${MIN_FREE_GB:-}
+SHM_SIZE=${SHM_SIZE:-100%}
+LIVE=0
 YES=0
 
 usage() {
@@ -79,6 +88,7 @@ while [ $# -gt 0 ]; do
         --smp) SMP=$2; shift 2 ;;
         --build-dir) BUILD_DIR=$2; shift 2 ;;
         --min-free-gb) MIN_FREE_GB=$2; shift 2 ;;
+        --shm-size) SHM_SIZE=$2; shift 2 ;;
         --keep-ubuntu) KEEP_UBUNTU=1; shift ;;
         --ubuntu-size) RECOVERY_SIZE=$2; KEEP_UBUNTU=1; shift 2 ;;
         --reuse-ubuntu) REUSE_UBUNTU=1; shift ;;
@@ -93,6 +103,16 @@ while [ $# -gt 0 ]; do
         *) echo "build: unknown argument: $1" >&2; usage 1 ;;
     esac
 done
+
+valid_shm_size "$SHM_SIZE" || {
+    echo "build: --shm-size must be 100%, 16G, 1024, ..." >&2
+    exit 1
+}
+
+if is_live_ram; then
+    LIVE=1
+    [ -n "$BUILD_DIR" ] || BUILD_DIR=/dev/shm/build
+fi
 
 if [ -z "$BOOT_MENU" ]; then
     BOOT_MENU=1
@@ -151,6 +171,18 @@ fi
 if [ "$(id -u)" -ne 0 ]; then
     echo "build: run as root (sudo)" >&2
     exit 1
+fi
+
+# --- RAM-only live environment -------------------------------------------
+if [ "$LIVE" = 1 ]; then
+    if live_shm_max; then
+        echo "build: /dev/shm $(df -h /dev/shm | awk 'NR == 2 { print $2 }')" \
+            "(target $SHM_SIZE)"
+        echo "build: staging $BUILD_DIR"
+    else
+        echo "build: warning: could not remount /dev/shm at $SHM_SIZE" >&2
+        echo "  run: sudo mount -o remount,size=$SHM_SIZE /dev/shm" >&2
+    fi
 fi
 
 # --- safety checks -------------------------------------------------------
@@ -239,6 +271,7 @@ cat <<EOF
   size     ${SIZE_TEXT}
   iso      $ISO
   drivers  ${DRIVERS:-$VIRTIO}$VIRTIO_NOTE
+  staging  ${BUILD_DIR:-auto (build/ or a tmpfs)}
   index    $IMAGE_INDEX
   memory   ${MEM} MiB
   cpus     $SMP
@@ -292,7 +325,8 @@ fi
 STAGED=""
 stage_to_ram() {
     local src=$1 dst
-    dst="$RAMDIR/$(basename "$src")"
+    mkdir -p "$RAMDIR/iso"
+    dst="$RAMDIR/iso/$(basename "$src")"
     echo "build: copying $src -> $dst" >&2
     if [ -d "$src" ]; then rm -rf "$dst"; fi
     cp -a "$src" "$dst"
@@ -323,7 +357,7 @@ if [ "$FILE_TARGET" = 0 ] && [ "$REUSE_UBUNTU" != 1 ]; then
         if [ "$SHM_AVAIL_MB" -lt $(( NEED_MB + MIN_FREE_MB )) ]; then
             echo "build: $RAMDIR is too small for the copy." >&2
             echo "  need ${NEED_MB} + ${MIN_FREE_MB} MiB, have ${SHM_AVAIL_MB} MiB" >&2
-            echo "  enlarge it: sudo mount -o remount,size=10G $RAMDIR" >&2
+            echo "  enlarge it: sudo mount -o remount,size=${SHM_SIZE} $RAMDIR" >&2
             exit 1
         fi
         if [ "$AVAIL_MB" -lt $(( NEED_MB + MEM + MIN_FREE_MB )) ]; then
@@ -371,6 +405,7 @@ export ISO
 export IMAGE_INDEX MEM SMP SIZE
 export KEEP_UBUNTU RECOVERY_SIZE REUSE_UBUNTU
 export BOOT_MENU_TIMEOUT="$BOOT_MENU"
+export SHM_SIZE
 [ -n "$BUILD_DIR" ] && export BUILD_DIR
 [ -n "$MIN_FREE_GB" ] && export MIN_FREE_GB
 if [ -n "$DRIVERS" ]; then

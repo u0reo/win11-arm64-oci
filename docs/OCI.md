@@ -102,14 +102,18 @@ OCI の標準 Ubuntu は p2 が 46 GiB の root で、マウント中の ext4 �
 ### 24 GB で足りるか
 
 **データボリュームは必須ではありません。** Windows ISO（6.2 GB）と
-virtio-win（0.7 GB、RPM なら 0.3 GB）を `/dev/shm`（RAM）に置いても、
+virtio-win（0.7 GB、RPM なら 0.3 GB）を `/dev/shm/iso`（RAM）に置いても、
 24 GB に収まります。
+
+`setup.sh` は live (`toram`) を検出すると、`/dev/shm` の上限を既定で
+**RAM の 100%** に再マウントします（`SHM_SIZE` / `--shm-size` で変更可）。
+これは容量の予約ではなく上限です。実際に使うのは次の合計です。
 
 | 用途 | 目安 |
 |---|---|
 | ライブ ISO（`toram` で RAM に載る） | 2.5 GB |
-| Windows ISO（`/dev/shm`） | 6.2 GB |
-| virtio-win（`/dev/shm`、ISO / RPM） | 0.7 / 0.3 GB |
+| Windows ISO（`/dev/shm/iso`） | 6.2 GB |
+| virtio-win（`/dev/shm/iso`、ISO / RPM） | 0.7 / 0.3 GB |
 | ライブ環境の書き込み層（apt で QEMU 等を入れる） | 2〜3 GB |
 | QEMU ゲスト（`--mem 6144`） | 6 GB |
 | QEMU 本体・ページキャッシュ・余白 | 5 GB 程度 |
@@ -118,8 +122,16 @@ virtio-win（0.7 GB、RPM なら 0.3 GB）を `/dev/shm`（RAM）に置いても
 すると足りなくなります（Windows 11 のインストールは 6 GiB で通ります）。
 `--keep-ubuntu` の 4 GiB はディスク上の p2 なので、メモリは増えません。
 
+`/dev/shm` の上限が 24 GB でも、QEMU の 6 GiB を除いた分しか実際には
+使えません。`df -h /dev/shm` の空きだけで判断せず、ビルド中の
+`MemAvailable` も見てください。
+
 以前の「p2 を 8 GiB にする」案は不要です。live の RAM で賄うので、
 ディスク上の Ubuntu は `--keep-ubuntu` の 4 GiB だけです。
+
+staging（`boot.wim` や OEMDRV など）は `BUILD_DIR` を省略すると
+`/dev/shm/build` になります。ISO を `$HOME` や overlay の `/` に置くと
+`/cow` を圧迫するので、`/dev/shm/iso` を使ってください。
 
 ### `prepare.sh --ssh` の仕組み
 
@@ -128,6 +140,9 @@ virtio-win（0.7 GB、RPM なら 0.3 GB）を `/dev/shm`（RAM）に置いても
 
 `--ssh` は ESP に cloud-init の seed を書き、ESP のラベルを `CIDATA` に
 して、live 起動時から `authorized_keys` で SSH できるようにします。
+seed も起動時に `/dev/shm` を `SHM_SIZE`（既定 100%）へ再マウントし、
+`/dev/shm/iso` と `/dev/shm/build` を作ります（`--ssh` を使わない場合は
+起動後の `setup.sh` が同じことをします）。
 ESP は事前に `/boot/efi` にマウントしておきます（`ESP_MNT` で変更可）。
 元のラベルは ESP の `win11-arm64-oci-esp-label` に保存され、復元コマンドも
 表示されます。
@@ -193,16 +208,19 @@ id を変えたいときは `--id` を使います（英数字・`_`・`-`、先
 
 ## ISO の置き場所
 
-Windows ISO と virtio-win の置き場所は 2 通りです。
+live (`toram`) の既定は **`/dev/shm/iso`（RAM）** です。`setup.sh` が
+`/dev/shm` を RAM の 100% に再マウントするので、ISO を置いても
+`/dev/sda` の書き換えの影響を受けません。
 
-| 置き場所 | メモリ | 失敗時の再試行 |
-|---|---|---|
-| `/dev/shm`（RAM） | 6.2 + 0.7 GB を使う（RPM なら 0.3 GB） | ディスクを消すと消える |
-| 10 GB のデータボリューム | 使わない | 残る（推奨） |
+| 置き場所 | メモリ | 永続性 | 使いどき |
+|---|---|---|---|
+| `/dev/shm/iso`（RAM） | 6.2 + 0.7 GB を使う（RPM なら 0.3 GB） | 再起動で消える | live の既定。まずこれ |
+| 10 GB のデータボリューム | 使わない | 再起動しても残る | 失敗をまたいで再試行するとき |
 
-### 10 GB のデータボリュームに置く場合
+### 10 GB のデータボリュームに置く場合（任意）
 
-ISO をディスクに残せるので、失敗時の再試行が楽です。
+ISO をディスクに残せるので、再起動をまたいだ再試行が楽です。ただし
+live では `/dev/shm/iso` で足りるため、必須ではありません。
 
 | 用途 | 目安 |
 |---|---|
@@ -211,8 +229,8 @@ ISO をディスクに残せるので、失敗時の再試行が楽です。
 | QEMU ゲスト（`--mem 6144`） | 6 GB |
 | QEMU 本体・ページキャッシュ | 残り 10 GB 以上 |
 
-**Windows ISO は 10 GB のブロックボリュームに置き、
-`--iso /mnt/data/Win11_ARM64_26H2.iso` を渡します。** このボリュームは
+データボリュームを使う場合は、Windows ISO を 10 GB のブロックボリュームに
+置き、`--iso /mnt/data/Win11_ARM64_26H2.iso` を渡します。このボリュームは
 `/dev/sda` の書き換えの影響を受けません。100 GB（ブート）+ 10 GB
 （ISO）= 110 GB で無料枠に収まります。
 
@@ -220,7 +238,7 @@ ISO をディスクに残せるので、失敗時の再試行が楽です。
 `--mem` を 16 GB にすると破綻します（6 GiB のままで十分です）。
 
 ISO が `/mnt/data` にある場合、`build.sh` はコピーしません
-（`/mnt/data` が `/dev/sda` 上にある場合だけ `/dev/shm` にコピーします）。
+（`/mnt/data` が `/dev/sda` 上にある場合だけ `/dev/shm/iso` にコピーします）。
 
 ### データボリュームのデバイス名は固定ではない
 
@@ -281,7 +299,7 @@ sudo mount -t davfs https://webdav.pcloud.com /mnt/iso
   実ブロックデバイス上のファイルシステム（`/srv/iso` など）に置きます。
   クラウドは live 起動後の Windows ISO / virtio-win 用です。
 - QEMU は ISO をシークしながら読むため、WAN 越しの直接マウントは遅いです。
-  `/dev/shm`（RAM）かデータボリュームにコピーしてからビルドします。
+  `/dev/shm/iso`（RAM）かデータボリュームにコピーしてからビルドします。
 - ビルド中にアンマウントすると QEMU が止まります。コピーしてから外します。
 - 資格情報は `~/.config/rclone/rclone.conf` や `/etc/davfs2/secrets` に残ります。
   ビルドが終わったら削除してください。
@@ -304,9 +322,10 @@ sudo mount -t davfs https://webdav.pcloud.com /mnt/iso
 Ubuntu は別途インストーラ等で入れておく必要があります。詳細は
 [DUALBOOT.md](DUALBOOT.md)。
 
-`--mem` の既定は 6144 MiB です。RAM が 24 GB の A1 で ISO を `/dev/shm`
+`--mem` の既定は 6144 MiB です。RAM が 24 GB の A1 で ISO を `/dev/shm/iso`
 に置く場合、`--mem 8192` は OOM の危険があります。`--mem 6144` のままに
-してください。
+してください。`/dev/shm` の上限を 100% にしても、それは tmpfs の上限が
+広がるだけで、QEMU 用のメモリが増えるわけではありません。
 
 ## シリアルコンソール (SAC)
 
@@ -389,9 +408,10 @@ oci bv boot-volume-backup create \
 
 | 症状 | 確認 |
 |---|---|
-| `setup.sh --check` / preflight が `not enough disk space` で止まる | 直接書き込みなら `build/`（staging）に約 3 GB、qcow2 なら 80 GB。`--build-dir DIR` または `BUILD_DIR=...` で空きのある場所を指定（live 環境なら `/dev/shm/build` や `/tmp/build` が候補）。`--min-free-gb N` で判定値を変更できる |
+| `setup.sh --check` / preflight が `not enough disk space` で止まる | 直接書き込みなら `build/`（staging）に約 3 GB、qcow2 なら 80 GB。`--build-dir DIR` または `BUILD_DIR=...` で空きのある場所を指定（live 環境なら `/dev/shm/build` が既定）。`--min-free-gb N` で判定値を変更できる |
 | preflight がメモリ不足を警告/失敗する | 表示される見積もり（guest `--mem` + staging + media + overhead）を確認。`--mem` を下げる、不要なプロセスを止める、ISO/ドライバを既に tmpfs に置いて重複コピーを避ける |
-| live (toram) で `/` と `/dev/shm` の空きが偏る | `/`(overlay=/cow)・`/dev/shm`・`/tmp` は別 tmpfs だが RAM を共有する。ISO を `$HOME` に置くと `/cow` を圧迫しやすい。`build/` は空きのある tmpfs に自動選択される（明示するなら `--build-dir /dev/shm/build`） |
+| `/dev/shm` が小さい（50% のまま） | `sudo ./scripts/setup.sh` で RAM の 100% に再マウントされる。手動なら `sudo mount -o remount,size=100% /dev/shm`。`SHM_SIZE=80%` や `--shm-size 16G` でもよい |
+| live (toram) で `/` と `/dev/shm` の空きが偏る | `/`(overlay=/cow)・`/dev/shm`・`/tmp` は別 tmpfs だが RAM を共有する。ISO を `$HOME` に置くと `/cow` を圧迫しやすい。staging は `/dev/shm/build`、ISO は `/dev/shm/iso` が既定（明示するなら `--build-dir /dev/shm/build`） |
 | シリアルに `SAC>` が出ない | `C:\OEM\specialize.log` に `sac-configured` があるか。コンソール接続がシリアル（VNC ではない）か |
 | ビルド中にディスク不足になる | ブートボリュームを 64 GB 以上に |
 | `--virtio *.rpm` で `cannot read an RPM` になる | `rpm2cpio` と `cpio` が要る。`scripts/setup.sh` か `apt-get install rpm2cpio cpio` |

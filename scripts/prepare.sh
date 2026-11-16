@@ -13,8 +13,13 @@
 #
 #   sudo ./scripts/build.sh --disk /dev/sda ...
 #
-# build.sh copies the Windows ISO and virtio-win into /dev/shm if they are
-# still on /dev/sda.  The live ISO itself must already be in RAM (toram).
+# The live system keeps the build in RAM: setup.sh remounts /dev/shm at
+# SHM_SIZE (default 100% of RAM), stages in /dev/shm/build and expects the
+# Windows ISO and virtio-win in /dev/shm/iso.  With --ssh, the cloud-init
+# seed also performs the /dev/shm setup at boot.
+#
+# build.sh copies the Windows ISO and virtio-win into /dev/shm/iso if they
+# are still on /dev/sda.  The live ISO itself must already be in RAM (toram).
 #
 # Add --keep-ubuntu to that command for a 4 GiB recovery Ubuntu, or leave it
 # out for Windows only.
@@ -45,12 +50,17 @@
 # --name NAME  override the GRUB menu label
 set -euo pipefail
 
+HERE=$(cd "$(dirname "$0")" && pwd)
+# shellcheck source=../internal/live.sh
+. "$HERE/../internal/live.sh"
+
 ISO_ARG=${1:-}
 NAME=""
 WRITE=0
 WANT_SSH=0
 WANT_DEFAULT=0
 WANT_ONCE=0
+SHM_SIZE=${SHM_SIZE:-100%}
 ID=${ID:-win11-live-toram}
 GRUB_CUSTOM=${GRUB_CUSTOM:-/etc/grub.d/40_custom}
 GRUB_CFG=${GRUB_CFG:-/boot/grub/grub.cfg}
@@ -81,6 +91,11 @@ while [ $# -gt 0 ]; do
         *) echo "prepare: unknown argument: $1" >&2; usage 1 ;;
     esac
 done
+
+valid_shm_size "$SHM_SIZE" || {
+    echo "prepare: SHM_SIZE must be 100%, 16G, 1024, ..." >&2
+    exit 1
+}
 
 # GRUB ids are alphanumeric, '_' and '-', and must not start with a digit.
 case "$ID" in
@@ -202,6 +217,10 @@ if [ "$WANT_SSH" = 1 ]; then
         printf '%s\n' "$KEYS" | sed 's/^/      - /'
         echo "runcmd:"
         echo "  - systemctl enable --now ssh"
+        # Do this before the build starts.  The live system has to keep the
+        # ISO, staging files and QEMU guest in RAM at the same time.
+        echo "  - sh -c 'mkdir -p /dev/shm/iso /dev/shm/build && chmod 1777 /dev/shm/iso /dev/shm/build'"
+        echo "  - sh -c 'mount -o remount,size=$SHM_SIZE /dev/shm || true'"
     } | $SUDO tee "$ESPDIR/user-data" >/dev/null
     printf 'instance-id: win11-arm64-oci-live\nlocal-hostname: win11-live\n' |
         $SUDO tee "$ESPDIR/meta-data" >/dev/null
@@ -391,18 +410,27 @@ cat <<'EOF'
 After the reboot, check that the live system is in RAM:
 
   losetup -a        # the loop should point at /dev/shm, /run or /tmp
+  df -h /dev/shm    # setup.sh remounts it (default 100% of RAM)
+  ls -ld /dev/shm/iso /dev/shm/build
+
+Put the media in /dev/shm/iso (RAM):
+
+  mkdir -p /dev/shm/iso
+  cp /path/to/Win11_ARM64_26H2.iso /dev/shm/iso/
+  cp /path/to/virtio-win.iso /dev/shm/iso/
 
 Then build.  Windows only:
 
   sudo ./scripts/build.sh --disk /dev/sda \
-    --iso /dev/shm/Win11_ARM64_26H2.iso \
-    --virtio /dev/shm/virtio-win.iso --mem 6144 --yes
+    --iso /dev/shm/iso/Win11_ARM64_26H2.iso \
+    --virtio /dev/shm/iso/virtio-win.iso --mem 6144 --yes
 
 Windows plus a 4 GiB recovery Ubuntu:
 
   sudo ./scripts/build.sh --keep-ubuntu --disk /dev/sda \
-    --iso /dev/shm/Win11_ARM64_26H2.iso \
-    --virtio /dev/shm/virtio-win.iso --mem 6144 --yes
+    --iso /dev/shm/iso/Win11_ARM64_26H2.iso \
+    --virtio /dev/shm/iso/virtio-win.iso --mem 6144 --yes
 
+The staging directory defaults to /dev/shm/build.
 --virtio also accepts virtio-win-*.noarch.rpm (283 MiB instead of 837 MiB).
 EOF

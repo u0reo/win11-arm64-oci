@@ -23,8 +23,10 @@ p3  Windows (NTFS, 残り)      wimlib-imagex で適用
   snapd・cloud-init・linux-firmware は入れません（4 GiB に収めるため）
 
 設定の退避は `pipeline/save_ubuntu_config.sh` が行い、`build/ubuntu-config/`
-に置きます。**`/etc/shadow` と SSH 秘密鍵を含むので git に入れないでください**
-（`build/` は .gitignore 済み）。ビルドが終わったら削除してください。
+に置きます（live の既定は `/dev/shm/build/ubuntu-config/`）。
+**`/etc/shadow` と SSH 秘密鍵を含むので git に入れないでください**
+（`build/` は .gitignore 済み、`/dev/shm` は再起動で消えます）。
+ビルドが終わったら削除してください。
 
 ## なぜ live 環境で p2 を作り直すのか
 
