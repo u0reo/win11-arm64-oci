@@ -4,6 +4,13 @@
 # The stock OCI Ubuntu ARM64 image does not use the usual p1=ESP, p2=root
 # layout.  It can have p1=Ubuntu root, p13=BOOT and p15=ESP, so consumers
 # must find a partition by its GPT type instead of by a fixed number.
+#
+# The kernel can also refuse to re-read the partition table ("unable to
+# inform the kernel of the change, probably because it/they are in use")
+# when the live ISO was stored on the disk being rebuilt.  The helpers
+# below read the GPT with sgdisk and, when /dev/sdXN does not match it,
+# expose the exact range through a loop device.  Callers that may create
+# such loops must call cleanup_part_loops from their EXIT trap.
 
 ESP_GUID=c12a7328-f81f-11d2-ba4b-00a0c93ec93b
 LINUX_BOOT_GUID=bc13c2ff-59e6-4262-a352-b275fd6f7172
@@ -36,60 +43,257 @@ fs_type() {
     printf '%s\n' "$t"
 }
 
-# Print the ESP device.  Prefer the EFI System partition type; fall back to
-# the first FAT partition when the type GUID is missing (e.g. an old MBR
-# disk).
-find_esp() {
-    local disk=$1 dev
-    dev=$(lsblk -lnpo NAME,PARTTYPE,FSTYPE "$disk" |
-        awk -v g="$ESP_GUID" 'tolower($2) == g { print $1; exit }')
-    if [ -z "$dev" ]; then
-        while read -r d; do
-            if [ "$(fs_type "$d")" = vfat ]; then
-                dev=$d
-                break
-            fi
-        done < <(lsblk -lnpo NAME,TYPE "$disk" | awk '$2 == "part" { print $1 }')
+# ---------------------------------------------------------------------------
+# GPT helpers.  These read the partition table from disk, so they work even
+# when the kernel still has an old view of it.
+# ---------------------------------------------------------------------------
+
+gpt_part_numbers() {
+    sudo -n sgdisk -p "$1" | awk '$1 ~ /^[0-9]+$/ { print $1 }'
+}
+
+# gpt_part_field <disk> <num> <label>   (e.g. "First sector")
+gpt_part_field() {
+    sudo -n sgdisk -i "$2" "$1" |
+        awk -v label="$3:" '
+            index($0, label) == 1 {
+                s = substr($0, length(label) + 1)
+                sub(/^ +/, "", s)
+                split(s, a, " ")
+                print a[1]
+                exit
+            }'
+}
+
+gpt_part_start() {
+    gpt_part_field "$1" "$2" "First sector"
+}
+
+gpt_part_sectors() {
+    gpt_part_field "$1" "$2" "Partition size"
+}
+
+gpt_part_type() {
+    gpt_part_field "$1" "$2" "Partition GUID code" | tr 'A-Z' 'a-z'
+}
+
+# Cache of loop fallbacks, one "<disk> <num> <device>" per line.  Set at
+# source time so command substitutions inherit the same file.
+: "${PART_LOOP_CACHE:=$(mktemp /tmp/part-loops.XXXXXX)}"
+export PART_LOOP_CACHE
+
+# Detach the fallback loops for one disk and forget them.  Used after the
+# GPT entries have been deleted/recreated, so an old loop cannot be reused.
+release_part_disk() {
+    local disk=$1 d n dev
+    [ -s "$PART_LOOP_CACHE" ] || return 0
+    while read -r d n dev; do
+        [ "$d" = "$disk" ] || continue
+        case "$dev" in
+            /dev/loop*) sudo -n losetup -d "$dev" 2>/dev/null || true ;;
+        esac
+    done < "$PART_LOOP_CACHE"
+    awk -v d="$disk" '$1 != d' "$PART_LOOP_CACHE" > "$PART_LOOP_CACHE.new"
+    mv "$PART_LOOP_CACHE.new" "$PART_LOOP_CACHE"
+}
+
+# Detach the fallback loop for one partition and forget it.  Used after a
+# GPT entry has been deleted/recreated.
+release_part() {
+    local disk=$1 num=$2 dev
+    [ -s "$PART_LOOP_CACHE" ] || return 0
+    dev=$(awk -v d="$disk" -v n="$num" '$1 == d && $2 == n { print $3; exit }' \
+        "$PART_LOOP_CACHE")
+    case "$dev" in
+        /dev/loop*) sudo -n losetup -d "$dev" 2>/dev/null || true ;;
+    esac
+    awk -v d="$disk" -v n="$num" '!($1 == d && $2 == n)' \
+        "$PART_LOOP_CACHE" > "$PART_LOOP_CACHE.new"
+    mv "$PART_LOOP_CACHE.new" "$PART_LOOP_CACHE"
+}
+
+cleanup_part_loops() {
+    local _d _n dev
+    [ -s "$PART_LOOP_CACHE" ] || { rm -f "$PART_LOOP_CACHE" 2>/dev/null; return 0; }
+    while read -r _d _n dev; do
+        case "$dev" in
+            /dev/loop*) sudo -n losetup -d "$dev" 2>/dev/null || true ;;
+        esac
+    done < "$PART_LOOP_CACHE"
+    rm -f "$PART_LOOP_CACHE"
+}
+
+# Print a block device for partition NUM.  Normally this is /dev/sdXN.  If
+# the kernel has not picked up the current GPT (or has an old partition at
+# the same number), map the exact GPT range with losetup instead.
+partition_dev() {
+    local disk=$1 num=$2 dev start sectors ssize kernel_start kernel_size loop
+    start=$(gpt_part_start "$disk" "$num")
+    sectors=$(gpt_part_sectors "$disk" "$num")
+    [ -n "$start" ] && [ -n "$sectors" ] || return 1
+    ssize=$(sudo -n blockdev --getss "$disk" 2>/dev/null || echo 512)
+
+    dev=$(awk -v d="$disk" -v n="$num" '$1 == d && $2 == n { print $3; exit }' \
+        "$PART_LOOP_CACHE" 2>/dev/null || true)
+    if [ -n "$dev" ] && [ -b "$dev" ]; then
+        if [ "$(sudo -n blockdev --getsize64 "$dev" 2>/dev/null || echo 0)" = \
+             "$((sectors * ssize))" ]; then
+            printf '%s\n' "$dev"
+            return 0
+        fi
+        sudo -n losetup -d "$dev" 2>/dev/null || true
+        awk -v d="$disk" -v n="$num" '!($1 == d && $2 == n)' \
+            "$PART_LOOP_CACHE" > "$PART_LOOP_CACHE.new"
+        mv "$PART_LOOP_CACHE.new" "$PART_LOOP_CACHE"
     fi
-    if [ -n "$dev" ]; then printf '%s\n' "$dev"; fi
+
+    dev=$(part "$disk" "$num")
+    kernel_start=$(cat "/sys/class/block/$(basename "$dev")/start" 2>/dev/null || true)
+    kernel_size=$(cat "/sys/class/block/$(basename "$dev")/size" 2>/dev/null || true)
+    if [ -b "$dev" ] &&
+       [ "$kernel_start" = "$((start * ssize / 512))" ] &&
+       [ "$kernel_size" = "$((sectors * ssize / 512))" ]; then
+        printf '%s\n' "$dev"
+        return 0
+    fi
+
+    loop=$(sudo -n losetup --find --show \
+        --offset "$((start * ssize))" --sizelimit "$((sectors * ssize))" \
+        "$disk") || return 1
+    printf '%s %s %s\n' "$disk" "$num" "$loop" >> "$PART_LOOP_CACHE"
+    printf '%s\n' "$loop"
+}
+
+# Partition number for a device returned by partition_dev.  Fallback loops
+# are remembered in the cache; ordinary loop partitions (e.g. a test image)
+# fall through to sysfs like any other block device.
+dev_part_num() {
+    local dev=$1 n
+    if [ -s "$PART_LOOP_CACHE" ]; then
+        n=$(awk -v d="$dev" '$3 == d { print $2; exit }' "$PART_LOOP_CACHE")
+        if [ -n "$n" ]; then
+            printf '%s\n' "$n"
+            return 0
+        fi
+    fi
+    part_number "$dev"
+}
+
+# ---------------------------------------------------------------------------
+# Partition discovery by GPT type.
+# ---------------------------------------------------------------------------
+
+# Print the ESP device.  Prefer the EFI System partition type; fall back to
+# a FAT filesystem when the type GUID is missing (e.g. an old MBR disk).
+# Prints nothing when there is no ESP; callers test for empty output.
+find_esp() {
+    local disk=$1 n dev
+    for n in $(gpt_part_numbers "$disk"); do
+        if [ "$(gpt_part_type "$disk" "$n")" = "$ESP_GUID" ]; then
+            partition_dev "$disk" "$n" && return 0
+        fi
+    done
+    for n in $(gpt_part_numbers "$disk"); do
+        dev=$(partition_dev "$disk" "$n") || continue
+        if [ "$(fs_type "$dev")" = vfat ]; then
+            printf '%s\n' "$dev"
+            return 0
+        fi
+    done
+    return 0
 }
 
 # Largest ext2/3/4 partition.  On the stock OCI layout this is the 49 GiB
 # root (BOOT is 923 MiB); after host_apply.sh has replaced it, the only
 # ext4 partition left is the small recovery root.
 find_ubuntu_root() {
-    local disk=$1 dev size best="" best_size=0
-    while read -r dev size; do
-        [ -n "$dev" ] || continue
+    local disk=$1 n dev size best="" best_size=0
+    for n in $(gpt_part_numbers "$disk"); do
+        dev=$(partition_dev "$disk" "$n") || continue
         case "$(fs_type "$dev")" in
-            ext2|ext3|ext4)
-                if [ "$size" -gt "$best_size" ]; then
-                    best=$dev
-                    best_size=$size
-                fi
-                ;;
+            ext2|ext3|ext4) ;;
+            *) continue ;;
         esac
-    done < <(lsblk -lnpbo NAME,TYPE,SIZE "$disk" |
-        awk '$2 == "part" { print $1, $3 }')
-    if [ -n "$best" ]; then printf '%s\n' "$best"; fi
+        size=$(gpt_part_sectors "$disk" "$n")
+        if [ "$size" -gt "$best_size" ]; then
+            best=$dev
+            best_size=$size
+        fi
+    done
+    [ -n "$best" ] && printf '%s\n' "$best"
+    return 0
 }
 
 # The separate /boot partition used by the stock OCI ARM64 image.
 find_linux_boot() {
-    lsblk -lnpo NAME,PARTTYPE,FSTYPE "$1" |
-        awk -v g="$LINUX_BOOT_GUID" 'tolower($2) == g { print $1; exit }'
+    local disk=$1 n
+    for n in $(gpt_part_numbers "$disk"); do
+        if [ "$(gpt_part_type "$disk" "$n")" = "$LINUX_BOOT_GUID" ]; then
+            partition_dev "$disk" "$n" && return 0
+        fi
+    done
+    return 0
 }
 
 # Windows NTFS partition.  Prefer the Microsoft basic-data type, then fall
 # back to the largest NTFS filesystem.
 find_windows() {
-    local disk=$1 dev
-    dev=$(lsblk -lnpo NAME,PARTTYPE,FSTYPE "$disk" |
-        awk -v g="$WINDOWS_GUID" 'tolower($2) == g { print $1; exit }')
-    if [ -z "$dev" ]; then
-        dev=$(lsblk -lnpbo NAME,TYPE,FSTYPE,SIZE "$disk" |
-            awk 'tolower($3) == "ntfs" { print $4, $1 }' |
-            sort -n | tail -1 | awk 'NF == 2 { print $2 }')
-    fi
-    if [ -n "$dev" ]; then printf '%s\n' "$dev"; fi
+    local disk=$1 n dev size best="" best_size=0
+    for n in $(gpt_part_numbers "$disk"); do
+        if [ "$(gpt_part_type "$disk" "$n")" = "$WINDOWS_GUID" ]; then
+            partition_dev "$disk" "$n" && return 0
+        fi
+    done
+    for n in $(gpt_part_numbers "$disk"); do
+        dev=$(partition_dev "$disk" "$n") || continue
+        [ "$(fs_type "$dev")" = ntfs ] || continue
+        size=$(gpt_part_sectors "$disk" "$n")
+        if [ "$size" -gt "$best_size" ]; then
+            best=$dev
+            best_size=$size
+        fi
+    done
+    [ -n "$best" ] && printf '%s\n' "$best"
+    return 0
+}
+
+# Detach loop devices that still reference files on the target disk.  A
+# toram boot can leave the live ISO loop attached even after /isodevice was
+# unmounted, and that reference makes partprobe fail.  The backing file may
+# no longer have a mount point, so match the loop's backing filesystem
+# device number ([MAJ:MIN] in losetup -a) as well as the path.  Only loops
+# that are not mounted are touched, so the running live root is never
+# detached.
+release_media_loops() {
+    local disk=$1 line dev backing src fsdev nums sys major minor n
+    nums=" "
+    for sys in "/sys/class/block/$(basename "$disk")" \
+               /sys/class/block/"$(basename "$disk")"[0-9]* \
+               /sys/class/block/"$(basename "$disk")"p[0-9]*; do
+        [ -r "$sys/dev" ] || continue
+        IFS=: read -r major minor < "$sys/dev"
+        nums+="$(( major * 256 + minor )) "
+    done
+    while IFS= read -r line; do
+        dev=${line%%:*}
+        backing=$(printf '%s\n' "$line" |
+            sed -n 's/^[^:]*: \[[^]]*\]:[0-9]* (\(.*\))$/\1/p')
+        fsdev=$(printf '%s\n' "$line" |
+            sed -n 's/^[^:]*: \[\([0-9]*\)\].*/\1/p')
+        [ -n "$backing" ] || continue
+        [ -n "$(findmnt -S "$dev" -no TARGET 2>/dev/null)" ] && continue
+        n=0
+        if [ -n "$fsdev" ] && [[ "$nums" == *" $fsdev "* ]]; then
+            n=1
+        fi
+        if [ "$n" = 0 ] && [ -e "$backing" ]; then
+            src=$(findmnt -T "$backing" -no SOURCE 2>/dev/null || true)
+            case "$src" in
+                "$disk"|"$disk"p[0-9]*|"$disk"[0-9]*) n=1 ;;
+            esac
+        fi
+        [ "$n" = 1 ] || continue
+        echo "  detaching stale live-media loop $dev ($backing)"
+        sudo -n losetup -d "$dev" 2>/dev/null || true
+    done < <(sudo -n losetup -a)
 }

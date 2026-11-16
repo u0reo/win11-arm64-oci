@@ -30,6 +30,7 @@ cleanup() {
     set +e
     sudo -n umount "$ESP" 2>/dev/null
     [ "$NBD" = 1 ] && sudo -n qemu-nbd --disconnect /dev/nbd0 >/dev/null 2>&1
+    cleanup_part_loops
     rmdir "$ESP" 2>/dev/null
 }
 trap cleanup EXIT

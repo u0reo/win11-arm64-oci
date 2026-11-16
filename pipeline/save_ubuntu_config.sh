@@ -16,6 +16,19 @@ OUT=${2:?usage: $0 <disk> <out-dir>}
 
 [ -b "$DISK" ] || { echo "save-config: $DISK is not a block device" >&2; exit 1; }
 
+# Never replace a complete saved configuration; a resumed build may already
+# have thrown away the original Ubuntu root.  build-image.sh reuses the
+# directory instead of calling this script again.
+if [ -s "$OUT/MANIFEST.txt" ]; then
+    echo "save-config: $OUT already contains a saved configuration" >&2
+    echo "  keeping it; delete the directory to save a fresh copy" >&2
+    exit 1
+fi
+if [ -d "$OUT" ] && [ -n "$(ls -A "$OUT" 2>/dev/null)" ]; then
+    echo "save-config: clearing incomplete $OUT"
+    sudo -n rm -rf "$OUT"
+fi
+
 ROOTPART=$(find_ubuntu_root "$DISK")
 [ -n "$ROOTPART" ] || { echo "save-config: no ext2/3/4 root on $DISK" >&2; exit 1; }
 echo "save-config: reading $ROOTPART"
@@ -26,7 +39,7 @@ if [ -n "$(lsblk -no MOUNTPOINT "$ROOTPART" | tr -d ' ')" ]; then
 fi
 
 MNT=$(mktemp -d /tmp/save-config.XXXXXX)
-trap 'mountpoint -q "$MNT" && sudo -n umount "$MNT"; rmdir "$MNT" 2>/dev/null' EXIT
+trap 'mountpoint -q "$MNT" && sudo -n umount "$MNT"; cleanup_part_loops; rmdir "$MNT" 2>/dev/null' EXIT
 
 # A toram boot can leave the source ext4 with a dirty journal.  The kernel
 # then refuses a read-only mount ("would change RO state") because replaying

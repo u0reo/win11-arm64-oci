@@ -42,6 +42,8 @@ ROOT=$(cd "$HERE/.." && pwd)
 . "$HERE/live.sh"
 BUILD=$(default_build_dir "$ROOT/build")
 PIPE="$ROOT/pipeline"
+# shellcheck source=../pipeline/partitions.sh
+. "$PIPE/partitions.sh"
 
 ISO=${ISO:?set ISO=/path/to/Win11_ARM64.iso}
 IMAGE_INDEX=${IMAGE_INDEX:-1}
@@ -73,6 +75,10 @@ fi
 RAW=0
 if [ -b "$DISK" ]; then
     RAW=1
+    # A live ISO stored on the target keeps the old partition open through
+    # its loop device, which makes the kernel refuse a partition table
+    # reload.  Detach unattached media loops before anything is changed.
+    release_media_loops "$DISK"
 fi
 # If DISK was left at the default under $ROOT/build but BUILD moved, keep them together.
 if [ "$DISK" = "$ROOT/build/win11-arm64.qcow2" ] && [ "$BUILD" != "$ROOT/build" ]; then
@@ -147,7 +153,12 @@ MEDIA="$BUILD/media" DRIVERS="$BUILD/drivers" DRIVERS_EXTRA="$BUILD/drivers-extr
 
 step "4/13 save the Ubuntu network and SSH settings"
 if [ "$KEEP_UBUNTU" = 1 ]; then
-    "$PIPE/save_ubuntu_config.sh" "$DISK" "$BUILD/ubuntu-config"
+    if [ -s "$BUILD/ubuntu-config/MANIFEST.txt" ]; then
+        echo "  reusing the settings already saved in $BUILD/ubuntu-config"
+        sed 's/^/  /' "$BUILD/ubuntu-config/MANIFEST.txt"
+    else
+        "$PIPE/save_ubuntu_config.sh" "$DISK" "$BUILD/ubuntu-config"
+    fi
 else
     echo "  skipped (KEEP_UBUNTU is not 1)"
 fi

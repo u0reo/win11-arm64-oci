@@ -116,18 +116,6 @@ free_slots() {
     printf '\n'
 }
 
-wait_part() {
-    local dev=$1 num=$2
-    for _ in $(seq 1 15); do
-        if [ -b "$(part "$dev" "$num")" ]; then
-            return 0
-        fi
-        sudo -n partx -a "$dev" 2>/dev/null || true
-        sleep 1
-    done
-    return 1
-}
-
 [ -f "$ISO" ] || { echo "missing ISO: $ISO" >&2; exit 1; }
 [ -f "$MEDIA/autounattend.xml" ] || { echo "missing $MEDIA/autounattend.xml; run make_oemdrv.sh first" >&2; exit 1; }
 [ -d "$MEDIA/oem" ] || { echo "missing $MEDIA/oem" >&2; exit 1; }
@@ -149,6 +137,10 @@ if [ "$RAW" = 1 ]; then
         echo "$IMG is the running root device; refusing to wipe it" >&2
         exit 1
     fi
+    # The live ISO may have been stored on this disk.  Its loop device keeps
+    # the old partition open and makes the kernel refuse a partition table
+    # reload.  The loop fallback in partition_dev handles the rest.
+    release_media_loops "$IMG"
 fi
 
 ISO_MNT=$(mktemp -d /tmp/hostapply-iso.XXXXXX)
@@ -161,6 +153,7 @@ cleanup() {
     [ "$WIN_MOUNTED" = 1 ] && sudo -n umount "$WIN_MNT" 2>/dev/null
     [ "$ISO_MOUNTED" = 1 ] && sudo -n umount "$ISO_MNT" 2>/dev/null
     [ "$NBD" = 1 ] && sudo -n qemu-nbd --disconnect "$SDB" >/dev/null 2>&1
+    cleanup_part_loops
     rmdir "$WIN_MNT" "$ISO_MNT" 2>/dev/null
 }
 trap cleanup EXIT
@@ -260,7 +253,7 @@ elif [ "$KEEP_UBUNTU" = 1 ]; then
         lsblk -o NAME,SIZE,FSTYPE,PARTTYPENAME "$DEV" >&2
         exit 1
     }
-    ESP_N=$(part_number "$ESPDEV")
+    ESP_N=$(dev_part_num "$ESPDEV")
     ESP_FS=$(fs_type "$ESPDEV")
     [ "$ESP_FS" = vfat ] || { echo "$ESPDEV is not FAT32 ($ESP_FS)" >&2; exit 1; }
 
@@ -270,10 +263,17 @@ elif [ "$KEEP_UBUNTU" = 1 ]; then
         lsblk -o NAME,SIZE,FSTYPE,PARTTYPENAME "$DEV" >&2
         exit 1
     }
+    ROOT_N=$(dev_part_num "$ROOTDEV")
+    [ -n "$ROOT_N" ] || { echo "cannot determine the Ubuntu root partition number" >&2; exit 1; }
     [ "$ROOTDEV" != "$ESPDEV" ] || { echo "the ESP is also the Ubuntu root?" >&2; exit 1; }
 
     BOOTDEV=$(find_linux_boot "$DEV")
     [ "$BOOTDEV" != "$ROOTDEV" ] || BOOTDEV=""
+    BOOT_N=""
+    if [ -n "$BOOTDEV" ]; then
+        BOOT_N=$(dev_part_num "$BOOTDEV")
+        [ -n "$BOOT_N" ] || { echo "cannot determine the BOOT partition number" >&2; exit 1; }
+    fi
 
     EXISTING_WIN=$(find_windows "$DEV")
     if [ -n "$EXISTING_WIN" ]; then
@@ -288,14 +288,16 @@ elif [ "$KEEP_UBUNTU" = 1 ]; then
     require_esp_free "$ESPDEV"
 
     # Space that becomes available after the old root and BOOT are removed.
+    # Read it from the GPT, not from lsblk: the kernel may still show the
+    # old partition table.
     TOTAL_BYTES=$(sudo -n blockdev --getsize64 "$DEV")
+    SECTOR_SIZE=$(sudo -n blockdev --getss "$DEV")
     AVAIL_BYTES=$TOTAL_BYTES
-    while read -r name bytes; do
-        [ -n "$name" ] || continue
-        [ "$name" = "$ROOTDEV" ] && continue
-        [ -n "$BOOTDEV" ] && [ "$name" = "$BOOTDEV" ] && continue
-        AVAIL_BYTES=$((AVAIL_BYTES - bytes))
-    done < <(lsblk -lnpbo NAME,TYPE,SIZE "$DEV" | awk '$2=="part"{print $1, $3}')
+    for n in $(gpt_part_numbers "$DEV"); do
+        if [ "$n" = "$ROOT_N" ]; then continue; fi
+        if [ -n "$BOOT_N" ] && [ "$n" = "$BOOT_N" ]; then continue; fi
+        AVAIL_BYTES=$((AVAIL_BYTES - $(gpt_part_sectors "$DEV" "$n") * SECTOR_SIZE))
+    done
     AVAIL_BYTES=$((AVAIL_BYTES - 2 * 1024 * 1024))
     AVAIL_GIB=$((AVAIL_BYTES / 1024 / 1024 / 1024))
     NEED_BYTES=$(( $(size_bytes "$RECOVERY_SIZE") + 40 * 1024 * 1024 * 1024 ))
@@ -309,22 +311,28 @@ elif [ "$KEEP_UBUNTU" = 1 ]; then
     # Start the recovery partition where the removed partitions began.  On
     # the stock OCI layout this reclaims both the 923 MiB BOOT partition and
     # the 49 GiB root, leaving one large contiguous area for Windows.
-    FIRST_START=$(cat "/sys/class/block/$(basename "$ROOTDEV")/start")
-    if [ -n "$BOOTDEV" ]; then
-        BOOT_START=$(cat "/sys/class/block/$(basename "$BOOTDEV")/start")
-        [ "$BOOT_START" -lt "$FIRST_START" ] && FIRST_START=$BOOT_START
+    FIRST_START=$(gpt_part_start "$DEV" "$ROOT_N")
+    if [ -n "$BOOT_N" ]; then
+        BOOT_START=$(gpt_part_start "$DEV" "$BOOT_N")
+        if [ "$BOOT_START" -lt "$FIRST_START" ]; then
+            FIRST_START=$BOOT_START
+        fi
     fi
     FIRST_START=$(( (FIRST_START + 2047) / 2048 * 2048 ))
 
-    ESP_START=$(cat "/sys/class/block/$(basename "$ESPDEV")/start")
+    ESP_START=$(gpt_part_start "$DEV" "$ESP_N")
     ESP_PARTUUID=$(sudo -n blkid -s PARTUUID -o value "$ESPDEV" 2>/dev/null || true)
 
-    DEL=(-d "$(part_number "$ROOTDEV")")
-    if [ -n "$BOOTDEV" ]; then
-        DEL+=(-d "$(part_number "$BOOTDEV")")
+    DEL=(-d "$ROOT_N")
+    if [ -n "$BOOT_N" ]; then
+        DEL+=(-d "$BOOT_N")
     fi
     echo "  removing partition(s): ${DEL[*]}"
     sudo -n sgdisk "${DEL[@]}" "$DEV" >/dev/null
+    release_part "$DEV" "$ROOT_N"
+    if [ -n "$BOOT_N" ]; then
+        release_part "$DEV" "$BOOT_N"
+    fi
     sudo -n partprobe "$DEV" 2>/dev/null || true
     sleep 2
 
@@ -336,14 +344,13 @@ elif [ "$KEEP_UBUNTU" = 1 ]; then
         -t "$RECOVERY_N:8300" -c "$RECOVERY_N:Ubuntu" \
         "$DEV" >/dev/null
     sudo -n partprobe "$DEV" 2>/dev/null || true
-    if ! wait_part "$DEV" "$RECOVERY_N"; then
+    RECPART=$(partition_dev "$DEV" "$RECOVERY_N") || {
         echo "recovery partition did not appear" >&2
         exit 1
-    fi
-    RECPART=$(part "$DEV" "$RECOVERY_N")
-    REC_START=$(cat "/sys/class/block/$(basename "$RECPART")/start")
+    }
+    REC_START=$(gpt_part_start "$DEV" "$RECOVERY_N")
     REC_BYTES=$(sudo -n blockdev --getsize64 "$RECPART")
-    WIN_START=$(( (REC_START + REC_BYTES / 512 + 2047) / 2048 * 2048 ))
+    WIN_START=$(( (REC_START + REC_BYTES / SECTOR_SIZE + 2047) / 2048 * 2048 ))
 
     read -r WINDOWS_N < <(free_slots "$DEV" 1)
     [ -n "$WINDOWS_N" ] || { echo "cannot find a free partition number" >&2; exit 1; }
@@ -353,17 +360,20 @@ elif [ "$KEEP_UBUNTU" = 1 ]; then
         -t "$WINDOWS_N:0700" -c "$WINDOWS_N:Windows" \
         "$DEV" >/dev/null
     sudo -n partprobe "$DEV" 2>/dev/null || true
-    if ! wait_part "$DEV" "$WINDOWS_N"; then
+    WINPART=$(partition_dev "$DEV" "$WINDOWS_N") || {
         echo "Windows partition did not appear" >&2
         exit 1
-    fi
-    WINPART=$(part "$DEV" "$WINDOWS_N")
+    }
+    WIN_START=$(gpt_part_start "$DEV" "$WINDOWS_N")
 
-    lsblk -o NAME,SIZE,FSTYPE,PARTTYPENAME "$DEV"
+    echo "  GPT:"
+    sudo -n sgdisk -p "$DEV" | sed -n '/^Number/,$p'
 
-    # The ESP must still be exactly where it was: same slot and same start.
+    # The ESP must still be exactly where it was: same slot, type and start.
     [ -n "$ESP_N" ] && [ -b "$ESPDEV" ] || { echo "the ESP disappeared" >&2; exit 1; }
-    [ "$(cat "/sys/class/block/$(basename "$ESPDEV")/start")" = "$ESP_START" ] || {
+    [ "$(gpt_part_type "$DEV" "$ESP_N")" = "$ESP_GUID" ] || {
+        echo "the ESP type changed; refusing to overwrite it" >&2; exit 1; }
+    [ "$(gpt_part_start "$DEV" "$ESP_N")" = "$ESP_START" ] || {
         echo "the ESP moved; refusing to overwrite it" >&2; exit 1; }
     if [ -n "$ESP_PARTUUID" ]; then
         NEW_ESP_PARTUUID=$(sudo -n blkid -s PARTUUID -o value "$ESPDEV" 2>/dev/null || true)
@@ -371,7 +381,6 @@ elif [ "$KEEP_UBUNTU" = 1 ]; then
             echo "the ESP PARTUUID changed; refusing to overwrite it" >&2; exit 1; }
     fi
 
-    WIN_START=$(cat "/sys/class/block/$(basename "$WINPART")/start")
     sudo -n wipefs -a "$RECPART" >/dev/null 2>&1 || true
     sudo -n wipefs -a "$WINPART" >/dev/null 2>&1 || true
     sudo -n mkfs.ext4 -F -L Ubuntu "$RECPART" >/dev/null
@@ -388,12 +397,13 @@ else
         "$DEV" >/dev/null
     sudo -n partprobe "$DEV" 2>/dev/null || true
     sleep 2
-    ESPDEV=$(part "$DEV" 1)
-    WINPART=$(part "$DEV" 3)
+    ESPDEV=$(partition_dev "$DEV" 1)
+    WINPART=$(partition_dev "$DEV" 3)
     ESP_N=1
-    lsblk -o NAME,SIZE,FSTYPE,PARTTYPENAME "$DEV"
-    WIN_START=$(lsblk -no START "$WINPART" | tr -d ' ')
+    WIN_START=$(gpt_part_start "$DEV" 3)
     [ -n "$WIN_START" ] || { echo "cannot determine the Windows start sector" >&2; exit 1; }
+    echo "  GPT:"
+    sudo -n sgdisk -p "$DEV" | sed -n '/^Number/,$p'
     # -f is a quick format: without it mkntfs zeroes the whole volume, which
     # balloons the qcow2 and is extremely slow over NBD.  -p/-H/-S give the
     # NTFS BPB the same geometry Windows uses, so Windows can boot from it.

@@ -68,6 +68,7 @@ cleanup() {
     done
     mountpoint -q "$MNT/boot/efi" && "${SUDO[@]}" umount "$MNT/boot/efi" 2>/dev/null
     mountpoint -q "$MNT" && "${SUDO[@]}" umount "$MNT" 2>/dev/null
+    cleanup_part_loops
     rmdir "$MNT" 2>/dev/null
 }
 trap cleanup EXIT
