@@ -60,7 +60,7 @@ if errorlevel 1 goto bcdwarn
 bcdedit /store %BCD% /set %GUB% path \EFI\ubuntu\grubaa64.efi
 if errorlevel 1 goto bcdwarn
 bcdedit /store %BCD% /displayorder %GUB% /addlast
-bcdedit /store %BCD% /timeout 5
+bcdedit /store %BCD% /timeout 1
 bcdedit /store %BCD% /set {bootmgr} displaybootmenu Yes
 echo   entry %GUB% added
 bcdedit /store %BCD% /enum %GUB%

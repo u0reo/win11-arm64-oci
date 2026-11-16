@@ -106,6 +106,8 @@ gh workflow run build-image.yml \
 ```
 
 ブロックデバイスへ直接書く場合は `-f disk=/dev/sdb` を渡します（消去されます）。
+ブートメニューをシリアルと VNC に出す場合は `-f boot_menu=5` を足します
+（既定は 1 秒、0 で非表示）。SAC (EMS) は常に有効です。
 `release` environment の承認後、runner 上でビルドが始まります。
 TCG の場合、数時間かかることがあります。
 

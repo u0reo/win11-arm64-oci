@@ -46,6 +46,10 @@ on:
         description: "Size of the recovery Ubuntu partition"
         required: false
         default: "4G"
+      boot_menu:
+        description: "Seconds to show the Windows boot menu (empty = 1 s default, 0 = off)"
+        required: false
+        default: ""
 
   push:
     tags:
@@ -79,6 +83,7 @@ jobs:
       DISK: ${{ inputs.disk }}
       KEEP_UBUNTU: ${{ inputs.keep_ubuntu && '1' || '0' }}
       RECOVERY_SIZE: ${{ inputs.ubuntu_size || '4G' }}
+      BOOT_MENU_TIMEOUT: ${{ inputs.boot_menu }}
 
     steps:
       - uses: actions/checkout@v4
@@ -95,6 +100,7 @@ jobs:
           echo "user=$WIN_USERNAME"
           echo "disk=${DISK:-<qcow2>}"
           echo "keep_ubuntu=$KEEP_UBUNTU (${RECOVERY_SIZE})"
+          echo "boot_menu=${BOOT_MENU_TIMEOUT:-default}"
 
       - name: Verify ISO checksum
         if: env.ISO_SHA256 != ''
@@ -119,4 +125,5 @@ jobs:
             echo "- image index: $IMAGE_INDEX"
             echo "- computer name: $COMPUTER_NAME"
             echo "- target: ${DISK:-build/win11-arm64.qcow2}"
+            echo "- boot menu: ${BOOT_MENU_TIMEOUT:-default}s (SAC/EMS always on)"
           } >> "$GITHUB_STEP_SUMMARY"

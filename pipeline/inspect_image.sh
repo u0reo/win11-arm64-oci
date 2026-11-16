@@ -141,6 +141,18 @@ for f in specialize.log firstlogon.log boot.log done.txt firstlogon.done; do
     fi
 done
 
+echo "=== serial (SAC) / boot menu ==="
+if grep -q 'sac-configured' "$WIN/OEM/specialize.log" 2>/dev/null; then
+    echo "SAC/EMS: $(grep -h 'sac-configured' "$WIN/OEM/specialize.log" | tail -1)"
+else
+    echo "SAC/EMS: NOT configured (no sac-configured in specialize.log)"
+fi
+if grep -q 'boot-menu-configured' "$WIN/OEM/specialize.log" 2>/dev/null; then
+    grep -h 'boot-menu-configured' "$WIN/OEM/specialize.log" | tail -1
+else
+    echo "boot menu: off"
+fi
+
 echo "=== disk usage ==="
 df -h "$WIN" "$ESP" | sed -n '1,5p'
 echo "=== inspect done ==="

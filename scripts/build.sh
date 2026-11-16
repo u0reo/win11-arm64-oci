@@ -18,6 +18,13 @@
 # space is used for Windows.  This is the only mode that tolerates the
 # target disk being the running root, because nothing on p2 is written.
 #
+# EMS/SAC is always enabled on COM1, so the OCI serial console gives a text
+# recovery shell ("SAC>" then "cmd") even when RDP is broken.
+#
+# Add --boot-menu SECONDS to show the Windows boot menu (serial and VNC) for
+# that many seconds.  The default is 1; any key press stops the countdown.
+# --boot-menu 0 turns the menu off (rejected when Ubuntu is kept).
+#
 # The target must not be the running root (except with --reuse-ubuntu).  Boot
 # the Ubuntu live ISO with `toram` first (scripts/prepare.sh).  Media that
 # still lives on the target disk is copied into RAM before anything is
@@ -45,6 +52,7 @@ SMP=${SMP:-4}
 KEEP_UBUNTU=0
 REUSE_UBUNTU=${REUSE_UBUNTU:-0}
 RECOVERY_SIZE=${RECOVERY_SIZE:-4G}
+BOOT_MENU=${BOOT_MENU_TIMEOUT:-}
 YES=0
 
 usage() {
@@ -66,6 +74,7 @@ while [ $# -gt 0 ]; do
         --keep-ubuntu) KEEP_UBUNTU=1; shift ;;
         --ubuntu-size) RECOVERY_SIZE=$2; KEEP_UBUNTU=1; shift 2 ;;
         --reuse-ubuntu) REUSE_UBUNTU=1; shift ;;
+        --boot-menu) BOOT_MENU=$2; shift 2 ;;
         --to-ram)
             echo "build: --to-ram is gone; it is detected automatically." >&2
             echo "  boot the live ISO with 'toram' (scripts/prepare.sh) and" >&2
@@ -76,6 +85,25 @@ while [ $# -gt 0 ]; do
         *) echo "build: unknown argument: $1" >&2; usage 1 ;;
     esac
 done
+
+if [ -z "$BOOT_MENU" ]; then
+    BOOT_MENU=1
+fi
+case "$BOOT_MENU" in
+    ''|*[!0-9]*)
+        echo "build: --boot-menu needs a number of seconds (0-999)" >&2
+        exit 1 ;;
+esac
+BOOT_MENU=$((10#$BOOT_MENU))
+if [ "$BOOT_MENU" -gt 999 ]; then
+    echo "build: --boot-menu must be 999 seconds or less" >&2
+    exit 1
+fi
+if [ "$BOOT_MENU" -eq 0 ] && { [ "$KEEP_UBUNTU" = 1 ] || [ "$REUSE_UBUNTU" = 1 ]; }; then
+    echo "build: --boot-menu 0 would hide the Ubuntu recovery entry." >&2
+    echo "  Use --boot-menu 1 (or more) with --keep-ubuntu / --reuse-ubuntu." >&2
+    exit 1
+fi
 
 if [ -n "$IMG" ] && [ -n "$DISK" ]; then
     echo "build: use either --disk or --image, not both" >&2
@@ -197,6 +225,8 @@ cat <<EOF
   index    $IMAGE_INDEX
   memory   ${MEM} MiB
   cpus     $SMP
+  serial   EMS/SAC on COM1 (always on)
+  bootmenu $([ "$BOOT_MENU" = 0 ] && echo 'off' || echo "${BOOT_MENU}s (serial + VNC)")
   ubuntu   $([ "$REUSE_UBUNTU" = 1 ] && echo 'reuse the installed p2' || \
               { [ "$KEEP_UBUNTU" = 1 ] && echo "keep ${RECOVERY_SIZE} recovery system" || echo 'no (whole disk Windows)'; })
 
@@ -323,6 +353,7 @@ export DISK
 export ISO
 export IMAGE_INDEX MEM SMP SIZE
 export KEEP_UBUNTU RECOVERY_SIZE REUSE_UBUNTU
+export BOOT_MENU_TIMEOUT="$BOOT_MENU"
 if [ -n "$DRIVERS" ]; then
     export DRIVERS_DIR="$DRIVERS"
 else
@@ -340,12 +371,12 @@ EOF
 if [ "$KEEP_UBUNTU" = 1 ]; then
     cat <<EOF
 The ${RECOVERY_SIZE} recovery Ubuntu is on partition 2.  The Windows Boot
-Manager menu shows it as "Ubuntu (recovery)" (5 second timeout).
+Manager menu shows it as "Ubuntu (recovery)" (${BOOT_MENU} second timeout).
 EOF
 elif [ "$REUSE_UBUNTU" = 1 ]; then
     cat <<EOF
 The installed Ubuntu on partition 2 is untouched.  The Windows Boot Manager
-menu should show it as "Ubuntu (recovery)" (5 second timeout).
+menu should show it as "Ubuntu (recovery)" (${BOOT_MENU} second timeout).
 EOF
 fi
 
@@ -374,4 +405,7 @@ cat <<EOF
 
 The Windows account and password are the ones rendered into the image
 (from WIN_USERNAME / WIN_PASSWORD / COMPUTER_NAME / TIMEZONE).
+
+Serial console: EMS/SAC is enabled on COM1.  On OCI, open the instance's
+serial console (Cloud Shell) and wait for "SAC>", then type "cmd".
 EOF

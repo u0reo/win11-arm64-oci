@@ -73,6 +73,28 @@ Log "firewall-configured"
 & powercfg.exe /h off 2>&1 | Out-File -Append -Encoding ascii $Log
 & powercfg.exe /change standby-timeout-ac 0 2>&1 | Out-File -Append -Encoding ascii $Log
 
+# Serial recovery: EMS/SAC on COM1.  Always on, so the OCI serial console
+# (Cloud Shell) gives a text command prompt when RDP is broken.  The prompt
+# is "SAC>"; type "cmd" there to get an administrative command prompt.
+& bcdedit.exe /ems '{current}' on 2>&1 | Out-File -Append -Encoding ascii $Log
+$EmsRc = $LASTEXITCODE
+& bcdedit.exe /emssettings EMSPORT:1 EMSBAUDRATE:115200 2>&1 | Out-File -Append -Encoding ascii $Log
+Log ("sac-configured ems=" + $EmsRc + " settings=" + $LASTEXITCODE)
+
+# Optional boot menu over serial and VNC (--boot-menu SECONDS).  Zero turns
+# it off; the build scripts default to 1 s, which any key press pauses.
+$BootMenu = {{BOOT_MENU_TIMEOUT}}
+if ($BootMenu -gt 0) {
+    & bcdedit.exe /set '{bootmgr}' displaybootmenu yes 2>&1 | Out-File -Append -Encoding ascii $Log
+    & bcdedit.exe /set '{bootmgr}' timeout $BootMenu 2>&1 | Out-File -Append -Encoding ascii $Log
+    & bcdedit.exe /set '{bootmgr}' bootems yes 2>&1 | Out-File -Append -Encoding ascii $Log
+    Log ("boot-menu-configured timeout=" + $BootMenu)
+} else {
+    & bcdedit.exe /set '{bootmgr}' displaybootmenu no 2>&1 | Out-File -Append -Encoding ascii $Log
+    & bcdedit.exe /set '{bootmgr}' bootems no 2>&1 | Out-File -Append -Encoding ascii $Log
+    Log "boot-menu-off"
+}
+
 # Startup fallback task.  The service route used previously was killed by the
 # SCM 45-second timeout; a scheduled task plus a detached PowerShell avoids it.
 $tr = "cmd.exe /c C:\OEM\bootstrap.cmd"

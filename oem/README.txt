@@ -22,6 +22,12 @@ Services:
   RDP  3389/tcp  (NLA disabled for lab compatibility)
   WinRM 5985/tcp (Basic + unencrypted enabled for lab compatibility)
 
+Serial:
+  COM1 115200    EMS/SAC always enabled (bcdedit /ems in specialize.ps1).
+                 The OCI serial console shows "SAC>"; type "cmd" for an
+                 administrative command prompt.  The boot menu is shown for
+                 --boot-menu SECONDS (default 1 s, 0 = off).
+
 A scheduled task named "OEM Bootstrap" runs C:\OEM\bootstrap.cmd as SYSTEM
 at every start.  It is idempotent and is the fallback if RDP/WinRM were not
 configured during OOBE.

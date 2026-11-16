@@ -307,6 +307,57 @@ Ubuntu は別途インストーラ等で入れておく必要があります。�
 に置く場合、`--mem 8192` は OOM の危険があります。`--mem 6144` のままに
 してください。
 
+## シリアルコンソール (SAC)
+
+`oem/specialize.ps1` がビルド時に EMS/SAC を有効にします。完成した Windows は
+COM1 (115200 bps) で `SAC>` を返すので、RDP が壊れても OCI のシリアル
+コンソールから直せます。
+
+使い方:
+
+1. インスタンス詳細 → **Console connection** → シリアル接続を作る
+2. Cloud Shell から接続する（VNC ではない）
+3. `SAC>` が出たら `cmd`
+4. `ch -si 1`（または `Esc`+`Tab`）でチャンネルを切り替え、Enter
+5. 管理者の資格情報を入れると `C:\Windows\System32>` が出る
+6. `powershell` と入力すれば PowerShell も起動できる
+
+できること: `ipconfig` / `netsh` / `bcdedit` / `diskpart` / `sc` / `sfc` /
+`chkdsk` / `shutdown` など。RDP のファイアウォールや NLA を直すには十分です。
+
+できないこと:
+
+- GUI。テキストのみ
+- WinRE での操作（SAC は起動した OS の中で動く）
+- 長い文字列の貼り付け（ターミナル側の上限）
+- 対話的な TUI（VT100 非対応で表示が崩れる）
+
+注意: SAC は管理者シェルそのものです。コンソール接続の権限を持つ人は実質
+フルアクセスになります。IAM を絞ってください。
+
+イメージには適用済みなので操作は不要ですが、手で入れた Windows に後から
+足す場合は次の 2 行です。
+
+```cmd
+bcdedit /ems {current} on
+bcdedit /emssettings EMSPORT:1 EMSBAUDRATE:115200
+```
+
+### ブートメニュー
+
+`--boot-menu 秒数` で `displaybootmenu yes` / `timeout` / `bootems yes` を
+設定します。シリアルにも VNC にもメニューが出るので、セーフモードや
+`--keep-ubuntu` の Ubuntu 復旧エントリを選べます。既定は 1 秒で、表示中に
+何かキーを押せばカウントダウンが止まります。`--boot-menu 0` は Ubuntu を
+残す構成では使えません（メニューが隠れて復旧エントリを選べなくなるため）。
+
+メニューを出さない構成に戻すには:
+
+```cmd
+bcdedit /set {bootmgr} displaybootmenu no
+bcdedit /set {bootmgr} bootems no
+```
+
 ## ステージ6 後片付け
 
 ### バックアップと復旧
@@ -338,6 +389,7 @@ oci bv boot-volume-backup create \
 | 症状 | 確認 |
 |---|---|
 | `setup.sh --check` が `not enough disk space` で止まる | 直接書き込みなら `build/` に 8 GB、qcow2 なら 80 GB。`--build-dir` で別の場所を指定できる |
+| シリアルに `SAC>` が出ない | `C:\OEM\specialize.log` に `sac-configured` があるか。コンソール接続がシリアル（VNC ではない）か |
 | ビルド中にディスク不足になる | ブートボリュームを 64 GB 以上に |
 | `qemu-system-aarch64: not found` | `scripts/setup.sh` |
 | AAVMF が無い | `qemu-efi-aarch64` パッケージ |

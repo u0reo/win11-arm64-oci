@@ -63,7 +63,10 @@ RAM の内訳と、データボリュームを使う場合の注意は
 
 ## 起動メニュー
 
-再起動すると Windows Boot Manager が 5 秒のメニューを出します。
+再起動すると Windows Boot Manager が 1 秒のメニューを出します。表示中に
+何かキーを押すとカウントダウンが止まるので、そこで Ubuntu を選べます
+（`--boot-menu 秒数` で変更できます。`--boot-menu 0` は Ubuntu の
+エントリを選べなくなるため指定できません）。
 
 ```text
 Windows 11

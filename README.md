@@ -249,6 +249,23 @@ sudo ./scripts/build.sh --disk /dev/sda \
 model / serial / size を表示し、ISO のコピーとマウント解除を行ってから
 書き込みを始めます。
 
+SAC (EMS) は**常に有効**で、出来上がった Windows は COM1 で `SAC>` を
+返します。OCI のシリアルコンソール（Cloud Shell）から `cmd` と入力すると
+管理者のコマンドプロンプトが使えます。RDP が壊れたときの復旧手段です
+（[docs/OCI.md](docs/OCI.md#シリアルコンソール-sac)）。
+
+シリアルと VNC にブートメニューを出したい場合は `--boot-menu 秒数` を
+足します。既定は **1 秒**で、表示中に何かキーを押せばカウントダウンは
+止まります。`--boot-menu 0` でメニューを消せます（Ubuntu を残す構成では
+復旧エントリを選べなくなるため不可）。
+
+```bash
+# 例: 5 秒に伸ばす（既定は 1 秒）
+sudo ./scripts/build.sh --boot-menu 5 --disk /dev/sdb \
+  --iso /dev/shm/Win11_ARM64_26H2.iso \
+  --virtio /dev/shm/virtio-win.iso --yes
+```
+
 4 GiB の Ubuntu 復旧環境も残す場合は `--keep-ubuntu` を足します。
 
 ```bash
@@ -276,7 +293,10 @@ sudo ./scripts/build.sh --keep-ubuntu --ubuntu-size 4G --disk /dev/sdb \
 - RDP 3389 / WinRM 5985 が開いています（NLA 無効・ファイアウォール無効）
 - **OCI エージェントは入っていない**ので、コンソールのパスワードリセットは
   使えません。ビルド時のパスワードで入ってください
-- シリアルコンソールに Windows の出力は出ません。RDP で接続します
+- シリアルコンソールは `SAC>`（テキストの復旧シェル）になります。日常操作は
+  RDP で行い、SAC は RDP が壊れたとき用に取っておきます
+- 起動時に Windows Boot Manager のメニューが 1 秒だけシリアルと VNC に出ます
+  （`--boot-menu 秒数` で変更、`0` で非表示）
 
 ### 資格情報
 

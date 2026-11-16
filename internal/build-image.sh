@@ -26,6 +26,7 @@
 #   KEEP_UBUNTU=1        keep a small Ubuntu recovery system on the disk
 #   RECOVERY_SIZE=4G     size of that recovery partition
 #   REUSE_UBUNTU=1       p2 is an installed Ubuntu; only use the free space
+#   BOOT_MENU_TIMEOUT=1  seconds to show the Windows boot menu (0 = off)
 #   PACKAGE=1            compress the qcow2 when the build finishes
 #   WIN_USERNAME / WIN_PASSWORD / COMPUTER_NAME   (render.py overrides)
 set -euo pipefail
@@ -46,6 +47,17 @@ DISK=${DISK:-$BUILD/win11-arm64.qcow2}
 KEEP_UBUNTU=${KEEP_UBUNTU:-0}
 REUSE_UBUNTU=${REUSE_UBUNTU:-0}
 RECOVERY_SIZE=${RECOVERY_SIZE:-4G}
+# 1 s by default; any key press stops the countdown.  0 turns the menu off.
+BOOT_MENU_TIMEOUT=${BOOT_MENU_TIMEOUT:-1}
+case "$BOOT_MENU_TIMEOUT" in
+    ''|*[!0-9]*) ;;   # render.py reports a proper error for non-numbers
+    *) BOOT_MENU_TIMEOUT=$((10#$BOOT_MENU_TIMEOUT)) ;;
+esac
+if [ "$BOOT_MENU_TIMEOUT" = 0 ] && { [ "$KEEP_UBUNTU" = 1 ] || [ "$REUSE_UBUNTU" = 1 ]; }; then
+    echo "BOOT_MENU_TIMEOUT=0 would hide the Ubuntu recovery entry" >&2
+    exit 1
+fi
+export BOOT_MENU_TIMEOUT
 
 RAW=0
 if [ -b "$DISK" ]; then

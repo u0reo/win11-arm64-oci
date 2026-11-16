@@ -119,6 +119,25 @@ qcow2 パスを `/dev/sdb` に置き換え、最後に
 `pipeline/finish_disk.sh /dev/sdb` と `pipeline/inspect_image.sh /dev/sdb`
 を実行します。`DISK=/dev/sdb` を各スクリプトに渡しても同じです。
 
+## シリアル (SAC) とブートメニュー
+
+Windows の初回起動時（specialize パス）に `oem/specialize.ps1` が
+BCD を書き換えます。
+
+| 設定 | 内容 | 指定 |
+|---|---|---|
+| EMS/SAC | COM1 115200 で `SAC>` を出す。常に有効 | なし（常時） |
+| ブートメニュー | `displaybootmenu` / `timeout` / `bootems` | `--boot-menu 秒数` |
+
+`--boot-menu` の既定は 1 秒です。表示中に何かキーを押すとカウントダウンが
+止まるので、既定のままでもメニューを操作できます。0 はメニューを明示的に
+消します（`displaybootmenu no` / `bootems no`）。Ubuntu のエントリを隠さない
+よう、Ubuntu を残す構成では 0 を指定できません。`BOOT_MENU_TIMEOUT` 環境
+変数でも渡せます（`internal/build-image.sh` を直接使う場合）。
+
+SAC の使い方と制約は [OCI.md](OCI.md#シリアルコンソール-sac) を参照して
+ください。
+
 ## 言語
 
 `autounattend.xml` は言語を指定しません（`<Language>` / `<InputLocale>` /

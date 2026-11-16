@@ -7,10 +7,11 @@ Values are resolved with this precedence:
 
 The built-in defaults are:
 
-    WIN_USERNAME   User
-    WIN_PASSWORD   oci-a1
-    COMPUTER_NAME  OCI-WIN
-    TIMEZONE       Tokyo Standard Time
+    WIN_USERNAME      User
+    WIN_PASSWORD      oci-a1
+    COMPUTER_NAME     OCI-WIN
+    TIMEZONE          Tokyo Standard Time
+    BOOT_MENU_TIMEOUT 1   (seconds; 0 turns the boot menu off)
 
 Set the environment variables before running build.sh.  Use `read -rsp`
 for the password so it does not end up in the shell history.  In GitHub
@@ -37,6 +38,7 @@ BUILTIN = {
     "WIN_PASSWORD": "oci-a1",
     "COMPUTER_NAME": "OCI-WIN",
     "TIMEZONE": "Tokyo Standard Time",
+    "BOOT_MENU_TIMEOUT": "1",
 }
 
 USER_RE = re.compile(r"^[A-Za-z0-9._-]{1,20}$")
@@ -77,6 +79,19 @@ def validate(values: dict[str, str]) -> None:
         errors.append("WIN_PASSWORD must be at most 256 characters")
     if "\n" in password or "\r" in password:
         errors.append("WIN_PASSWORD must not contain newlines")
+    try:
+        boot_menu = int(values["BOOT_MENU_TIMEOUT"])
+    except ValueError:
+        errors.append(
+            "BOOT_MENU_TIMEOUT must be an integer number of seconds "
+            f"(got {values['BOOT_MENU_TIMEOUT']!r})"
+        )
+    else:
+        if boot_menu < 0 or boot_menu > 999:
+            errors.append(
+                "BOOT_MENU_TIMEOUT must be between 0 and 999 "
+                f"(got {boot_menu})"
+            )
     if errors:
         for message in errors:
             print(f"render: error: {message}", file=sys.stderr)
@@ -140,7 +155,7 @@ def render_tree(
             continue
         if src.name.endswith(".template"):
             text = src.read_text(encoding="utf-8")
-            for key in ("WIN_USERNAME", "WIN_PASSWORD"):
+            for key in ("WIN_USERNAME", "WIN_PASSWORD", "BOOT_MENU_TIMEOUT"):
                 text = text.replace("{{" + key + "}}", ps_escape(values[key]))
             dst = oem_out / src.name[: -len(".template")]
             dst.write_text(text, encoding="utf-8")
@@ -202,6 +217,8 @@ def main() -> int:
     print(f"  WIN_PASSWORD   = {mask(values['WIN_PASSWORD'])}")
     print(f"  COMPUTER_NAME  = {values['COMPUTER_NAME']}")
     print(f"  TIMEZONE       = {values['TIMEZONE']}")
+    print(f"  BOOT_MENU      = {values['BOOT_MENU_TIMEOUT']} s"
+          + (" (off)" if values["BOOT_MENU_TIMEOUT"] == "0" else ""))
     print(f"  IMAGE_INDEX    = {args.image_index}")
     print(f"  PRODUCT_KEY    = {'<none>' if not args.product_key else '<set>'}")
 
