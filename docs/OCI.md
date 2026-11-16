@@ -127,6 +127,7 @@ virtio-win（0.7 GB）を `/dev/shm`（RAM）に置いても、24 GB に収ま�
 
 `--ssh` は ESP に cloud-init の seed を書き、ESP のラベルを `CIDATA` に
 して、live 起動時から `authorized_keys` で SSH できるようにします。
+ESP は事前に `/boot/efi` にマウントしておきます（`ESP_MNT` で変更可）。
 元のラベルは ESP の `win11-arm64-oci-esp-label` に保存され、復元コマンドも
 表示されます。
 
@@ -145,6 +146,36 @@ QEMU（AAVMF + TCG）で起動して確認済みです。cloud-init が `CIDATA`
 起動完了まで実時間で 15 分ほどかかります。`meta-data` の
 `local-hostname` は live では効かず、ホスト名は `ubuntu-server` のままに
 なります（動作に影響はありません）。
+
+### 自動起動（`--default` / `--once`）
+
+`GRUB_DEFAULT` に番号を書く方法はおすすめしません。番号は `update-grub` が
+生成するメニューの並び順で決まり、カーネルの追加やサブメニューの有無で
+ずれます（サブメニューは `1>2` のように書く必要があります）。
+
+`prepare.sh` は live のエントリに `--id win11-live-toram` を付け、その id で
+既定エントリを指定します。id はメニューの並び順に依存しません。
+
+| フラグ | やること | 使う場面 |
+|---|---|---|
+| `--once` | `grub-reboot win11-live-toram`。次の 1 回だけ live を起動 | 最初の確認。失敗しても次の電源投入で Ubuntu に戻る |
+| `--default` | `/etc/default/grub` の `GRUB_DEFAULT` を `win11-live-toram` に | 毎回 live で起動したいとき |
+
+どちらも `--write` が必要です。`--default` は変更前の
+`/etc/default/grub` を `/etc/default/grub.win11-arm64-oci.bak` に保存し、
+戻し方を表示します。手動で戻す場合:
+
+```bash
+sudo cp -p /etc/default/grub.win11-arm64-oci.bak /etc/default/grub
+sudo update-grub
+```
+
+`GRUB_TIMEOUT=0`（OCI の既定）ならメニューは出ず、そのまま既定エントリが
+起動します。メニューを出したいときは `GRUB_TIMEOUT=10` と
+`GRUB_TIMEOUT_STYLE=menu` にします。
+
+id を変えたいときは `--id` を使います（英数字・`_`・`-`、先頭は数字以外）。
+`--id` を変えたら `--default` / `--once` も付け直してください。
 
 ### 注意点
 

@@ -34,7 +34,7 @@ OCI の Ubuntu を一時的なビルド機にし、ブートボリュームの�
 |---|---|---|
 | `scripts/setup.sh` | ホストの準備と検査（冪等） | 1・2-A・2-B |
 | `scripts/build.sh` | ディスクを作る唯一の入口 | 4 |
-| `scripts/prepare.sh` | live ISO を GRUB に登録する | 2-B |
+| `scripts/prepare.sh` | live ISO を GRUB に登録し、自動起動を設定する | 2-B |
 
 ## ステージ1 準備
 
@@ -135,15 +135,33 @@ git clone https://github.com/<OWNER>/win11-arm64-oci.git
 cd win11-arm64-oci
 
 # live ISO を GRUB に登録する
-# --ssh は ESP を CIDATA にして、live 起動時から SSH できるようにする
+# --ssh   は ESP を CIDATA にして、live 起動時から SSH できるようにする
+# --once  は次の 1 回だけ live を自動起動する（--default なら毎回）
 sudo ./scripts/prepare.sh \
-  /srv/iso/ubuntu-24.04.5-live-server-arm64.iso --write --ssh
+  /srv/iso/ubuntu-24.04.5-live-server-arm64.iso --write --ssh --once
 
 sudo reboot
 ```
 
-GRUB で `Ubuntu live (toram)` を選びます。live の root は RAM 上なので、
-リポジトリをもう一度 clone してから `setup.sh` を実行します。
+`--once` / `--default` はメニューの番号ではなく、エントリの id
+（`win11-live-toram`）で live を指定するので、`update-grub` でメニューの
+順番が変わっても壊れません。`--once` は次の 1 回だけなので、live の起動に
+失敗しても電源を入れ直せば Ubuntu に戻ります。最初は `--once` で確認し、
+毎回 live で起動したいなら `--default` にしてください。
+
+`--once` / `--default` を付けない場合は、GRUB のメニューで
+`Ubuntu live (toram)` を選びます（`GRUB_TIMEOUT=0` だとメニューが出ないので、
+その場合はどちらかを付けてください）。
+
+`--ssh` を使うには ESP が `/boot/efi` にマウントされている必要があります。
+`findmnt /boot/efi` で確認し、無ければ `lsblk -f` で vfat の ESP を探して
+`sudo mount /dev/sda15 /boot/efi` のようにマウントしてから実行してください。
+
+`--default` の戻し方は `prepare.sh` が表示します。変更前の
+`/etc/default/grub` は `/etc/default/grub.win11-arm64-oci.bak` にあります。
+
+live の root は RAM 上なので、リポジトリをもう一度 clone してから
+`setup.sh` を実行します。
 
 ```bash
 git clone https://github.com/<OWNER>/win11-arm64-oci.git

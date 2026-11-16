@@ -4,9 +4,12 @@
 #   ./scripts/prepare.sh /srv/iso/ubuntu-live-server-arm64.iso
 #   sudo ./scripts/prepare.sh /srv/iso/ubuntu-live-server-arm64.iso --write
 #   sudo ./scripts/prepare.sh /srv/iso/ubuntu-live-server-arm64.iso --write --ssh
+#   sudo ./scripts/prepare.sh /srv/iso/ubuntu-live-server-arm64.iso --write --once
+#   sudo ./scripts/prepare.sh /srv/iso/ubuntu-live-server-arm64.iso --write --default
 #
 # `toram` copies the whole live system into RAM, so /dev/sda can be wiped
-# while it runs.  After the reboot, pick the entry and run
+# while it runs.  After the reboot, boot the entry (--once / --default, or
+# pick it in the menu) and run
 #
 #   sudo ./scripts/build.sh --disk /dev/sda ...
 #
@@ -16,14 +19,27 @@
 # Add --keep-ubuntu to that command for a 4 GiB recovery Ubuntu, or leave it
 # out for Windows only.
 #
-# --ssh   write a cloud-init seed (user-data + meta-data) to the ESP and label
-#         the ESP `CIDATA`.  The live session then creates the user `ubuntu`
-#         (passwordless sudo, /bin/bash) with the authorized_keys of this
-#         machine, and starts sshd.  Needs --write.  The Ubuntu Server live
-#         ISO already contains cloud-init and openssh-server; if sshd does
-#         not come up, check `sudo cloud-init status --long` on the serial
-#         console.  ESP_MNT (default /boot/efi) selects the mounted ESP.
-#         The original ESP label is saved to win11-arm64-oci-esp-label.
+# --ssh        write a cloud-init seed (user-data + meta-data) to the ESP and
+#             label the ESP `CIDATA`.  The live session then creates the user
+#             `ubuntu` (passwordless sudo, /bin/bash) with the authorized_keys
+#             of this machine, and starts sshd.  Needs --write.  The Ubuntu
+#             Server live ISO already contains cloud-init and openssh-server;
+#             if sshd does not come up, check `sudo cloud-init status --long`
+#             on the serial console.  ESP_MNT (default /boot/efi) selects the
+#             mounted ESP.  The original ESP label is saved to
+#             win11-arm64-oci-esp-label.
+#
+# --once      boot the live entry on the next boot only (grub-reboot).  The
+#             id is used, not a menu number, so the order of the generated
+#             menu does not matter.  If the live session fails to boot, the
+#             next power cycle returns to Ubuntu.  Needs --write.
+# --default   make the live entry the persistent GRUB default.  Writes
+#             GRUB_DEFAULT=<id> (not an index) to /etc/default/grub, so
+#             `update-grub` can add or remove entries without breaking it.
+#             The previous file is saved to
+#             /etc/default/grub.win11-arm64-oci.bak.  Needs --write.
+# --id ID     id of the menu entry (default win11-live-toram).  It is also the
+#             value of GRUB_DEFAULT, so it must not start with a digit.
 #
 # --write      install the entry into /etc/grub.d/40_custom and run update-grub
 # --name NAME  override the GRUB menu label
@@ -33,7 +49,13 @@ ISO_ARG=${1:-}
 NAME=""
 WRITE=0
 WANT_SSH=0
+WANT_DEFAULT=0
+WANT_ONCE=0
+ID=${ID:-win11-live-toram}
 GRUB_CUSTOM=${GRUB_CUSTOM:-/etc/grub.d/40_custom}
+GRUB_CFG=${GRUB_CFG:-/boot/grub/grub.cfg}
+GRUB_DEFAULT_FILE=${GRUB_DEFAULT_FILE:-/etc/default/grub}
+GRUB_DEFAULT_BACKUP=${GRUB_DEFAULT_BACKUP:-/etc/default/grub.win11-arm64-oci.bak}
 ESP_MNT=${ESP_MNT:-/boot/efi}
 
 usage() {
@@ -50,12 +72,33 @@ shift
 while [ $# -gt 0 ]; do
     case "$1" in
         --name) NAME=${2:?--name needs a label}; shift 2 ;;
+        --id) ID=${2:?--id needs a value}; shift 2 ;;
         --write) WRITE=1; shift ;;
         --ssh) WANT_SSH=1; shift ;;
+        --default) WANT_DEFAULT=1; shift ;;
+        --once) WANT_ONCE=1; shift ;;
         -h|--help) usage 0 ;;
         *) echo "prepare: unknown argument: $1" >&2; usage 1 ;;
     esac
 done
+
+# GRUB ids are alphanumeric, '_' and '-', and must not start with a digit.
+case "$ID" in
+    [A-Za-z_]*) ;;
+    *) echo "prepare: --id must start with a letter or underscore" >&2; exit 1 ;;
+esac
+case "$ID" in
+    *[!A-Za-z0-9_-]*)
+        echo "prepare: --id may contain only letters, digits, '_' and '-'" >&2
+        exit 1 ;;
+esac
+
+if [ "$WANT_DEFAULT" = 1 ] || [ "$WANT_ONCE" = 1 ]; then
+    [ "$WRITE" = 1 ] || {
+        echo "prepare: --default and --once need --write" >&2
+        exit 1
+    }
+fi
 
 [ -f "$ISO_ARG" ] || { echo "prepare: missing $ISO_ARG" >&2; exit 1; }
 ISO=$(realpath -e "$ISO_ARG")
@@ -86,6 +129,8 @@ esac
 NAME=${NAME:-Ubuntu live (toram)}
 BEGIN="# BEGIN win11-arm64-oci:toram"
 END="# END win11-arm64-oci:toram"
+DEF_BEGIN="# BEGIN win11-arm64-oci:default"
+DEF_END="# END win11-arm64-oci:default"
 
 if [ "$(id -u)" -eq 0 ]; then
     SUDO=""
@@ -170,7 +215,7 @@ CMDLINE="toram ip=dhcp console=ttyAMA0,115200"
 entry() {
     cat <<EOF
 $BEGIN
-menuentry "$NAME" {
+menuentry "$NAME" --id $ID {
     insmod part_gpt
     insmod ext2
     insmod loopback
@@ -197,7 +242,8 @@ EOF
 fi
 
 TMP=$(mktemp /tmp/prepare-grub.XXXXXX)
-trap 'rm -f "$TMP"' EXIT
+TMP2=""
+trap 'rm -f "$TMP" "${TMP2:-}"' EXIT
 
 if $SUDO test -f "$GRUB_CUSTOM"; then
     $SUDO awk -v b="$BEGIN" -v e="$END" '
@@ -217,28 +263,105 @@ entry >> "$TMP"
 $SUDO install -m 0755 "$TMP" "$GRUB_CUSTOM"
 echo "prepare: wrote $GRUB_CUSTOM"
 
-if command -v update-grub >/dev/null 2>&1; then
+# --- optional auto-boot ---------------------------------------------------
+OLD_DEFAULT=""
+if [ "$WANT_DEFAULT" = 1 ]; then
+    $SUDO test -f "$GRUB_DEFAULT_FILE" || {
+        echo "prepare: $GRUB_DEFAULT_FILE not found" >&2
+        exit 1
+    }
+    OLD_DEFAULT=$($SUDO sed -n 's/^[[:space:]]*GRUB_DEFAULT=//p' \
+        "$GRUB_DEFAULT_FILE" | tail -n 1 || true)
+    if ! $SUDO test -f "$GRUB_DEFAULT_BACKUP"; then
+        $SUDO cp -p "$GRUB_DEFAULT_FILE" "$GRUB_DEFAULT_BACKUP"
+    fi
+    TMP2=$(mktemp /tmp/prepare-grub-default.XXXXXX)
+    $SUDO awk -v b="$DEF_BEGIN" -v e="$DEF_END" '
+        $0 == b { skip = 1; next }
+        $0 == e { skip = 0; next }
+        skip    { next }
+        /^[[:space:]]*GRUB_DEFAULT=/ { next }
+        { print }
+    ' "$GRUB_DEFAULT_FILE" > "$TMP2"
+    {
+        printf '%s\n' "$DEF_BEGIN"
+        printf 'GRUB_DEFAULT=%s\n' "$ID"
+        printf '%s\n' "$DEF_END"
+    } >> "$TMP2"
+    $SUDO install -m 0644 "$TMP2" "$GRUB_DEFAULT_FILE"
+    echo "prepare: GRUB_DEFAULT=$ID (was '${OLD_DEFAULT:-unset}')"
+fi
+
+if $SUDO sh -c 'command -v update-grub >/dev/null 2>&1'; then
     $SUDO update-grub
     echo "prepare: update-grub done"
 else
     echo "prepare: update-grub not found; run it yourself" >&2
 fi
 
-if $SUDO test -f /etc/default/grub; then
-    TIMEOUT=$($SUDO sed -n 's/^GRUB_TIMEOUT=//p' /etc/default/grub | tail -1)
+if ! $SUDO grep -q -- "--id $ID" "$GRUB_CFG" 2>/dev/null; then
+    echo "prepare: warning: $ID is not in $GRUB_CFG" >&2
+    echo "  check $GRUB_CUSTOM and run update-grub" >&2
+fi
+
+if [ "$WANT_ONCE" = 1 ]; then
+    if ! $SUDO sh -c 'command -v grub-reboot >/dev/null 2>&1'; then
+        echo "prepare: grub-reboot not found; install grub-common" >&2
+        exit 1
+    fi
+    if ! $SUDO test -f /boot/grub/grubenv; then
+        $SUDO grub-editenv - create
+    fi
+    $SUDO grub-reboot "$ID"
+    if $SUDO sh -c 'command -v grub-editenv >/dev/null 2>&1'; then
+        NEXT=$($SUDO grub-editenv - list 2>/dev/null |
+            sed -n 's/^next_entry=//p' || true)
+        [ "$NEXT" = "$ID" ] || {
+            echo "prepare: warning: next_entry is '${NEXT:-unset}', expected '$ID'" >&2
+        }
+    fi
+fi
+
+if [ "$WANT_DEFAULT" = 0 ] && [ "$WANT_ONCE" = 0 ] &&
+    $SUDO test -f "$GRUB_DEFAULT_FILE"; then
+    TIMEOUT=$($SUDO sed -n 's/^GRUB_TIMEOUT=//p' "$GRUB_DEFAULT_FILE" | tail -1)
     case "$TIMEOUT" in
         0|0.0)
             echo "prepare: warning: GRUB_TIMEOUT is 0, so the menu may not appear." >&2
-            echo "  set GRUB_TIMEOUT=10 and GRUB_TIMEOUT_STYLE=menu in" >&2
-            echo "  /etc/default/grub, then run sudo update-grub" >&2
+            echo "  use --once or --default to boot the live entry without the menu," >&2
+            echo "  or set GRUB_TIMEOUT=10 and GRUB_TIMEOUT_STYLE=menu" >&2
             ;;
     esac
 fi
 
-cat <<EOF
+if [ "$WANT_ONCE" = 1 ]; then
+    cat <<EOF
+
+prepare: reboot.  The next boot uses "$NAME" once (grub-reboot $ID).
+EOF
+    if [ "$WANT_DEFAULT" = 1 ]; then
+        cat <<EOF
+  GRUB_DEFAULT=$ID is set for the boots after that.
+EOF
+    fi
+    cat <<EOF
+  If the live session fails to boot, power-cycle and Ubuntu boots again.
+EOF
+elif [ "$WANT_DEFAULT" = 1 ]; then
+    cat <<EOF
+
+prepare: reboot.  "$NAME" boots automatically from now on
+(GRUB_DEFAULT=$ID).  Restore the old default with:
+
+  sudo cp -p $GRUB_DEFAULT_BACKUP $GRUB_DEFAULT_FILE
+  sudo update-grub
+EOF
+else
+    cat <<EOF
 
 prepare: reboot and pick "$NAME" in the GRUB menu.
 EOF
+fi
 
 if [ "$WANT_SSH" = 1 ]; then
     cat <<EOF
