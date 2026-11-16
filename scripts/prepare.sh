@@ -154,9 +154,24 @@ if [ "$WANT_SSH" = 1 ]; then
         exit 1
     }
     KEYS=""
+    # Keep only "type base64 [comment]".  authorized_keys lines may carry
+    # options, and Ubuntu cloud images guard the root key with a command=
+    # option.  Passing that to ssh_authorized_keys would run the guard for the
+    # live user instead of starting a shell.
     add_keys() {
         [ -f "$1" ] || return 0
-        KEYS+=$(awk 'NF && $1 !~ /^#/' "$1")$'\n'
+        KEYS+=$(awk '
+            NF && $1 !~ /^#/ {
+                for (i = 1; i < NF; i++) {
+                    if ($i ~ /^(ssh-(rsa|dss|ed25519)|ecdsa-sha2-[^,]+|sk-[^,]+)$/ &&
+                        length($(i + 1)) > 40) {
+                        line = $i
+                        for (j = i + 1; j <= NF; j++) line = line " " $j
+                        print line
+                        break
+                    }
+                }
+            }' "$1")$'\n'
     }
     if [ -n "${SUDO_USER:-}" ] && [ "$SUDO_USER" != root ]; then
         add_keys "/home/$SUDO_USER/.ssh/authorized_keys"
