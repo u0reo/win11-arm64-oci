@@ -33,6 +33,20 @@
 p2 を `RECOVERY_SIZE`（既定 4 GiB）の Ubuntu Server minimal として作り直し、
 p3 を Windows にします。設定は [DUALBOOT.md](DUALBOOT.md)。
 
+## virtio-win の指定
+
+`--virtio` は ISO と RPM のどちらも受け付けます（拡張子で判定）。
+
+| 入力 | サイズ | 読み方 |
+|---|---|---|
+| `virtio-win.iso` | 837 MiB | `mount -o loop` |
+| `virtio-win-*.noarch.rpm` | 283 MiB | `rpm2cpio \| cpio` で `by-driver` だけ展開 |
+| `--drivers DIR` | 数 MB | 展開済み（`build/drivers/` を保存したもの） |
+
+RPM も `drivers/by-driver/<driver>/<os>/ARM64` を持つので、ISO と同じ探索で
+vioscsi / netkvm / viogpudo を取り出せます。`rpm2cpio` と `cpio` は
+`scripts/setup.sh` が入れます。無い場合は `bsdtar` にフォールバックします。
+
 ## 「WinPE の仕上げ」とは
 
 `wimlib-imagex apply` は NTFS にファイルを展開するだけで、
@@ -90,6 +104,7 @@ SOFTWARE ハイブを壊したためです。
 
 ```bash
 export ISO=/srv/iso/Win11_ARM64_26H2.iso
+export VIRTIO_ISO=/srv/iso/virtio-win.iso      # or VIRTIO_RPM=/srv/iso/virtio-win-0.1.302-1.noarch.rpm
 export BUILD_DIR=$PWD/build
 
 python3 internal/render.py --out "$BUILD_DIR/media"

@@ -403,4 +403,6 @@ Windows plus a 4 GiB recovery Ubuntu:
   sudo ./scripts/build.sh --keep-ubuntu --disk /dev/sda \
     --iso /dev/shm/Win11_ARM64_26H2.iso \
     --virtio /dev/shm/virtio-win.iso --mem 6144 --yes
+
+--virtio also accepts virtio-win-*.noarch.rpm (283 MiB instead of 837 MiB).
 EOF

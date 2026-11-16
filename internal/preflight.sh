@@ -30,6 +30,10 @@ for t in qemu-system-aarch64 qemu-img qemu-nbd wimlib-imagex xorriso sgdisk \
 done
 command -v age >/dev/null 2>&1 && ok "age" || warn "age not found (optional)"
 command -v shellcheck >/dev/null 2>&1 && ok "shellcheck" || warn "shellcheck not found (CI only)"
+command -v rpm2cpio >/dev/null 2>&1 && ok "rpm2cpio" ||
+    warn "rpm2cpio not found (only needed for --virtio *.rpm)"
+command -v cpio >/dev/null 2>&1 && ok "cpio" ||
+    warn "cpio not found (only needed for --virtio *.rpm)"
 
 echo "== python modules =="
 python3 - <<'PY' || fail=1

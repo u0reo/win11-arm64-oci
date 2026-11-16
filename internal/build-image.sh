@@ -15,7 +15,8 @@
 #
 # Required:
 #   ISO=/path/to/Win11_ARM64.iso
-#   VIRTIO_ISO=/path/to/virtio-win.iso   (or DRIVERS_DIR=/path/to/drivers)
+#   VIRTIO_ISO=/path/to/virtio-win.iso   (or VIRTIO_RPM=/path/to/virtio-win.rpm,
+#                                         or DRIVERS_DIR=/path/to/drivers)
 #
 # Optional:
 #   DISK=/dev/sdX        target block device (default: build/win11-arm64.qcow2)

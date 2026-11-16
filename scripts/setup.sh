@@ -67,6 +67,7 @@ if [ "$CHECK" = 0 ]; then
         debootstrap parted e2fsprogs
         curl rclone age jq
         libxml2-utils shellcheck
+        cpio rpm2cpio
     )
     $SUDO apt-get update -qq
     $SUDO env DEBIAN_FRONTEND=noninteractive apt-get install -y -qq "${PKGS[@]}"
@@ -115,6 +116,8 @@ else
 EOF
 fi
 cat <<EOF
+
+--virtio accepts virtio-win.iso or virtio-win-*.noarch.rpm.
 
 Need the Ubuntu or virtio-win ISO?  See "ISO の入手" in README.md.
 

@@ -46,7 +46,7 @@ OCI の Ubuntu を一時的なビルド機にし、ブートボリュームの�
 | CPU/RAM | 4 コア / 16GB 以上を推奨（TCG は遅い） |
 | KVM | x86 ホストで ARM64 ゲストを動かす場合、KVM は使えない（TCG） |
 | Windows ISO | Windows 11 ARM64 26H2（各自で用意） |
-| virtio-win | ARM64 ドライバ入り ISO または展開済みディレクトリ |
+| virtio-win | ARM64 ドライバ入り ISO / RPM、または展開済みディレクトリ |
 | sudo | `qemu-nbd` / `mount` のため NOPASSWD を想定 |
 
 OCI の無料枠とボリューム容量は
@@ -210,12 +210,28 @@ ISO と virtio-win を置きます。
 ```bash
 cd /dev/shm
 
-# virtio-win（ARM64 ドライバ入り）
+# virtio-win（ARM64 ドライバ入り）。ISO か RPM のどちらか一方でよい。
+# RPM は ISO の約 1/3（283 MiB）で、マウントせずに読める。
 curl -LO https://fedorapeople.org/groups/virt/virtio-win/direct-downloads/stable-virtio/virtio-win.iso
+curl -LO https://fedorapeople.org/groups/virt/virtio-win/direct-downloads/archive-virtio/virtio-win-0.1.302-1/virtio-win-0.1.302-1.noarch.rpm
 
 # Windows 11 ARM64 ISO は Microsoft から取得するか、scp / rclone で転送
 # scp Win11_ARM64_26H2.iso ubuntu@<host>:/dev/shm/
 ```
+
+`--virtio` は拡張子で ISO と RPM を判定します。RPM を渡すと
+`internal/stage-drivers.sh` が `rpm2cpio` + `cpio` で
+`by-driver/*/w11/ARM64` だけを取り出します（`scripts/setup.sh` がこの 2 つを
+入れます）。loop mount しないので、`umount` の後始末も要りません。
+
+```bash
+sudo ./scripts/build.sh --disk /dev/sdb \
+  --iso /dev/shm/Win11_ARM64_26H2.iso \
+  --virtio /dev/shm/virtio-win-0.1.302-1.noarch.rpm --yes
+```
+
+一度ビルドした後の `build/drivers/` を保存しておけば、次回は `--drivers`
+で ISO も RPM も不要になります（vioscsi と netkvm だけで数 MB）。
 
 > **言語**: `autounattend.xml` は言語を指定しません。インストール後の表示
 > 言語は ISO の `install.wim` の既定（`sources/lang.ini`）に従います。

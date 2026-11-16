@@ -40,7 +40,7 @@ Secrets は `WIN_USERNAME` / `WIN_PASSWORD` / `COMPUTER_NAME` の 3 つです。
 | `COMPUTER_NAME` | Secret より優先度は低い |
 | `ISO_PATH` | runner 上の ISO パス |
 | `ISO_SHA256` | ISO の期待ハッシュ |
-| `VIRTIO_ISO` | virtio-win.iso のパス |
+| `VIRTIO_ISO` | virtio-win.iso または virtio-win-*.noarch.rpm のパス |
 
 `COMPUTER_NAME` は Secret が空なら Variable、それも空なら `OCI-WIN` に
 なります。
@@ -88,11 +88,13 @@ README の [ステージ1](../README.md#ステージ1-準備) と
 ```bash
 sudo mkdir -p /srv/iso
 sudo cp Win11_ARM64_26H2.iso /srv/iso/
-sudo cp virtio-win.iso /srv/iso/
+sudo cp virtio-win.iso /srv/iso/          # or virtio-win-0.1.302-1.noarch.rpm
 sha256sum /srv/iso/Win11_ARM64_26H2.iso
 ```
 
 `ISO_PATH` / `VIRTIO_ISO` Variable にこのパスを設定します。
+`VIRTIO_ISO` は RPM でもよく、拡張子で判定されます（`rpm2cpio` と `cpio` が
+runner に必要です）。
 
 ## 4. 実行
 

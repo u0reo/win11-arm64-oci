@@ -102,13 +102,14 @@ OCI の標準 Ubuntu は p2 が 46 GiB の root で、マウント中の ext4 �
 ### 24 GB で足りるか
 
 **データボリュームは必須ではありません。** Windows ISO（6.2 GB）と
-virtio-win（0.7 GB）を `/dev/shm`（RAM）に置いても、24 GB に収まります。
+virtio-win（0.7 GB、RPM なら 0.3 GB）を `/dev/shm`（RAM）に置いても、
+24 GB に収まります。
 
 | 用途 | 目安 |
 |---|---|
 | ライブ ISO（`toram` で RAM に載る） | 2.5 GB |
 | Windows ISO（`/dev/shm`） | 6.2 GB |
-| virtio-win（`/dev/shm`） | 0.7 GB |
+| virtio-win（`/dev/shm`、ISO / RPM） | 0.7 / 0.3 GB |
 | ライブ環境の書き込み層（apt で QEMU 等を入れる） | 2〜3 GB |
 | QEMU ゲスト（`--mem 6144`） | 6 GB |
 | QEMU 本体・ページキャッシュ・余白 | 5 GB 程度 |
@@ -196,7 +197,7 @@ Windows ISO と virtio-win の置き場所は 2 通りです。
 
 | 置き場所 | メモリ | 失敗時の再試行 |
 |---|---|---|
-| `/dev/shm`（RAM） | 6.2 + 0.7 GB を使う | ディスクを消すと消える |
+| `/dev/shm`（RAM） | 6.2 + 0.7 GB を使う（RPM なら 0.3 GB） | ディスクを消すと消える |
 | 10 GB のデータボリューム | 使わない | 残る（推奨） |
 
 ### 10 GB のデータボリュームに置く場合
@@ -391,6 +392,7 @@ oci bv boot-volume-backup create \
 | `setup.sh --check` が `not enough disk space` で止まる | 直接書き込みなら `build/` に 8 GB、qcow2 なら 80 GB。`--build-dir` で別の場所を指定できる |
 | シリアルに `SAC>` が出ない | `C:\OEM\specialize.log` に `sac-configured` があるか。コンソール接続がシリアル（VNC ではない）か |
 | ビルド中にディスク不足になる | ブートボリュームを 64 GB 以上に |
+| `--virtio *.rpm` で `cannot read an RPM` になる | `rpm2cpio` と `cpio` が要る。`scripts/setup.sh` か `apt-get install rpm2cpio cpio` |
 | `qemu-system-aarch64: not found` | `scripts/setup.sh` |
 | AAVMF が無い | `qemu-efi-aarch64` パッケージ |
 | ビルドが異常に遅い | `/dev/kvm` の有無。無ければ TCG |

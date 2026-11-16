@@ -9,6 +9,9 @@
 #     --iso /srv/iso/Win11_ARM64_26H2.iso \
 #     --virtio /srv/iso/virtio-win.iso --yes
 #
+# --virtio accepts virtio-win.iso or virtio-win-*.noarch.rpm.  The RPM is about
+# a third of the size and is read without mounting (rpm2cpio + cpio).
+#
 # Add --keep-ubuntu to keep a small Ubuntu recovery system on the same disk
 # (Windows Boot Manager chainloads its GRUB).  The old Ubuntu is replaced by
 # a fresh minimal install; its netplan and SSH settings are copied over.
@@ -45,6 +48,7 @@ FILE_TARGET=0
 SIZE=${SIZE:-50G}
 ISO=""
 VIRTIO=""
+VIRTIO_KIND=""
 DRIVERS=""
 IMAGE_INDEX=${IMAGE_INDEX:-1}
 MEM=${MEM:-6144}
@@ -130,6 +134,10 @@ ISO=$(realpath -e "$ISO")
 if [ -n "$VIRTIO" ]; then
     [ -f "$VIRTIO" ] || { echo "build: missing $VIRTIO" >&2; exit 1; }
     VIRTIO=$(realpath -e "$VIRTIO")
+    case "$VIRTIO" in
+        *.rpm|*.RPM) VIRTIO_KIND=rpm ;;
+        *)           VIRTIO_KIND=iso ;;
+    esac
 fi
 if [ -n "$DRIVERS" ]; then
     [ -e "$DRIVERS" ] || { echo "build: missing $DRIVERS" >&2; exit 1; }
@@ -214,6 +222,11 @@ if [ "$FILE_TARGET" = 0 ]; then
     SERIAL=$(lsblk -dno SERIAL "$DISK" 2>/dev/null | sed 's/ *$//' || true)
 fi
 
+VIRTIO_NOTE=""
+if [ "$VIRTIO_KIND" = rpm ]; then
+    VIRTIO_NOTE=" (rpm)"
+fi
+
 cat <<EOF
 
   target   $DISK
@@ -221,7 +234,7 @@ cat <<EOF
   serial   ${SERIAL:-n/a}
   size     ${SIZE_TEXT}
   iso      $ISO
-  drivers  ${DRIVERS:-$VIRTIO}
+  drivers  ${DRIVERS:-$VIRTIO}$VIRTIO_NOTE
   index    $IMAGE_INDEX
   memory   ${MEM} MiB
   cpus     $SMP
@@ -356,6 +369,8 @@ export KEEP_UBUNTU RECOVERY_SIZE REUSE_UBUNTU
 export BOOT_MENU_TIMEOUT="$BOOT_MENU"
 if [ -n "$DRIVERS" ]; then
     export DRIVERS_DIR="$DRIVERS"
+elif [ "$VIRTIO_KIND" = rpm ]; then
+    export VIRTIO_RPM="$VIRTIO"
 else
     export VIRTIO_ISO="$VIRTIO"
 fi
