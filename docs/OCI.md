@@ -389,7 +389,9 @@ oci bv boot-volume-backup create \
 
 | 症状 | 確認 |
 |---|---|
-| `setup.sh --check` が `not enough disk space` で止まる | 直接書き込みなら `build/` に 8 GB、qcow2 なら 80 GB。`--build-dir` で別の場所を指定できる |
+| `setup.sh --check` / preflight が `not enough disk space` で止まる | 直接書き込みなら `build/`（staging）に約 3 GB、qcow2 なら 80 GB。`--build-dir DIR` または `BUILD_DIR=...` で空きのある場所を指定（live 環境なら `/dev/shm/build` や `/tmp/build` が候補）。`--min-free-gb N` で判定値を変更できる |
+| preflight がメモリ不足を警告/失敗する | 表示される見積もり（guest `--mem` + staging + media + overhead）を確認。`--mem` を下げる、不要なプロセスを止める、ISO/ドライバを既に tmpfs に置いて重複コピーを避ける |
+| live (toram) で `/` と `/dev/shm` の空きが偏る | `/`(overlay=/cow)・`/dev/shm`・`/tmp` は別 tmpfs だが RAM を共有する。ISO を `$HOME` に置くと `/cow` を圧迫しやすい。`build/` は空きのある tmpfs に自動選択される（明示するなら `--build-dir /dev/shm/build`） |
 | シリアルに `SAC>` が出ない | `C:\OEM\specialize.log` に `sac-configured` があるか。コンソール接続がシリアル（VNC ではない）か |
 | ビルド中にディスク不足になる | ブートボリュームを 64 GB 以上に |
 | `--virtio *.rpm` で `cannot read an RPM` になる | `rpm2cpio` と `cpio` が要る。`scripts/setup.sh` か `apt-get install rpm2cpio cpio` |

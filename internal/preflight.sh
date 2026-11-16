@@ -7,9 +7,10 @@ ROOT=$(cd "$HERE/.." && pwd)
 TARGET_MODE=${TARGET_MODE:-qcow2}
 BUILD=${BUILD_DIR:-$ROOT/build}
 TARGET=${TARGET:-}
+MEM=${MEM:-6144}
 
 case "$TARGET_MODE" in
-    raw)   DEFAULT_MIN_FREE_GB=8 ;;    # staging only; the target is written in place
+    raw)   DEFAULT_MIN_FREE_GB=3 ;;    # staging only (boot.wim/bootfat/OEMDRV); target written in place
     qcow2) DEFAULT_MIN_FREE_GB=80 ;;   # the image grows to the Windows install size
     *)
         echo "preflight: TARGET_MODE must be raw or qcow2" >&2
@@ -22,6 +23,18 @@ fail=0
 ok()   { printf '  ok    %s\n' "$*"; }
 warn() { printf '  warn  %s\n' "$*"; }
 bad()  { printf '  FAIL  %s\n' "$*"; fail=1; }
+
+disk_free_gb() {
+    df -Pk "$1" 2>/dev/null | awk 'NR==2 {printf "%d", $4/1024/1024}'
+}
+
+size_mb() {
+    local p=$1
+    [ -n "$p" ] || { echo 0; return; }
+    if [ -d "$p" ]; then du -sm "$p" 2>/dev/null | awk '{print $1+0}'
+    elif [ -f "$p" ]; then stat -c %s "$p" 2>/dev/null | awk '{printf "%d", $1/1024/1024}'
+    else echo 0; fi
+}
 
 echo "== tools =="
 for t in qemu-system-aarch64 qemu-img qemu-nbd wimlib-imagex xorriso sgdisk \
@@ -59,7 +72,7 @@ echo "  arch=$(uname -m) cpus=$(nproc)"
 
 echo "== disk =="
 if mkdir -p "$BUILD" 2>/dev/null; then
-    FREE_GB=$(df -Pk "$BUILD" | awk 'NR==2 {printf "%d", $4/1024/1024}')
+    FREE_GB=$(disk_free_gb "$BUILD")
 else
     bad "cannot create $BUILD"
     FREE_GB=0
@@ -69,7 +82,19 @@ if [ "$TARGET_MODE" = raw ]; then
 else
     echo "  $BUILD: ${FREE_GB} GiB free (qcow2, need >= ${MIN_FREE_GB} GiB)"
 fi
-[ "$FREE_GB" -ge "$MIN_FREE_GB" ] && ok "disk space" || bad "not enough disk space"
+if [ "$FREE_GB" -ge "$MIN_FREE_GB" ]; then
+    ok "disk space"
+else
+    bad "not enough disk space"
+    echo "  candidates with free space (BUILD_DIR):"
+    for cand in /dev/shm /tmp /run/user/0 /run; do
+        [ -d "$cand" ] || continue
+        cg=$(disk_free_gb "$cand")
+        [ "${cg:-0}" -ge "$MIN_FREE_GB" ] && printf '    %s  (%s GiB free)\n' "$cand" "$cg"
+    done
+    echo "  rerun with: sudo BUILD_DIR=/dev/shm/build ./scripts/build.sh ..."
+    echo "  or lower the check: --min-free-gb <N> (staging is usually ~2 GiB)"
+fi
 
 if [ -n "$TARGET" ]; then
     if [ "$TARGET_MODE" = raw ]; then
@@ -101,6 +126,40 @@ if [ -n "$TARGET" ]; then
             bad "$TARGET_DIR does not exist"
         fi
     fi
+fi
+
+echo "== memory =="
+MEM_AVAIL_KB=$(awk '/^MemAvailable:/{print $2}' /proc/meminfo 2>/dev/null || echo 0)
+MEM_TOTAL_KB=$(awk '/^MemTotal:/{print $2}' /proc/meminfo 2>/dev/null || echo 0)
+MEM_AVAIL_MB=$(( MEM_AVAIL_KB / 1024 ))
+MEM_TOTAL_MB=$(( MEM_TOTAL_KB / 1024 ))
+MEDIA_MB=0
+for mp in "${ISO:-}" "${VIRTIO_ISO:-}" "${VIRTIO:-}" "${VIRTIO_RPM:-}" "${DRIVERS_DIR:-}" "${DRIVERS:-}"; do
+    MEDIA_MB=$(( MEDIA_MB + $(size_mb "$mp") ))
+done
+STAGING_MB=2048
+OVERHEAD_MB=1024
+EST_MB=$(( MEM + STAGING_MB + OVERHEAD_MB ))
+echo "  MemTotal ${MEM_TOTAL_MB} MiB, MemAvailable ${MEM_AVAIL_MB} MiB"
+if [ "$MEDIA_MB" -gt 0 ]; then
+    echo "  estimate: guest ${MEM} + staging ~${STAGING_MB} + media ~${MEDIA_MB} + overhead ~${OVERHEAD_MB} = ~$((EST_MB + MEDIA_MB)) MiB"
+    NEED_RAM=$(( EST_MB + MEDIA_MB ))
+else
+    echo "  estimate: guest ${MEM} + staging ~${STAGING_MB} + overhead ~${OVERHEAD_MB} = ~${EST_MB} MiB (+ media if copied to RAM)"
+    NEED_RAM=$EST_MB
+fi
+if [ "$MEM_AVAIL_MB" -ge "$NEED_RAM" ]; then
+    ok "memory headroom (estimate)"
+elif [ "$MEM_AVAIL_MB" -ge $(( MEM + OVERHEAD_MB )) ]; then
+    warn "memory may be tight for build+guest (available ${MEM_AVAIL_MB} MiB, estimated ${NEED_RAM} MiB); consider lower --mem"
+else
+    bad "not enough RAM for guest (available ${MEM_AVAIL_MB} MiB, need >= guest ${MEM} + overhead)"
+fi
+if findmnt -no FSTYPE / 2>/dev/null | grep -q overlay; then
+    cow_free=$(disk_free_gb / 2>/dev/null || echo 0)
+    shm_free=$(disk_free_gb /dev/shm 2>/dev/null || echo 0)
+    tmp_free=$(disk_free_gb /tmp 2>/dev/null || echo 0)
+    echo "  live/overlay root: / ${cow_free} GiB free, /dev/shm ${shm_free} GiB, /tmp ${tmp_free} GiB (tmpfs mounts share RAM; use BUILD_DIR on a roomy tmpfs)"
 fi
 
 echo "== firmware =="

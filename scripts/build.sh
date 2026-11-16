@@ -57,6 +57,8 @@ KEEP_UBUNTU=0
 REUSE_UBUNTU=${REUSE_UBUNTU:-0}
 RECOVERY_SIZE=${RECOVERY_SIZE:-4G}
 BOOT_MENU=${BOOT_MENU_TIMEOUT:-}
+BUILD_DIR=${BUILD_DIR:-}
+MIN_FREE_GB=${MIN_FREE_GB:-}
 YES=0
 
 usage() {
@@ -75,6 +77,8 @@ while [ $# -gt 0 ]; do
         --image-index) IMAGE_INDEX=$2; shift 2 ;;
         --mem) MEM=$2; shift 2 ;;
         --smp) SMP=$2; shift 2 ;;
+        --build-dir) BUILD_DIR=$2; shift 2 ;;
+        --min-free-gb) MIN_FREE_GB=$2; shift 2 ;;
         --keep-ubuntu) KEEP_UBUNTU=1; shift ;;
         --ubuntu-size) RECOVERY_SIZE=$2; KEEP_UBUNTU=1; shift 2 ;;
         --reuse-ubuntu) REUSE_UBUNTU=1; shift ;;
@@ -367,6 +371,8 @@ export ISO
 export IMAGE_INDEX MEM SMP SIZE
 export KEEP_UBUNTU RECOVERY_SIZE REUSE_UBUNTU
 export BOOT_MENU_TIMEOUT="$BOOT_MENU"
+[ -n "$BUILD_DIR" ] && export BUILD_DIR
+[ -n "$MIN_FREE_GB" ] && export MIN_FREE_GB
 if [ -n "$DRIVERS" ]; then
     export DRIVERS_DIR="$DRIVERS"
 elif [ "$VIRTIO_KIND" = rpm ]; then

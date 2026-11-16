@@ -35,7 +35,6 @@ set -euo pipefail
 HERE=$(cd "$(dirname "$0")" && pwd)
 ROOT=$(cd "$HERE/.." && pwd)
 BUILD=${BUILD_DIR:-$ROOT/build}
-export BUILD_DIR="$BUILD"
 PIPE="$ROOT/pipeline"
 
 ISO=${ISO:?set ISO=/path/to/Win11_ARM64.iso}
@@ -44,7 +43,7 @@ SIZE=${SIZE:-50G}
 MEM=${MEM:-8192}
 SMP=${SMP:-4}
 WINRM_PORT=${WINRM_PORT:-15985}
-DISK=${DISK:-$BUILD/win11-arm64.qcow2}
+DISK=${DISK:-$ROOT/build/win11-arm64.qcow2}
 KEEP_UBUNTU=${KEEP_UBUNTU:-0}
 REUSE_UBUNTU=${REUSE_UBUNTU:-0}
 RECOVERY_SIZE=${RECOVERY_SIZE:-4G}
@@ -64,6 +63,10 @@ RAW=0
 if [ -b "$DISK" ]; then
     RAW=1
 fi
+# If DISK was left at the default under $ROOT/build but BUILD_DIR moved, keep them together.
+if [ "$DISK" = "$ROOT/build/win11-arm64.qcow2" ] && [ -n "${BUILD_DIR:-}" ]; then
+    DISK="$BUILD/win11-arm64.qcow2"
+fi
 if [ "$KEEP_UBUNTU" = 1 ] && [ "$RAW" != 1 ]; then
     echo "KEEP_UBUNTU needs DISK=/dev/sdX (the Ubuntu volume itself)" >&2
     exit 1
@@ -77,6 +80,29 @@ if [ "$REUSE_UBUNTU" = 1 ] && [ "$KEEP_UBUNTU" = 1 ]; then
     exit 1
 fi
 
+# Auto-select a roomy tmpfs for staging when the default build dir is tight.
+if [ -z "${BUILD_DIR:-}" ]; then
+    _need=${MIN_FREE_GB:-$([ "$RAW" = 1 ] && echo 3 || echo 80)}
+    _parent=$(dirname "$BUILD")
+    mkdir -p "$_parent" 2>/dev/null || true
+    _free=$(df -Pk "$_parent" 2>/dev/null | awk 'NR==2 {printf "%d", $4/1024/1024}')
+    _free=${_free:-0}
+    if [ "$_free" -lt "$_need" ]; then
+        for cand in /dev/shm /tmp; do
+            [ -d "$cand" ] || continue
+            _cfree=$(df -Pk "$cand" 2>/dev/null | awk 'NR==2 {printf "%d", $4/1024/1024}')
+            _cfree=${_cfree:-0}
+            if [ "$_cfree" -ge "$_need" ]; then
+                echo "build: staging dir low on space (${_free} GiB < ${_need} GiB); using BUILD_DIR=$cand/build"
+                BUILD="$cand/build"
+                [ "$DISK" = "$ROOT/build/win11-arm64.qcow2" ] && DISK="$BUILD/win11-arm64.qcow2"
+                break
+            fi
+        done
+    fi
+fi
+export BUILD_DIR="$BUILD"
+
 mkdir -p "$BUILD/logs" "$BUILD/artifacts"
 LOG="$BUILD/logs/build.log"
 exec > >(tee -a "$LOG") 2>&1
@@ -84,10 +110,14 @@ exec > >(tee -a "$LOG") 2>&1
 step() { echo; echo "==== $* ===="; }
 
 step "0/13 preflight"
+PREFLIGHT_MEDIA=()
+[ -n "${VIRTIO_ISO:-}" ] && PREFLIGHT_MEDIA+=(VIRTIO_ISO="$VIRTIO_ISO")
+[ -n "${VIRTIO_RPM:-}" ] && PREFLIGHT_MEDIA+=(VIRTIO_RPM="$VIRTIO_RPM")
+[ -n "${DRIVERS_DIR:-}" ] && PREFLIGHT_MEDIA+=(DRIVERS_DIR="$DRIVERS_DIR")
 if [ "$RAW" = 1 ]; then
-    TARGET_MODE=raw TARGET="$DISK" "$HERE/preflight.sh"
+    env TARGET_MODE=raw TARGET="$DISK" MEM="$MEM" ISO="$ISO" "${PREFLIGHT_MEDIA[@]}" "$HERE/preflight.sh"
 else
-    TARGET_MODE=qcow2 TARGET="$DISK" "$HERE/preflight.sh"
+    env TARGET_MODE=qcow2 TARGET="$DISK" MEM="$MEM" ISO="$ISO" "${PREFLIGHT_MEDIA[@]}" "$HERE/preflight.sh"
 fi
 echo "  target: $DISK ($([ "$RAW" = 1 ] && echo 'raw block device' || echo 'qcow2'))"
 
