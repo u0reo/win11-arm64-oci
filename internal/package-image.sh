@@ -12,7 +12,8 @@ set -euo pipefail
 HERE=$(cd "$(dirname "$0")" && pwd)
 ROOT=$(cd "$HERE/.." && pwd)
 IMAGE=${IMAGE:?set IMAGE=/path/to/disk.qcow2}
-OUT_DIR=${OUT_DIR:-$ROOT/build/artifacts}
+BUILD=${BUILD_DIR:-$ROOT/build}
+OUT_DIR=${OUT_DIR:-$BUILD/artifacts}
 mkdir -p "$OUT_DIR"
 
 [ -f "$IMAGE" ] || { echo "missing image: $IMAGE" >&2; exit 1; }

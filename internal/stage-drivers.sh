@@ -6,14 +6,16 @@
 #   VIRTIO_RPM=/path/to/virtio-win.rpm   extract the by-driver tree from the RPM
 #   VIRTIO_ISO=/path/to/virtio-win.iso   mount the ISO and read the same tree
 #
-# Output:
-#   build/drivers/        vioscsi + netkvm  (PnP customization)
-#   build/drivers-extra/  viogpudo          (DISM only, OCI A1 has no GPU)
+# Output (OUT_DIR or BUILD_DIR; live defaults to /dev/shm/build):
+#   drivers/        vioscsi + netkvm  (PnP customization)
+#   drivers-extra/  viogpudo          (DISM only, OCI A1 has no GPU)
 set -euo pipefail
 
 HERE=$(cd "$(dirname "$0")" && pwd)
 ROOT=$(cd "$HERE/.." && pwd)
-OUT=${OUT_DIR:-$ROOT/build}
+# shellcheck source=live.sh
+. "$HERE/live.sh"
+OUT=${OUT_DIR:-$(default_build_dir "$ROOT/build")}
 DEST="$OUT/drivers"
 EXTRA="$OUT/drivers-extra"
 VIRTIO_ISO=${VIRTIO_ISO:-}

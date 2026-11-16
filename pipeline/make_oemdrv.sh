@@ -17,10 +17,11 @@ HERE=$(cd "$(dirname "$0")" && pwd)
 ROOT=$(cd "$HERE/.." && pwd)
 ISO=${1:?usage: $0 <windows-arm64.iso> [image-index]}
 INDEX=${2:-${IMAGE_INDEX:-1}}
-MEDIA=${MEDIA:-$ROOT/build/media}
-DRIVERS=${DRIVERS:-$ROOT/build/drivers}
-DRIVERS_EXTRA=${DRIVERS_EXTRA:-$ROOT/build/drivers-extra}
-OUT_DIR=${OUT_DIR:-$ROOT/build}
+BUILD=${BUILD_DIR:-$ROOT/build}
+MEDIA=${MEDIA:-$BUILD/media}
+DRIVERS=${DRIVERS:-$BUILD/drivers}
+DRIVERS_EXTRA=${DRIVERS_EXTRA:-$BUILD/drivers-extra}
+OUT_DIR=${OUT_DIR:-$BUILD}
 IMG="$OUT_DIR/oemdrv.iso"
 STAGE="$OUT_DIR/oemdrv.stage"
 
