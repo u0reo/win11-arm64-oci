@@ -24,7 +24,6 @@ import hashlib
 import struct
 import sys
 
-import capstone
 import pefile
 
 ADD_X3_SP_70 = 0x9101C3E3
@@ -66,10 +65,14 @@ def main() -> int:
         raise SystemExit(f"unexpected instruction at {off:#x}: {cur:#010x}")
     struct.pack_into("<I", data, off, MOV_W0_1)
 
-    md = capstone.Cs(capstone.CS_ARCH_ARM64, capstone.CS_MODE_LITTLE_ENDIAN)
     def dis(w: int) -> str:
-        ins = list(md.disasm(struct.pack("<I", w), 0, count=1))
-        return f"{ins[0].mnemonic} {ins[0].op_str}" if ins else "?"
+        # Only the two mov immediates matter here; keeping capstone out of
+        # the dependency list lets the patch run on a stock live system.
+        if w == MOV_W0_2:
+            return "mov w0, #2"
+        if w == MOV_W0_1:
+            return "mov w0, #1"
+        return "?"
 
     print(f"file={a.src}")
     print(f"imagebase={pe.OPTIONAL_HEADER.ImageBase:#x}")
