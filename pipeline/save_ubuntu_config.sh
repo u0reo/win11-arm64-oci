@@ -31,7 +31,15 @@ fi
 MNT=$(mktemp -d /tmp/save-config.XXXXXX)
 trap 'mountpoint -q "$MNT" && sudo -n umount "$MNT"; rmdir "$MNT" 2>/dev/null' EXIT
 
-sudo -n mount -o ro "$ROOTPART" "$MNT"
+# A toram boot can leave the source ext4 with a dirty journal.  The kernel
+# then refuses a read-only mount ("would change RO state") because replaying
+# the journal writes to the filesystem.  Mount it read-write once so ext4 can
+# recover; the disk is about to be repartitioned anyway.
+if ! sudo -n mount -o ro "$ROOTPART" "$MNT" 2>/dev/null; then
+    echo "save-config: read-only mount failed; replaying the journal with a" \
+        "temporary read-write mount" >&2
+    sudo -n mount -o rw "$ROOTPART" "$MNT"
+fi
 
 mkdir -p "$OUT/netplan" "$OUT/ssh/hostkeys" "$OUT/users" "$OUT/etc"
 
