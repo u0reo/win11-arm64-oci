@@ -217,18 +217,55 @@ fi
 if [ "$FROM_STEP" -le 9 ]; then
     step "9/13 WinPE finish (drivers + bcdboot), automatic"
     # The patched boot.wim runs manual_start.finish.cmd, which calls
-    # manual_finish.cmd and then shuts the VM down.  No VNC interaction.
+    # manual_finish.cmd and then shuts the VM down.  Both scripts report to
+    # COM1, so a stuck prompt or a missing ESP is visible to this build.
+    SERIAL="$BUILD/logs/finish-serial.log"
+    rm -f "$SERIAL"
     NAME=finish WITH_ISO=0 BOOTFAT="$BUILD/bootfat.img" OEMDRV="$BUILD/oemdrv.iso" \
         DISK="$DISK" NVRAM="$BUILD/AAVMF_VARS.finish.fd" MEM="$MEM" SMP="$SMP" \
         "$PIPE/run-qemu.sh" &
     QEMU_PID=$!
     echo "qemu finish pid=$QEMU_PID"
-    if ! timeout 2700 tail --pid="$QEMU_PID" -f /dev/null; then
-        echo "WinPE finish timed out; see $BUILD/logs/finish-serial.log" >&2
+
+    # Do not wait only for QEMU to exit: a failed batch that used to stop at
+    # 'pause' kept the VM alive until the timeout.  The markers make both
+    # outcomes explicit.
+    result=timeout
+    deadline=$(( $(date +%s) + 2700 ))
+    while [ "$(date +%s)" -lt "$deadline" ]; do
+        if grep -q 'MANUAL_FINISH_OK' "$SERIAL" 2>/dev/null; then
+            result=ok
+            break
+        fi
+        if grep -qE 'MANUAL_START_FAILED|MANUAL_FINISH_FAILED' "$SERIAL" 2>/dev/null; then
+            result=failed
+            break
+        fi
+        if ! kill -0 "$QEMU_PID" 2>/dev/null; then
+            break
+        fi
+        sleep 10
+    done
+    if [ "$result" = ok ]; then
+        if ! timeout 300 tail --pid="$QEMU_PID" -f /dev/null; then
+            echo "WinPE finish: the guest did not power down; stopping QEMU" >&2
+            kill "$QEMU_PID" 2>/dev/null || true
+        fi
+        wait "$QEMU_PID" 2>/dev/null || true
+        echo "WinPE finish completed"
+    else
+        if kill -0 "$QEMU_PID" 2>/dev/null; then
+            kill "$QEMU_PID" 2>/dev/null || true
+        fi
+        wait "$QEMU_PID" 2>/dev/null || true
+        if [ "$result" = failed ]; then
+            echo "WinPE finish failed; see $SERIAL" >&2
+        else
+            echo "WinPE finish timed out; see $SERIAL" >&2
+        fi
+        sed 's/\r$//' "$SERIAL" 2>/dev/null | tail -40 >&2 || true
         exit 1
     fi
-    wait "$QEMU_PID" || true
-    echo "WinPE finish completed"
 fi
 
 if [ "$FROM_STEP" -le 10 ]; then
