@@ -29,8 +29,9 @@ Serial:
                  --boot-menu SECONDS (default 1 s, 0 = off).
 
 A scheduled task named "OEM Bootstrap" runs C:\OEM\bootstrap.cmd as SYSTEM
-at every start.  It is idempotent and is the fallback if RDP/WinRM were not
-configured during OOBE.
+at every start when Task Scheduler is included in the image.  The first
+logon also runs boot.ps1 directly.  Both paths are idempotent and are the
+fallback if RDP/WinRM were not configured during OOBE.
 
 The static fallback in net.cfg is only applied when DHCP fails.  On QEMU
 user-net the guest keeps 10.0.2.15.  On OCI the normal DHCP address is kept;

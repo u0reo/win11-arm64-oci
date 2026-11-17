@@ -121,9 +121,16 @@ if ($BootMenu -gt 0) {
 
 # Startup fallback task.  The service route used previously was killed by the
 # SCM 45-second timeout; a scheduled task plus a detached PowerShell avoids it.
-$tr = "cmd.exe /c C:\OEM\bootstrap.cmd"
-& schtasks.exe /create /tn "OEM Bootstrap" /tr $tr /sc onstart /ru SYSTEM /rl HIGHEST /f 2>&1 | Out-File -Append -Encoding ascii $Log
-Log "startup-task-created"
+# Some tiny images omit TaskScheduler.dll, so skip the task instead of
+# pretending it was created.  firstlogon.ps1 still runs boot.ps1 directly.
+if (Test-Path "$env:SystemRoot\System32\TaskScheduler.dll") {
+    $tr = "cmd.exe /c C:\OEM\bootstrap.cmd"
+    & schtasks.exe /create /tn "OEM Bootstrap" /tr $tr /sc onstart /ru SYSTEM /rl HIGHEST /f 2>&1 |
+        Out-File -Append -Encoding ascii $Log
+    Log ("startup-task rc=" + $LASTEXITCODE)
+} else {
+    Log "startup-task-skipped no-task-scheduler"
+}
 
 # Start one detached pass now.  It is harmless if OOBE is still running.
 try { Start-Process -FilePath "C:\OEM\bootstrap.cmd" -WindowStyle Hidden -ErrorAction Stop } catch { Log ("bootstrap-start-fail " + $_.Exception.Message) }
