@@ -45,13 +45,29 @@ HIVE="$WORK/SYSTEM"
 [ -f "$HIVE" ] || { echo "SYSTEM hive not extracted" >&2; exit 1; }
 
 echo "[2/4] set HKLM\\SYSTEM\\Setup\\CmdLine"
-cat > "$WORK/setcmdline.reg" <<EOF
-Windows Registry Editor Version 5.00
+# hivexregedit lives in libhivex-bin, which the live session does not carry.
+# python3-hivex can write the value directly.
+python3 - "$HIVE" "cmd.exe /c $START_NAME" <<'PY'
+import sys
 
-[\Setup]
-"CmdLine"="cmd.exe /c $START_NAME"
-EOF
-hivexregedit --merge "$HIVE" "$WORK/setcmdline.reg" >/dev/null
+import hivex
+
+path, value = sys.argv[1], sys.argv[2]
+h = hivex.Hivex(path, write=True)
+root = h.root()
+try:
+    setup = h.node_get_child(root, "Setup")
+except RuntimeError:
+    setup = None
+if setup is None:
+    setup = h.node_add_child(root, "Setup")
+h.node_set_value(setup, {
+    "key": "CmdLine",
+    "t": 1,  # REG_SZ
+    "value": value.encode("utf-16le") + b"\x00\x00",
+})
+h.commit(None)
+PY
 cmdline() {
     python3 - "$1" <<'PY'
 import hivex, sys
