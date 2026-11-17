@@ -11,11 +11,25 @@
 # untouched apart from the GRUB files, which land in \EFI\ubuntu.
 #
 # The point is a login you can fall back to when Windows misbehaves, so the
-# install is deliberately minimal: no snapd, no cloud-init, no firmware.
-# The netplan and SSH configuration saved by save_ubuntu_config.sh is copied
-# in, so the same keys and the same DHCP setup work.
+# network install is deliberately minimal: no snapd, no cloud-init, no
+# firmware.  The offline path reuses the ISO's minimal server rootfs, which
+# already carries those files.  The netplan and SSH configuration saved by
+# save_ubuntu_config.sh is copied in, so the same keys and the same DHCP
+# setup work.
 #
-# Requires debootstrap on the builder (scripts/setup.sh installs it).
+# Two installers are supported:
+#
+#   OFFLINE=auto (default)
+#       When the live ISO is mounted (/cdrom/casper/*.squashfs and
+#       /cdrom/pool), unpack the ISO's minimal server rootfs instead of
+#       downloading packages.  The ISO is self-contained and this also works
+#       on networks where ports.ubuntu.com stalls.  openssh-server, GRUB and
+#       the initramfs tools are taken from the ISO pool / the live host.
+#   OFFLINE=0
+#       Classic debootstrap from MIRROR.  Used when no live ISO is mounted.
+#
+# Requires debootstrap on the builder for the network path
+# (scripts/setup.sh installs it), and unsquashfs for the offline path.
 set -euo pipefail
 
 HERE=$(cd "$(dirname "$0")" && pwd)
@@ -27,13 +41,69 @@ CONFIG=${2:?usage: $0 <disk> <config-dir>}
 MIRROR=${MIRROR:-http://ports.ubuntu.com/ubuntu-ports}
 RELEASE=${RELEASE:-}
 RECOVERY_PASSWORD=${RECOVERY_PASSWORD:-}
+OFFLINE=${OFFLINE:-auto}
+SQUASHFS=${SQUASHFS:-}
+ISO_POOL=${ISO_POOL:-/cdrom/pool}
+GRUB_SIGNED_DEB=${GRUB_SIGNED_DEB:-}
+GRUB_MODULES_DEB=${GRUB_MODULES_DEB:-}
 
 [ -b "$DISK" ] || { echo "recovery: $DISK is not a block device" >&2; exit 1; }
 [ -d "$CONFIG" ] || { echo "recovery: missing config dir $CONFIG" >&2; exit 1; }
-command -v debootstrap >/dev/null || {
-    echo "recovery: debootstrap is not installed (run scripts/setup.sh)" >&2
-    exit 1
-}
+
+if [ "$OFFLINE" = auto ]; then
+    if [ -n "$SQUASHFS" ] || compgen -G '/cdrom/casper/*.squashfs' >/dev/null; then
+        OFFLINE=1
+    else
+        OFFLINE=0
+    fi
+fi
+case "$OFFLINE" in
+    0|1) ;;
+    *) echo "recovery: OFFLINE must be auto, 0 or 1" >&2; exit 2 ;;
+esac
+
+if [ "$OFFLINE" = 1 ]; then
+    if [ -z "$SQUASHFS" ]; then
+        for f in /cdrom/casper/*.squashfs /run/casper/*.squashfs; do
+            [ -f "$f" ] || continue
+            SQUASHFS=$f
+            break
+        done
+    fi
+    [ -n "$SQUASHFS" ] && [ -f "$SQUASHFS" ] || {
+        echo "recovery: no live rootfs found; set SQUASHFS=/path/to/*.squashfs" >&2
+        exit 1
+    }
+    [ -d "$ISO_POOL" ] || {
+        echo "recovery: missing ISO package pool $ISO_POOL" >&2
+        exit 1
+    }
+    command -v unsquashfs >/dev/null || {
+        echo "recovery: unsquashfs is not installed" >&2
+        exit 1
+    }
+    command -v dpkg-deb >/dev/null || {
+        echo "recovery: dpkg-deb is not installed" >&2
+        exit 1
+    }
+    [ -n "$GRUB_SIGNED_DEB" ] || GRUB_SIGNED_DEB=$(find "$ISO_POOL" \
+        -name 'grub-efi-arm64-signed_*.deb' -print -quit)
+    [ -n "$GRUB_MODULES_DEB" ] || GRUB_MODULES_DEB=$(find "$ISO_POOL" \
+        -name 'grub-efi-arm64-bin_*.deb' -print -quit)
+    [ -f "$GRUB_SIGNED_DEB" ] || {
+        echo "recovery: grub-efi-arm64-signed .deb not found in $ISO_POOL" >&2
+        exit 1
+    }
+    [ -f "$GRUB_MODULES_DEB" ] || {
+        echo "recovery: grub-efi-arm64-bin .deb not found in $ISO_POOL" >&2
+        exit 1
+    }
+else
+    command -v debootstrap >/dev/null || {
+        echo "recovery: debootstrap is not installed (run scripts/setup.sh)" >&2
+        exit 1
+    }
+fi
 
 if [ "$(id -u)" -eq 0 ]; then SUDO=(); else SUDO=(sudo -n); fi
 
@@ -53,33 +123,94 @@ if [ -z "$RELEASE" ]; then
         [ -n "$RELEASE" ] && break
     done
 fi
-[ -n "$RELEASE" ] || {
-    echo "recovery: cannot determine the Ubuntu release; set RELEASE=noble" >&2
-    exit 1
-}
-echo "recovery: release $RELEASE, mirror $MIRROR"
+if [ "$OFFLINE" = 1 ]; then
+    echo "recovery: offline install from $SQUASHFS"
+else
+    [ -n "$RELEASE" ] || {
+        echo "recovery: cannot determine the Ubuntu release; set RELEASE=noble" >&2
+        exit 1
+    }
+    echo "recovery: release $RELEASE, mirror $MIRROR"
+fi
 
 MNT=$(mktemp -d /tmp/recovery.XXXXXX)
+TMPDIRS=()
 BINDS=()
 cleanup() {
     set +e
+    # -R because /sys and /dev bring nested submounts (efivarfs, devpts);
+    # a plain umount leaves the whole tree behind when the guest has EFI
+    # variables mounted.
     for (( i=${#BINDS[@]}-1; i>=0; i-- )); do
-        "${SUDO[@]}" umount "$MNT/${BINDS[$i]}" 2>/dev/null
+        "${SUDO[@]}" umount -R "$MNT/${BINDS[$i]}" 2>/dev/null
     done
     mountpoint -q "$MNT/boot/efi" && "${SUDO[@]}" umount "$MNT/boot/efi" 2>/dev/null
-    mountpoint -q "$MNT" && "${SUDO[@]}" umount "$MNT" 2>/dev/null
+    mountpoint -q "$MNT" && "${SUDO[@]}" umount -R "$MNT" 2>/dev/null
     cleanup_part_loops
+    for d in "${TMPDIRS[@]}"; do
+        "${SUDO[@]}" rm -rf "$d" 2>/dev/null
+    done
     rmdir "$MNT" 2>/dev/null
 }
 trap cleanup EXIT
 
-"${SUDO[@]}" mount "$ROOTDEV" "$MNT"
+TMP=$(mktemp -d /tmp/recovery-work.XXXXXX)
+TMPDIRS+=("$TMP")
 
-echo "[1/6] debootstrap $RELEASE"
-# debootstrap refuses a non-empty target, so the ESP is mounted only after
-# the base system exists (see [3/6]).
-"${SUDO[@]}" debootstrap --arch=arm64 --variant=minbase \
-    --components=main,universe "$RELEASE" "$MNT" "$MIRROR"
+"${SUDO[@]}" mount "$ROOTDEV" "$MNT"
+ROOT_UUID=$("${SUDO[@]}" blkid -s UUID -o value "$ROOTDEV")
+ESP_UUID=$("${SUDO[@]}" blkid -s UUID -o value "$ESPDEV")
+[ -n "$ROOT_UUID" ] || { echo "recovery: $ROOTDEV has no UUID" >&2; exit 1; }
+[ -n "$ESP_UUID" ] || { echo "recovery: $ESPDEV has no UUID" >&2; exit 1; }
+
+if [ "$OFFLINE" = 1 ]; then
+    echo "[1/6] unpack the live ISO rootfs"
+    # The image was built for the live session, so overwrite anything that
+    # is already there (normally only lost+found).  -xattrs keeps file
+    # capabilities such as ping's.
+    "${SUDO[@]}" unsquashfs -no-progress -xattrs -f -d "$MNT" "$SQUASHFS"
+    if [ -z "$RELEASE" ] && [ -f "$MNT/etc/os-release" ]; then
+        RELEASE=$(sed -n 's/^VERSION_CODENAME=//p' "$MNT/etc/os-release" | tr -d '"' | head -1)
+    fi
+    RELEASE=${RELEASE:-resolute}
+
+    # The live image has no sshd.  Every dependency of the server package
+    # is already part of the minimal rootfs, so dpkg can install it offline.
+    echo "[2/6] add openssh-server from the ISO pool"
+    DEBS=()
+    for name in libwrap0 openssh-server openssh-sftp-server; do
+        deb=$(find "$ISO_POOL" -name "${name}_*.deb" -print -quit)
+        [ -n "$deb" ] || {
+            echo "recovery: ${name} .deb not found in $ISO_POOL" >&2
+            exit 1
+        }
+        "${SUDO[@]}" cp "$deb" "$MNT/var/tmp/"
+        DEBS+=("/var/tmp/$(basename "$deb")")
+    done
+    printf '#!/bin/sh\nexit 101\n' > "$TMP/policy-rc.d"
+    "${SUDO[@]}" install -m 755 "$TMP/policy-rc.d" "$MNT/usr/sbin/policy-rc.d"
+
+    # The minimal image ships 3cpio and the kernel, but not the mkinitramfs
+    # wrapper.  Copy the two packages' files from the running live system;
+    # the casper hook is not among them, so the generated initramfs boots a
+    # normal root instead of looking for a live medium.
+    for pkg in initramfs-tools initramfs-tools-core; do
+        while IFS= read -r f; do
+            case "$f" in
+                /etc|/etc/*|/usr/share/doc*|/usr/share/man*|/usr/share/bug*|/usr/share/bash-completion*) continue ;;
+            esac
+            if [ -d "$f" ] && [ ! -L "$f" ]; then continue; fi
+            [ -e "$f" ] || [ -L "$f" ] || continue
+            "${SUDO[@]}" cp -a --parents "$f" "$MNT/"
+        done < <(dpkg-query -L "$pkg" 2>/dev/null)
+    done
+else
+    echo "[1/6] debootstrap $RELEASE"
+    # debootstrap refuses a non-empty target, so the ESP is mounted only
+    # after the base system exists (see [3/6]).
+    "${SUDO[@]}" debootstrap --arch=arm64 --variant=minbase \
+        --components=main,universe "$RELEASE" "$MNT" "$MIRROR"
+fi
 
 "${SUDO[@]}" tee "$MNT/etc/apt/sources.list" >/dev/null <<EOF
 deb $MIRROR $RELEASE main universe restricted multiverse
@@ -92,39 +223,100 @@ for d in dev dev/pts proc sys run; do
     "${SUDO[@]}" mount --bind "/$d" "$MNT/$d"
     BINDS+=("$d")
 done
+# Replace, do not write through, a symlink to /run (the live image uses one).
+"${SUDO[@]}" rm -f "$MNT/etc/resolv.conf"
 "${SUDO[@]}" cp /etc/resolv.conf "$MNT/etc/resolv.conf"
 
 run() { "${SUDO[@]}" chroot "$MNT" env DEBIAN_FRONTEND=noninteractive "$@"; }
 
-echo "[2/6] install the minimal package set"
-run apt-get update
-# --no-install-recommends keeps linux-firmware and snapd out; the whole
-# rootfs has to fit in 4 GiB.
-run apt-get install -y --no-install-recommends \
-    linux-image-generic initramfs-tools systemd-sysv \
-    openssh-server netplan.io sudo ca-certificates \
-    iproute2 iputils-ping less vim-tiny e2fsprogs kmod
+# Write the fstab before building the initramfs: mkinitramfs and its resume
+# hook read /etc/fstab, and the live rootfs ships without one.
+"${SUDO[@]}" tee "$MNT/etc/fstab" >/dev/null <<EOF
+UUID=$ROOT_UUID  /          ext4  errors=remount-ro  0 1
+UUID=$ESP_UUID   /boot/efi  vfat  umask=0077         0 1
+EOF
+
+if [ "$OFFLINE" = 1 ]; then
+    echo "[2/6] install the offline package set"
+    run dpkg -i "${DEBS[@]}"
+    "${SUDO[@]}" rm -f "$MNT/usr/sbin/policy-rc.d"
+
+    KVER=$(find "$MNT/lib/modules" -mindepth 1 -maxdepth 1 -type d \
+        -printf '%f\n' | sort -V | tail -1)
+    [ -n "$KVER" ] || { echo "recovery: no kernel modules in the ISO rootfs" >&2; exit 1; }
+    [ -e "$MNT/boot/vmlinuz-$KVER" ] || {
+        echo "recovery: no /boot/vmlinuz-$KVER in the ISO rootfs" >&2
+        exit 1
+    }
+    echo "  generating initramfs for $KVER (inside the target)"
+    run mkinitramfs -o "/boot/initrd.img-$KVER" "$KVER"
+    "${SUDO[@]}" ln -sfn "initrd.img-$KVER" "$MNT/boot/initrd.img"
+else
+    echo "[2/6] install the minimal package set"
+    run apt-get update
+    # --no-install-recommends keeps linux-firmware and snapd out; the whole
+    # rootfs has to fit in 4 GiB.
+    run apt-get install -y --no-install-recommends \
+        linux-image-generic initramfs-tools systemd-sysv \
+        openssh-server netplan.io sudo ca-certificates \
+        iproute2 iputils-ping less vim-tiny e2fsprogs kmod
+fi
 
 echo "[3/6] GRUB (EFI)"
 "${SUDO[@]}" mkdir -p "$MNT/boot/efi"
-"${SUDO[@]}" mount "$ESPDEV" "$MNT/boot/efi"
-run apt-get install -y --no-install-recommends grub-efi-arm64 || \
-    echo "  WARN: grub-efi-arm64 postinst failed; retrying by hand"
-run grub-install --target=arm64-efi --efi-directory=/boot/efi \
-    --bootloader-id=ubuntu --no-nvram --recheck || \
-    echo "  WARN: grub-install failed; Windows still boots, Ubuntu may not"
+mountpoint -q "$MNT/boot/efi" || "${SUDO[@]}" mount "$ESPDEV" "$MNT/boot/efi"
 
-"${SUDO[@]}" tee "$MNT/etc/default/grub" >/dev/null <<'EOF'
+if [ "$OFFLINE" = 1 ]; then
+    # Use the signed image from the ISO pool and point it at the modules on
+    # the recovery filesystem.  No grub-install (and no NVRAM write) is
+    # needed; the Windows boot manager's BOOTAPP entry starts grubaa64.efi.
+    "${SUDO[@]}" dpkg-deb -x "$GRUB_SIGNED_DEB" "$TMP/grub-signed"
+    "${SUDO[@]}" dpkg-deb -x "$GRUB_MODULES_DEB" "$TMP/grub-bin"
+    "${SUDO[@]}" install -D -m 644 \
+        "$TMP/grub-signed/usr/lib/grub/arm64-efi-signed/grubaa64.efi.signed" \
+        "$MNT/boot/efi/EFI/ubuntu/grubaa64.efi"
+    "${SUDO[@]}" mkdir -p "$MNT/boot/grub"
+    "${SUDO[@]}" cp -a "$TMP/grub-bin/usr/lib/grub/arm64-efi" "$MNT/boot/grub/"
+
+    # The signed binary's built-in prefix is /EFI/ubuntu.  Its first config
+    # only finds the recovery root and hands over to the menu below.
+    "${SUDO[@]}" tee "$MNT/boot/efi/EFI/ubuntu/grub.cfg" >/dev/null <<EOF
+search.fs_uuid $ROOT_UUID root
+set prefix=(\$root)'/boot/grub'
+configfile \$prefix/grub.cfg
+EOF
+    # The EFI console is already the OCI serial console; GRUB's own serial
+    # driver is an x86 COM-port driver and errors out on ARM64.
+    "${SUDO[@]}" tee "$MNT/boot/grub/grub.cfg" >/dev/null <<EOF
+set timeout=5
+set default=0
+
+menuentry "Ubuntu (recovery)" {
+    insmod ext2
+    insmod part_gpt
+    search --no-floppy --fs-uuid --set=root $ROOT_UUID
+    linux /boot/vmlinuz-$KVER root=UUID=$ROOT_UUID ro console=ttyAMA0,115200 console=tty1
+    initrd /boot/initrd.img-$KVER
+}
+EOF
+else
+    run apt-get install -y --no-install-recommends grub-efi-arm64 || \
+        echo "  WARN: grub-efi-arm64 postinst failed; retrying by hand"
+    run grub-install --target=arm64-efi --efi-directory=/boot/efi \
+        --bootloader-id=ubuntu --no-nvram --recheck || \
+        echo "  WARN: grub-install failed; Windows still boots, Ubuntu may not"
+
+    "${SUDO[@]}" tee "$MNT/etc/default/grub" >/dev/null <<'EOF'
 GRUB_DEFAULT=0
 GRUB_TIMEOUT=5
 GRUB_DISTRIBUTOR=Ubuntu
 GRUB_CMDLINE_LINUX_DEFAULT="console=ttyAMA0,115200 console=tty1"
 GRUB_CMDLINE_LINUX=""
-GRUB_TERMINAL="console serial"
-GRUB_SERIAL_COMMAND="serial --unit=0 --speed=115200"
+GRUB_TERMINAL="console"
 GRUB_DISABLE_OS_PROBER=true
 EOF
-run update-grub || echo "  WARN: update-grub failed"
+    run update-grub || echo "  WARN: update-grub failed"
+fi
 
 echo "[4/6] hostname, timezone, accounts"
 for f in hostname hosts timezone localtime; do
@@ -146,16 +338,19 @@ while IFS=: read -r name _ uid gid gecos home shell; do
     [ "$uid" -ge 1000 ] 2>/dev/null || continue
     [ "$uid" -lt 60000 ] || continue
     case "$shell" in */nologin|*/false) continue ;; esac
-    run id -u "$name" >/dev/null 2>&1 && continue
-    run useradd -u "$uid" -g "$gid" -m -d "$home" -s "$shell" -c "$gecos" "$name" || continue
+    if ! run id -u "$name" >/dev/null 2>&1; then
+        run useradd -u "$uid" -g "$gid" -m -d "$home" -s "$shell" -c "$gecos" "$name" || continue
+    fi
     hash=$(awk -F: -v n="$name" '$1==n{print $2}' "$CONFIG/etc/shadow" 2>/dev/null || true)
     if [ -n "$hash" ] && [ "$hash" != "!" ] && [ "$hash" != "*" ]; then
-        run usermod -p "$hash" "$name"
+        run usermod -p "$hash" "$name" || true
     fi
     run usermod -aG sudo "$name" || true
+    target_uid=$(run id -u "$name" 2>/dev/null || echo "$uid")
+    target_gid=$(run id -g "$name" 2>/dev/null || echo "$gid")
     if [ -f "$CONFIG/users/$name.authorized_keys" ]; then
-        "${SUDO[@]}" install -d -m 700 -o "$uid" -g "$gid" "$MNT$home/.ssh"
-        "${SUDO[@]}" install -m 600 -o "$uid" -g "$gid" \
+        "${SUDO[@]}" install -d -m 700 -o "$target_uid" -g "$target_gid" "$MNT$home/.ssh"
+        "${SUDO[@]}" install -m 600 -o "$target_uid" -g "$target_gid" \
             "$CONFIG/users/$name.authorized_keys" "$MNT$home/.ssh/authorized_keys"
     fi
     CREATED="$CREATED $name"
@@ -185,6 +380,7 @@ if [ -z "$CREATED" ]; then
 fi
 
 echo "[5/6] netplan, SSH, fstab"
+"${SUDO[@]}" mkdir -p "$MNT/etc/netplan"
 if compgen -G "$CONFIG/netplan/*.yaml" >/dev/null; then
     "${SUDO[@]}" cp -a "$CONFIG"/netplan/*.yaml "$MNT/etc/netplan/"
     echo "  copied $(ls -1 "$CONFIG"/netplan/*.yaml | wc -l) netplan file(s)"
@@ -216,33 +412,36 @@ if compgen -G "$CONFIG/ssh/hostkeys/*" >/dev/null; then
     echo "  reused the SSH host keys"
 fi
 
-ROOT_UUID=$("${SUDO[@]}" blkid -s UUID -o value "$ROOTDEV")
-ESP_UUID=$("${SUDO[@]}" blkid -s UUID -o value "$ESPDEV")
-"${SUDO[@]}" tee "$MNT/etc/fstab" >/dev/null <<EOF
-UUID=$ROOT_UUID  /          ext4  errors=remount-ro  0 1
-UUID=$ESP_UUID   /boot/efi  vfat  umask=0077         0 1
-EOF
-
 run systemctl enable systemd-networkd >/dev/null 2>&1 || true
 run systemctl enable ssh >/dev/null 2>&1 || true
 run systemctl enable serial-getty@ttyAMA0 >/dev/null 2>&1 || true
-printf 'nameserver 1.1.1.1\nnameserver 8.8.8.8\n' > /tmp/recovery-resolv.conf
-"${SUDO[@]}" cp /tmp/recovery-resolv.conf "$MNT/etc/resolv.conf"
-rm -f /tmp/recovery-resolv.conf
+"${SUDO[@]}" rm -f "$MNT/etc/resolv.conf"
+"${SUDO[@]}" tee "$MNT/etc/resolv.conf" >/dev/null <<'EOF'
+nameserver 1.1.1.1
+nameserver 8.8.8.8
+EOF
 
 echo "[6/6] clean up and verify"
-run apt-get clean
+run apt-get clean || true
 "${SUDO[@]}" rm -rf "$MNT/var/lib/apt/lists"/* "$MNT/var/cache/apt/archives"/*.deb "$MNT/tmp"/*
 "${SUDO[@]}" mkdir -p "$MNT/var/lib/apt/lists/partial"
-run update-initramfs -u -k all >/dev/null 2>&1 || echo "  WARN: update-initramfs failed"
+if [ "$OFFLINE" = 0 ]; then
+    run update-initramfs -u -k all >/dev/null 2>&1 || echo "  WARN: update-initramfs failed"
+fi
 "${SUDO[@]}" sync
 
 "${SUDO[@]}" df -h "$MNT" | sed -n '1,2p'
 "${SUDO[@]}" test -f "$MNT/boot/efi/EFI/ubuntu/grubaa64.efi" || \
     echo "  WARN: \\EFI\\ubuntu\\grubaa64.efi is missing on the ESP" >&2
+if [ "$OFFLINE" = 1 ]; then
+    "${SUDO[@]}" test -f "$MNT/boot/grub/grub.cfg" || \
+        echo "  WARN: /boot/grub/grub.cfg is missing" >&2
+    "${SUDO[@]}" test -f "$MNT/boot/initrd.img-$KVER" || \
+        echo "  WARN: /boot/initrd.img-$KVER is missing" >&2
+fi
 
 echo
-echo "OK: recovery Ubuntu $RELEASE installed on $ROOTDEV"
+echo "OK: recovery Ubuntu installed on $ROOTDEV"
 echo "    accounts:$CREATED"
 [ -n "$RECOVERY_PASSWORD" ] && echo "    password for ubuntu: $RECOVERY_PASSWORD"
 echo "    Windows Boot Manager will chainload \\EFI\\ubuntu\\grubaa64.efi"

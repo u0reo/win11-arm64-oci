@@ -30,6 +30,11 @@
 # that many seconds.  The default is 1; any key press stops the countdown.
 # --boot-menu 0 turns the menu off (rejected when Ubuntu is kept).
 #
+# If a build stopped after the disk was repartitioned, set FROM_STEP=7 (or 6
+# for just the recovery Ubuntu) to resume without running host_apply.sh:
+#
+#   sudo env FROM_STEP=7 ./scripts/build.sh --keep-ubuntu ... --yes
+#
 # The target must not be the running root (except with --reuse-ubuntu).  Boot
 # the Ubuntu live ISO with `toram` first (scripts/prepare.sh).  Media that
 # still lives on the target disk is copied into RAM before anything is
@@ -66,6 +71,7 @@ KEEP_UBUNTU=0
 REUSE_UBUNTU=${REUSE_UBUNTU:-0}
 RECOVERY_SIZE=${RECOVERY_SIZE:-4G}
 BOOT_MENU=${BOOT_MENU_TIMEOUT:-}
+FROM_STEP=${FROM_STEP:-0}
 BUILD_DIR=${BUILD_DIR:-}
 MIN_FREE_GB=${MIN_FREE_GB:-}
 SHM_SIZE=${SHM_SIZE:-100%}
@@ -133,6 +139,15 @@ if [ "$BOOT_MENU" -eq 0 ] && { [ "$KEEP_UBUNTU" = 1 ] || [ "$REUSE_UBUNTU" = 1 ]
     echo "build: --boot-menu 0 would hide the Ubuntu recovery entry." >&2
     echo "  Use --boot-menu 1 (or more) with --keep-ubuntu / --reuse-ubuntu." >&2
     exit 1
+fi
+case "$FROM_STEP" in
+    ''|*[!0-9]*)
+        echo "build: FROM_STEP must be a number between 0 and 13" >&2
+        exit 2 ;;
+esac
+if [ "$FROM_STEP" -gt 13 ]; then
+    echo "build: FROM_STEP must be a number between 0 and 13" >&2
+    exit 2
 fi
 
 if [ -n "$IMG" ] && [ -n "$DISK" ]; then
@@ -291,6 +306,12 @@ if [ "$REUSE_UBUNTU" = 1 ]; then
   loaders.  Nothing outside the free space is written.
   THE FREE SPACE AND THE ESP WILL BE MODIFIED.
 EOF
+elif [ "$FROM_STEP" -ge 6 ]; then
+    cat <<EOF
+  Resuming at step ${FROM_STEP}; host_apply.sh (step 5) is skipped.
+  The existing partitions, the Windows image and the ESP are left as they
+  are.  No partition is created or formatted by this run.
+EOF
 elif [ "$KEEP_UBUNTU" = 1 ]; then
     cat <<EOF
   The ESP stays.  The old Ubuntu root (and the OCI BOOT partition, if
@@ -409,6 +430,7 @@ export ISO
 export IMAGE_INDEX MEM SMP SIZE
 export KEEP_UBUNTU RECOVERY_SIZE REUSE_UBUNTU
 export BOOT_MENU_TIMEOUT="$BOOT_MENU"
+export FROM_STEP
 export SHM_SIZE
 [ -n "$BUILD_DIR" ] && export BUILD_DIR
 [ -n "$MIN_FREE_GB" ] && export MIN_FREE_GB

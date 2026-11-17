@@ -66,15 +66,36 @@ RAM の内訳と、データボリュームを使う場合の注意は
 2. `host_apply.sh` が GPT 種別から ESP を探し、古い root と BOOT を削除。
    空いた領域に復旧 Ubuntu と Windows を、空いている番号で作成
    （ESP はフォーマットしない。空き 40 MiB 未満なら中止）
-3. `make_recovery_ubuntu.sh` が復旧パーティションに debootstrap で
-   minimal Ubuntu を構築
+3. `make_recovery_ubuntu.sh` が復旧パーティションに minimal Ubuntu を構築
+   - live ISO が見えている場合は、ISO 内の minimal rootfs
+     (`/cdrom/casper/*.squashfs`) を展開する。ネットワークは使わない
+   - live ISO が無い場合だけ debootstrap（`ports.ubuntu.com`）を使う
    - netplan と SSH 設定をコピー
    - 同じ SSH ホスト鍵を使うので、既存の `known_hosts` がそのまま通る
-   - `/etc/fstab` は新しい PARTUUID で生成
-   - `grub-install --bootloader-id=ubuntu` → `\EFI\ubuntu\grubaa64.efi`
+   - `/etc/fstab` は新しい UUID で生成
+   - GRUB は signed バイナリ (`grubaa64.efi.signed`) を `\EFI\ubuntu` に
+     置き、回復用メニューを直接生成する（ネットワーク経路では
+     `grub-install --bootloader-id=ubuntu`）
 4. Windows を新しい NTFS パーティションに適用
 5. WinPE で `OEM\esp-part.txt` に記録した ESP 番号を選び、`bcdboot` を実行。
    BCD に `BOOTAPP` エントリ（`\EFI\ubuntu\grubaa64.efi`）を追加
+
+## 途中から再開する
+
+ステップ5の後（Windows の適用後）に失敗した場合、`FROM_STEP` を付けると
+`host_apply.sh` を飛ばして続きから再開できます。ディスクは消去されません。
+
+```bash
+# 復旧 Ubuntu の構築（ステップ6）から
+sudo env FROM_STEP=6 ./scripts/build.sh --keep-ubuntu --ubuntu-size 4G \
+  --disk /dev/sdb --iso /path/to/win11.iso --virtio /path/to/virtio-win.rpm --yes
+
+# WinPE の仕上げ（ステップ7）から
+sudo env FROM_STEP=7 ./scripts/build.sh ... --yes
+```
+
+ステップ1〜3の成果物（`build/media`、`build/oemdrv.iso` など）が
+`BUILD_DIR`（live では `/dev/shm/build`）に残っている必要があります。
 
 ## 起動メニュー
 
@@ -103,7 +124,8 @@ Ubuntu 側の GRUB が壊れても Windows は起動します。
   手動で `bcdedit /store S:\EFI\Microsoft\Boot\BCD /set {GUID} device partition=S:`
   を試し、それでも駄目なら `partition=\Device\HarddiskVolume1` にします。
   失敗しても Windows は起動します
-- **4 GiB で足りるか**: minimal + カーネル + initramfs で 1.6〜2.2 GiB 程度。
+- **4 GiB で足りるか**: live ISO の minimal rootfs を使う場合は
+  2.2〜2.6 GiB 程度（initramfs 込み）。
   `apt` のリストとキャッシュは削除済み。`df` の結果がログに出ます
 - **Windows Update**: 大型更新で ESP やブート順が書き換わる可能性があります
 
