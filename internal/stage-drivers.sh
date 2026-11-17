@@ -39,8 +39,12 @@ trap cleanup EXIT
 
 copy_set() {
     local src=$1 dst=$2
+    # netkvm.inf lists netkvmp.exe in SourceDisksFiles; DISM rejects the
+    # whole package when it is absent, leaving the Windows image without a
+    # network driver.  Copy executables along with inf/sys/cat.
     find "$src" -maxdepth 1 -type f \
-        \( -iname '*.inf' -o -iname '*.sys' -o -iname '*.cat' \) \
+        \( -iname '*.inf' -o -iname '*.sys' -o -iname '*.cat' \
+           -o -iname '*.exe' \) \
         -exec cp -f -t "$dst" {} +
 }
 
@@ -75,7 +79,8 @@ if [ -n "$DRIVERS_DIR" ]; then
     for pat in vioscsi netkvm; do
         if find "$DRIVERS_DIR" -maxdepth 1 -iname "${pat}*.inf" | grep -q .; then
             find "$DRIVERS_DIR" -maxdepth 1 -type f \
-                \( -iname "${pat}*.inf" -o -iname "${pat}*.sys" -o -iname "${pat}*.cat" \) \
+                \( -iname "${pat}*.inf" -o -iname "${pat}*.sys" \
+                   -o -iname "${pat}*.cat" -o -iname "${pat}*.exe" \) \
                 -exec cp -f -t "$DEST" {} +
         else
             find "$DRIVERS_DIR" -type d -iname "${pat}*" -print0 |

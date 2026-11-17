@@ -72,10 +72,13 @@ vioscsi / netkvm / viogpudo を取り出せます。`rpm2cpio` と `cpio` は
   `cmd.exe /c manual_start.finish.cmd` に書き換える
 - `manual_start.finish.cmd` が既存の Windows を見つけ、
   `manual_finish.cmd` を呼ぶ
-- `manual_finish.cmd` が DISM + bcdboot を実行し、
-  **`wpeutil shutdown`** で VM を落とす
+- `manual_finish.cmd` が DISM + bcdboot を実行し、進捗を
+  `C:\manual-finish.log` に書いて **`wpeutil shutdown`** で VM を落とす
+- QEMU 停止後、`pipeline/finish_winpe.sh` がログの `MANUAL_FINISH_OK` を
+  確認し、BCD の Ubuntu エントリと `\EFI\BOOT\BOOTAA64.EFI` を仕上げる
 
-そのため VNC 操作は不要です。
+そのため VNC 操作は不要です。WinPE の ARM64 PL011 には Windows の
+シリアルドライバーが無いため、COM1 ではなくファイルで成否を判定します。
 
 ### なぜ 2 回 QEMU を起動するのか
 
@@ -103,7 +106,18 @@ TCP connect だけでは判定できません。HTTP 応答コードを見ます
 SOFTWARE ハイブを壊したためです。
 
 シャットダウンが完了しない場合は、スクリプトはエラーで止まります。
-手動で落としてから、以降の段階を再実行してください。
+**ゲストは強制終了しません。** QEMU はそのまま残るので、画面とログを確認して
+から次を実行してください。`build/logs/qemu-install.pid` に PID が残っており、
+`FROM_STEP=11` はその QEMU に再接続して待機を続けます（新しい QEMU は
+起動しません）。
+
+```bash
+sudo env FROM_STEP=11 ./scripts/build.sh ... --yes
+```
+
+待ち時間は `SHUTDOWN_TIMEOUT`（既定 5400 秒）で変更できます。KVM の無い
+TCG では OOBE と初回ログオンだけで 1 時間以上かかることがあり、電源要求を
+送った時点でまだ処理中だと、その完了まで電源が切れません。
 
 ## 手動フォールバック
 

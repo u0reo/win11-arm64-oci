@@ -3,7 +3,13 @@ $Oem = "C:\OEM"
 New-Item -ItemType Directory -Force -Path $Oem | Out-Null
 $Log = "$Oem\specialize.log"
 function Log($m) {
-    ((Get-Date -Format "o") + " " + $m) | Out-File -Append -Encoding ascii $Log
+    try {
+        ((Get-Date -Format "o") + " " + $m) |
+            Out-File -Append -Encoding ascii $Log -ErrorAction Stop
+    } catch {
+        # A second instance may hold the log open; logging must never abort
+        # the specialize pass.
+    }
 }
 
 # Rendered by scripts/render.py from oem/specialize.ps1.template.
@@ -51,12 +57,30 @@ Start-Service TermService -ErrorAction SilentlyContinue
 Log "rdp-configured"
 
 # WinRM: automatic, Basic + unencrypted for lab use.
-Set-Service -Name WinRM -StartupType Automatic -ErrorAction SilentlyContinue
-Start-Service WinRM -ErrorAction SilentlyContinue
-try { Enable-PSRemoting -Force -SkipNetworkProfileCheck -ErrorAction Stop } catch { Log ("psremoting-fail " + $_.Exception.Message) }
-& winrm.exe quickconfig -q 2>&1 | Out-File -Append -Encoding ascii $Log
-& winrm.exe set winrm/config/service/auth '@{Basic="true"}' 2>&1 | Out-File -Append -Encoding ascii $Log
-& winrm.exe set winrm/config/service '@{AllowUnencrypted="true"}' 2>&1 | Out-File -Append -Encoding ascii $Log
+try {
+    Set-Service -Name WinRM -StartupType Automatic -ErrorAction Stop
+    Start-Service WinRM -ErrorAction Stop
+    Log ("winrm-service=" + (Get-Service WinRM).Status)
+} catch {
+    Log ("winrm-service-fail " + $_.Exception.Message)
+}
+try {
+    Enable-PSRemoting -Force -SkipNetworkProfileCheck -ErrorAction Stop
+    Log "psremoting-ok"
+} catch {
+    Log ("psremoting-fail " + $_.Exception.Message)
+}
+# The tiny image does not always ship winrm.exe.  The WSMan provider below
+# sets the same listener options and is the supported path when winrm.exe is
+# absent.
+if (Test-Path "$env:SystemRoot\System32\winrm.exe") {
+    & winrm.exe set winrm/config/service/auth '@{Basic="true"}' 2>&1 |
+        Out-File -Append -Encoding ascii $Log
+    & winrm.exe set winrm/config/service '@{AllowUnencrypted="true"}' 2>&1 |
+        Out-File -Append -Encoding ascii $Log
+} else {
+    Log "winrm.exe-absent"
+}
 try { Set-Item WSMan:\localhost\Service\Auth\Basic -Value $true -Force -ErrorAction Stop } catch { Log ("wsman-basic-fail " + $_.Exception.Message) }
 try { Set-Item WSMan:\localhost\Service\AllowUnencrypted -Value $true -Force -ErrorAction Stop } catch { Log ("wsman-unenc-fail " + $_.Exception.Message) }
 Log "winrm-configured"

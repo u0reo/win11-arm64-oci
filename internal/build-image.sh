@@ -33,6 +33,10 @@
 #   FROM_STEP=0          resume at step N, reusing the staging directory.
 #                        FROM_STEP=6 continues after host_apply.sh has
 #                        already wiped and populated the target.
+#   SHUTDOWN_TIMEOUT=5400
+#                        seconds to wait for the guest to power down before
+#                        exiting.  The VM is never killed; FROM_STEP=11
+#                        reconnects to it through build/logs/qemu-install.pid.
 #   WIN_USERNAME / WIN_PASSWORD / COMPUTER_NAME   (render.py overrides)
 #
 # On live (toram), BUILD_DIR defaults to /dev/shm/build and /dev/shm is
@@ -72,6 +76,10 @@ fi
 export BOOT_MENU_TIMEOUT
 
 FROM_STEP=${FROM_STEP:-0}
+SHUTDOWN_TIMEOUT=${SHUTDOWN_TIMEOUT:-5400}
+case "$SHUTDOWN_TIMEOUT" in
+    ''|*[!0-9]*) echo "SHUTDOWN_TIMEOUT must be a number of seconds" >&2; exit 2 ;;
+esac
 case "$FROM_STEP" in
     ''|*[!0-9]*) echo "FROM_STEP must be a number between 0 and 13" >&2; exit 2 ;;
 esac
@@ -217,8 +225,10 @@ fi
 if [ "$FROM_STEP" -le 9 ]; then
     step "9/13 WinPE finish (drivers + bcdboot), automatic"
     # The patched boot.wim runs manual_start.finish.cmd, which calls
-    # manual_finish.cmd and then shuts the VM down.  Both scripts report to
-    # COM1, so a stuck prompt or a missing ESP is visible to this build.
+    # manual_finish.cmd and then shuts the VM down.  WinPE has no PL011
+    # driver, so COM1 stays empty; manual_finish.cmd writes its markers to
+    # \manual-finish.log on the Windows volume.  Wait for the guest to power
+    # down, then let the host check that log and finish the ESP.
     SERIAL="$BUILD/logs/finish-serial.log"
     rm -f "$SERIAL"
     NAME=finish WITH_ISO=0 BOOTFAT="$BUILD/bootfat.img" OEMDRV="$BUILD/oemdrv.iso" \
@@ -227,59 +237,42 @@ if [ "$FROM_STEP" -le 9 ]; then
     QEMU_PID=$!
     echo "qemu finish pid=$QEMU_PID"
 
-    # Do not wait only for QEMU to exit: a failed batch that used to stop at
-    # 'pause' kept the VM alive until the timeout.  The markers make both
-    # outcomes explicit.
-    result=timeout
-    deadline=$(( $(date +%s) + 2700 ))
-    while [ "$(date +%s)" -lt "$deadline" ]; do
-        if grep -q 'MANUAL_FINISH_OK' "$SERIAL" 2>/dev/null; then
-            result=ok
-            break
-        fi
-        if grep -qE 'MANUAL_START_FAILED|MANUAL_FINISH_FAILED' "$SERIAL" 2>/dev/null; then
-            result=failed
-            break
-        fi
-        if ! kill -0 "$QEMU_PID" 2>/dev/null; then
-            break
-        fi
-        sleep 10
-    done
-    if [ "$result" = ok ]; then
-        if ! timeout 300 tail --pid="$QEMU_PID" -f /dev/null; then
-            echo "WinPE finish: the guest did not power down; stopping QEMU" >&2
-            kill "$QEMU_PID" 2>/dev/null || true
-        fi
+    if ! timeout 2700 tail --pid="$QEMU_PID" -f /dev/null; then
+        echo "WinPE finish timed out after 45 minutes; stopping QEMU" >&2
+        kill "$QEMU_PID" 2>/dev/null || true
         wait "$QEMU_PID" 2>/dev/null || true
-        echo "WinPE finish completed"
-    else
-        if kill -0 "$QEMU_PID" 2>/dev/null; then
-            kill "$QEMU_PID" 2>/dev/null || true
-        fi
-        wait "$QEMU_PID" 2>/dev/null || true
-        if [ "$result" = failed ]; then
-            echo "WinPE finish failed; see $SERIAL" >&2
-        else
-            echo "WinPE finish timed out; see $SERIAL" >&2
-        fi
         sed 's/\r$//' "$SERIAL" 2>/dev/null | tail -40 >&2 || true
         exit 1
     fi
+    wait "$QEMU_PID" 2>/dev/null || true
+
+    if ! "$PIPE/finish_winpe.sh" "$DISK" --timeout "$BOOT_MENU_TIMEOUT"; then
+        echo "WinPE finish failed; see $SERIAL and the finish log above" >&2
+        sed 's/\r$//' "$SERIAL" 2>/dev/null | tail -40 >&2 || true
+        exit 1
+    fi
+    echo "WinPE finish completed"
 fi
 
 if [ "$FROM_STEP" -le 10 ]; then
     step "10/13 first Windows boot and readiness check"
+    # A stale NVRAM from an earlier attempt can still select the Ubuntu
+    # shim by UUID, even after the ESP has a Windows boot manager.  Start
+    # from the firmware defaults so it scans \EFI\Boot\BOOTAA64.EFI.
+    rm -f "$BUILD/AAVMF_VARS.install.fd"
     NAME=install WITH_ISO=0 BOOTFAT="" OEMDRV="" \
         DISK="$DISK" NVRAM="$BUILD/AAVMF_VARS.install.fd" MEM="$MEM" SMP="$SMP" \
         "$PIPE/run-qemu.sh" &
     QEMU_PID=$!
     echo "qemu install pid=$QEMU_PID"
+    mkdir -p "$BUILD/logs"
+    printf '%s\n' "$QEMU_PID" > "$BUILD/logs/qemu-install.pid"
 
     ready=0
     deadline=$(( $(date +%s) + 9000 ))   # 150 minutes
     while [ "$(date +%s)" -lt "$deadline" ]; do
         if ! kill -0 "$QEMU_PID" 2>/dev/null; then
+            rm -f "$BUILD/logs/qemu-install.pid"
             echo "QEMU exited before the guest became ready" >&2
             exit 1
         fi
@@ -301,14 +294,43 @@ fi
 
 if [ "$FROM_STEP" -le 11 ]; then
     step "11/13 graceful shutdown over QMP"
-    python3 "$HERE/qmp-powerdown.py" "$BUILD/install.qmp" --timeout 60
-    if ! timeout 900 tail --pid="$QEMU_PID" -f /dev/null; then
-        echo "guest did not power down; refusing to hard-reset" >&2
-        echo "shut it down manually, then rerun the packaging steps" >&2
-        exit 1
+    PIDFILE="$BUILD/logs/qemu-install.pid"
+    # FROM_STEP=11 does not rerun step 10, so recover the PID that started
+    # the Windows VM.  This lets a timed-out build keep waiting on the same
+    # guest instead of starting a second QEMU.
+    if [ -z "${QEMU_PID:-}" ] && [ -f "$PIDFILE" ]; then
+        QEMU_PID=$(cat "$PIDFILE")
     fi
-    wait "$QEMU_PID" || true
-    echo "guest powered down"
+    if [ -n "${QEMU_PID:-}" ] && kill -0 "$QEMU_PID" 2>/dev/null; then
+        cmdline=$(tr '\0' ' ' < "/proc/$QEMU_PID/cmdline")
+        case "$cmdline" in
+            *"$DISK"*) ;;
+            *) echo "pid $QEMU_PID does not use $DISK; refusing to wait on it" >&2
+               exit 1 ;;
+        esac
+        echo "waiting for qemu pid=$QEMU_PID (up to ${SHUTDOWN_TIMEOUT}s)"
+        python3 "$HERE/qmp-powerdown.py" "$BUILD/install.qmp" --timeout 60
+        if ! timeout "$SHUTDOWN_TIMEOUT" tail --pid="$QEMU_PID" -f /dev/null; then
+            if ! kill -0 "$QEMU_PID" 2>/dev/null; then
+                :   # QEMU exited normally just after the power request.
+            else
+                echo "guest did not power down within ${SHUTDOWN_TIMEOUT}s; refusing to hard-reset" >&2
+                echo "the VM was left running on purpose.  Check it, then rerun with" >&2
+                echo "  FROM_STEP=11 ... --yes" >&2
+                echo "to keep waiting without starting a second QEMU." >&2
+                exit 1
+            fi
+        fi
+        wait "$QEMU_PID" 2>/dev/null || true
+        echo "guest powered down"
+    else
+        if [ -n "${QEMU_PID:-}" ]; then
+            echo "qemu pid=$QEMU_PID is no longer running"
+        else
+            echo "no QEMU pid recorded; assuming the guest already powered down"
+        fi
+    fi
+    rm -f "$PIDFILE"
 fi
 
 if [ "$FROM_STEP" -le 12 ]; then

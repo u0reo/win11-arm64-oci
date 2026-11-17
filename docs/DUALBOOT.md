@@ -78,7 +78,11 @@ RAM の内訳と、データボリュームを使う場合の注意は
      `grub-install --bootloader-id=ubuntu`）
 4. Windows を新しい NTFS パーティションに適用
 5. WinPE で `OEM\esp-part.txt` に記録した ESP 番号を選び、`bcdboot` を実行。
-   BCD に `BOOTAPP` エントリ（`\EFI\ubuntu\grubaa64.efi`）を追加
+    `bcdboot` は既存の `\EFI\BOOT\BOOTAA64.EFI`（Ubuntu の shim）を
+    上書きしないため、Windows Boot Manager を明示的にコピーする。
+    QEMU 停止後、ホスト側の `pipeline/finish_winpe.sh` が
+    `\manual-finish.log` を確認し、BCD に `BOOTAPP` エントリ
+    （`\EFI\ubuntu\grubaa64.efi`）を追加する
 
 ## 途中から再開する
 
@@ -92,6 +96,9 @@ sudo env FROM_STEP=6 ./scripts/build.sh --keep-ubuntu --ubuntu-size 4G \
 
 # WinPE の仕上げ（ステップ7）から
 sudo env FROM_STEP=7 ./scripts/build.sh ... --yes
+
+# 電源オフ待ち（ステップ11）から。稼働中の QEMU に再接続する
+sudo env FROM_STEP=11 ./scripts/build.sh ... --yes
 ```
 
 ステップ1〜3の成果物（`build/media`、`build/oemdrv.iso` など）が
@@ -110,8 +117,8 @@ Ubuntu (recovery)
 ```
 
 既定は Windows です。ファームウェアが起動するのは
-`\EFI\BOOT\BOOTAA64.EFI`（`bcdboot` が置く Windows Boot Manager）なので、
-Ubuntu 側の GRUB が壊れても Windows は起動します。
+`\EFI\BOOT\BOOTAA64.EFI`（`finish_winpe.sh` が置く Windows Boot Manager）
+なので、Ubuntu 側の GRUB が壊れても Windows は起動します。
 
 ## 確認しておくこと
 
@@ -119,11 +126,12 @@ Ubuntu 側の GRUB が壊れても Windows は起動します。
   40 MiB を切ると `host_apply.sh` が中止します
 - **Secure Boot**: 有効な環境では `\EFI\ubuntu\shimaa64.efi` を
   `path` に指定してください（既定は `grubaa64.efi`）
-- **BCD の `device partition=S:`**: 環境によっては通らないことがあります。
-  WinPE のログに `WARN: could not add the Ubuntu entry` が出たら、
-  手動で `bcdedit /store S:\EFI\Microsoft\Boot\BCD /set {GUID} device partition=S:`
-  を試し、それでも駄目なら `partition=\Device\HarddiskVolume1` にします。
-  失敗しても Windows は起動します
+- **BCD の Ubuntu エントリ**: WinPE の `bcdedit /set {GUID} device
+  partition=S:` はこの環境では通りません。そのため QEMU 停止後に
+  `pipeline/finish_winpe.sh` が `pipeline/bcd_add_ubuntu.py` で
+  Windows Boot Manager と同じ ESP device 要素をコピーして書き込みます。
+  WinPE 側は `\manual-finish.log` に進捗を残すだけで、失敗時は
+  ビルドが停止します
 - **4 GiB で足りるか**: live ISO の minimal rootfs を使う場合は
   2.2〜2.6 GiB 程度（initramfs 込み）。
   `apt` のリストとキャッシュは削除済み。`df` の結果がログに出ます
