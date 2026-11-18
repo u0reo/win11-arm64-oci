@@ -120,6 +120,15 @@ Ubuntu (recovery)
 `\EFI\BOOT\BOOTAA64.EFI`（`finish_winpe.sh` が置く Windows Boot Manager）
 なので、Ubuntu 側の GRUB が壊れても Windows は起動します。
 
+`pipeline/bcd_add_ubuntu.py` は Ubuntu エントリと同時に
+`displaybootmenu` を有効にします。`--boot-menu 1` の 1 秒間に何かキーを
+押すとカウントダウンが止まり、矢印キーで Ubuntu を選べます。
+
+`finish_winpe.sh` は `bootmgfw.efi` を `\EFI\BOOT` にコピーし直すため、
+その後に `pipeline/finish_disk.sh` で OCI A1 用パッチを当てる順序が重要です。
+`finish_disk.sh` は両方のファイルを読み直してパッチを検証し、失敗時は
+非ゼロで終了します。
+
 ## 確認しておくこと
 
 - **ESP の空き容量**: `bcdboot` が約 30 MiB、GRUB が約 15 MiB 使います。

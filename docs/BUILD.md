@@ -80,6 +80,17 @@ vioscsi / netkvm / viogpudo を取り出せます。`rpm2cpio` と `cpio` は
 そのため VNC 操作は不要です。WinPE の ARM64 PL011 には Windows の
 シリアルドライバーが無いため、COM1 ではなくファイルで成否を判定します。
 
+### ESP パッチの検証
+
+`finish_winpe.sh` は `bcdboot` が作った `bootmgfw.efi` を
+`\EFI\BOOT\BOOTAA64.EFI` にコピーしますが、この時点ではまだ OCI A1 用の
+パッチが入っていません。最後に `pipeline/finish_disk.sh` が両方のファイルの
+`AllocatePages` 呼び出しを `EfiAllocateAnyPages` に変えます。
+
+パッチ後のファイルを読み直して `mov w0, #1` を確認し、サイトが無い・
+書き込み後に値が変わらない場合は**ビルドを失敗**させます。以前のように
+「パッチできなかったのに `OK` と表示する」ことはありません。
+
 ### なぜ 2 回 QEMU を起動するのか
 
 WinPE の bootfat を付けたまま再起動すると、また WinPE が起動して
@@ -160,13 +171,18 @@ qcow2 パスを `/dev/sdb` に置き換え、最後に
 
 ## シリアル (SAC) とブートメニュー
 
-Windows の初回起動時（specialize パス）に `oem/specialize.ps1` が
-BCD を書き換えます。
+Windows の specialize パスと初回ログオンの `C:\OEM\boot.ps1` が BCD を
+書き換えます。`boot.ps1` は毎回起動時に走りますが、`bcdedit` は冪等
+なので設定は変わりません。
 
 | 設定 | 内容 | 指定 |
 |---|---|---|
-| EMS/SAC | COM1 115200 で `SAC>` を出す。常に有効 | なし（常時） |
+| EMS/SAC | COM1 115200 で `SAC>` を出す。`specialize.ps1` と `boot.ps1` が設定 | なし（常時） |
 | ブートメニュー | `displaybootmenu` / `timeout` / `bootems` | `--boot-menu 秒数` |
+
+`displaybootmenu` は `pipeline/bcd_add_ubuntu.py` も有効にします。
+specialize のログがロックで欠けても、Ubuntu エントリを追加した時点で
+メニューは必ず表示されます。
 
 `--boot-menu` の既定は 1 秒です。表示中に何かキーを押すとカウントダウンが
 止まるので、既定のままでもメニューを操作できます。0 はメニューを明示的に

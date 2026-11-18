@@ -37,6 +37,7 @@ ELEM_DESCRIPTION = "12000004"
 ELEM_LOCALE = "12000005"
 ELEM_DISPLAY_ORDER = "24000001"
 ELEM_TIMEOUT = "25000004"
+ELEM_DISPLAY_BOOT_MENU = "25000005"
 
 APP_TYPE_BOOTAPP = 0x1020000A
 
@@ -185,6 +186,9 @@ def main() -> int:
     order.append(guid)
     set_multi_string(h, bootmgr, ELEM_DISPLAY_ORDER, order)
     set_binary(h, bootmgr, ELEM_TIMEOUT, struct.pack("<Q", args.timeout))
+    # Without DisplayBootMenu the 1-second timeout is never shown and the
+    # Ubuntu entry is unreachable from the console.
+    set_binary(h, bootmgr, ELEM_DISPLAY_BOOT_MENU, b"\x01")
 
     h.commit(None)
 
@@ -206,18 +210,21 @@ def main() -> int:
         "device": get_element(check, ubuntu, ELEM_DEVICE)[1].hex(),
         "order": get_string_list(check, bootmgr, ELEM_DISPLAY_ORDER),
         "timeout": int.from_bytes(get_element(check, bootmgr, ELEM_TIMEOUT)[1], "little"),
+        "displaymenu": get_element(check, bootmgr, ELEM_DISPLAY_BOOT_MENU),
     }
     if ver["device"] != device_data.hex():
         raise SystemExit("the Ubuntu device element does not match the boot manager")
     if ver["guid"] not in ver["order"]:
         raise SystemExit("the Ubuntu entry is missing from the display order")
+    if not ver["displaymenu"] or ver["displaymenu"][1] != b"\x01":
+        raise SystemExit("DisplayBootMenu is not enabled")
 
     print(f"ubuntu entry: {ver['guid']}")
     print(f"  path:        {ver['path']}")
     print(f"  description: {ver['description']}")
     print(f"  device:      ESP (copied from the Windows Boot Manager)")
     print(f"  displayorder:{' '.join(ver['order'])}")
-    print(f"  timeout:     {ver['timeout']}s")
+    print(f"  timeout:     {ver['timeout']}s (menu shown)")
     if removed:
         print(f"removed duplicate entries: {' '.join(removed)}")
     print(f"OK: {args.bcd}")
