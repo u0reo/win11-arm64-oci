@@ -230,21 +230,34 @@ if [ "$FROM_STEP" -le 9 ]; then
     # \manual-finish.log on the Windows volume.  Wait for the guest to power
     # down, then let the host check that log and finish the ESP.
     SERIAL="$BUILD/logs/finish-serial.log"
-    rm -f "$SERIAL"
-    NAME=finish WITH_ISO=0 BOOTFAT="$BUILD/bootfat.img" OEMDRV="$BUILD/oemdrv.iso" \
-        DISK="$DISK" NVRAM="$BUILD/AAVMF_VARS.finish.fd" MEM="$MEM" SMP="$SMP" \
-        "$PIPE/run-qemu.sh" &
-    QEMU_PID=$!
-    echo "qemu finish pid=$QEMU_PID"
+    PIDFILE="$BUILD/logs/qemu-finish.pid"
+    mkdir -p "$BUILD/logs"
+    if [ -s "$PIDFILE" ] && kill -0 "$(cat "$PIDFILE")" 2>/dev/null; then
+        QEMU_PID=$(cat "$PIDFILE")
+        cmdline=$(tr '\0' ' ' < "/proc/$QEMU_PID/cmdline")
+        case "$cmdline" in
+            *"$DISK"*) echo "reusing qemu finish pid=$QEMU_PID" ;;
+            *) echo "pid $QEMU_PID does not use $DISK; refusing to reuse it" >&2
+               exit 1 ;;
+        esac
+    else
+        rm -f "$PIDFILE" "$SERIAL"
+        NAME=finish WITH_ISO=0 BOOTFAT="$BUILD/bootfat.img" OEMDRV="$BUILD/oemdrv.iso" \
+            DISK="$DISK" NVRAM="$BUILD/AAVMF_VARS.finish.fd" MEM="$MEM" SMP="$SMP" \
+            "$PIPE/run-qemu.sh" &
+        QEMU_PID=$!
+        printf '%s\n' "$QEMU_PID" > "$PIDFILE"
+        echo "qemu finish pid=$QEMU_PID"
+    fi
 
     if ! timeout 2700 tail --pid="$QEMU_PID" -f /dev/null; then
-        echo "WinPE finish timed out after 45 minutes; stopping QEMU" >&2
-        kill "$QEMU_PID" 2>/dev/null || true
-        wait "$QEMU_PID" 2>/dev/null || true
+        echo "WinPE finish timed out after 45 minutes; leaving QEMU running" >&2
+        echo "check the guest, then rerun FROM_STEP=9 to reuse pid=$QEMU_PID" >&2
         sed 's/\r$//' "$SERIAL" 2>/dev/null | tail -40 >&2 || true
         exit 1
     fi
     wait "$QEMU_PID" 2>/dev/null || true
+    rm -f "$PIDFILE"
 
     if ! "$PIPE/finish_winpe.sh" "$DISK" --timeout "$BOOT_MENU_TIMEOUT"; then
         echo "WinPE finish failed; see $SERIAL and the finish log above" >&2
