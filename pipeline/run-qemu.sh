@@ -31,6 +31,7 @@ FW_CODE=${FW_CODE:-/usr/share/AAVMF/AAVMF_CODE.no-secboot.fd}
 FW_VARS_SRC=${FW_VARS_SRC:-/usr/share/AAVMF/AAVMF_VARS.fd}
 NVRAM=${NVRAM:-$BUILD/AAVMF_VARS.$NAME.fd}
 SERIAL=$BUILD/logs/$NAME-serial.log
+SERIAL_SOCK=${SERIAL_SOCK:-}
 QEMU_LOG=$BUILD/logs/$NAME-qemu.log
 QDBG=$BUILD/logs/$NAME-qdbg.log
 QMP=$BUILD/$NAME.qmp
@@ -109,11 +110,20 @@ QEMU=(qemu-system-aarch64
     -device virtio-rng-pci
     -display none
     -vnc 127.0.0.1:${VNC_DISPLAY}
-    -serial file:"$SERIAL"
     -monitor unix:"$MON",server,nowait
     -qmp unix:"$QMP",server,nowait
     -d guest_errors
     -D "$QDBG")
+
+# Interactive serial for GRUB menu tests (SERIAL_SOCK=/path/to.sock).
+# OCI's serial console is bidirectional; a plain file cannot send keys.
+if [ -n "$SERIAL_SOCK" ]; then
+    mkdir -p "$(dirname "$SERIAL_SOCK")"
+    QEMU+=(-chardev "socket,id=ser0,path=$SERIAL_SOCK,server=on,wait=off,logfile=$SERIAL")
+    QEMU+=(-serial chardev:ser0)
+else
+    QEMU+=(-serial file:"$SERIAL")
+fi
 
 # Optional FAT boot image carrying the ISO's own boot manager + boot.wim.
 # It is attached before OEMDRV so AAVMF sees it first among USB disks.
@@ -159,6 +169,7 @@ echo "[qemu] iso=$([ "$WITH_ISO" = 1 ] && echo "$ISO" || echo '<detached>')"
 echo "[qemu] oemdrv=$OEMDRV"
 echo "[qemu] boot=$BOOT with_iso=$WITH_ISO vnc=127.0.0.1:${VNC_DISPLAY} rdp=127.0.0.1:${RDP_PORT} winrm=127.0.0.1:${WINRM_PORT}"
 echo "[qemu] serial=$SERIAL"
+[ -n "$SERIAL_SOCK" ] && echo "[qemu] serial_sock=$SERIAL_SOCK"
 echo "[qemu] qmp=$QMP monitor=$MON"
 echo "$$" > "$PIDFILE"
 exec "${QEMU[@]}" >"$QEMU_LOG" 2>&1

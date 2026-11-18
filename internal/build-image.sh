@@ -28,7 +28,8 @@
 #                        Ubuntu root/BOOT with a recovery system + Windows
 #   RECOVERY_SIZE=4G     size of that recovery partition
 #   REUSE_UBUNTU=1       p2 is an installed Ubuntu; only use the free space
-#   BOOT_MENU_TIMEOUT=1  seconds to show the Windows boot menu (0 = off)
+#   BOOT_MENU_TIMEOUT=1  seconds to show the boot menu (0 = off).  GRUB when
+#                        Ubuntu is kept, otherwise Windows Boot Manager
 #   PACKAGE=1            compress the qcow2 when the build finishes
 #   FROM_STEP=0          resume at step N, reusing the staging directory.
 #                        FROM_STEP=6 continues after host_apply.sh has

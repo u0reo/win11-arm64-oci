@@ -4,8 +4,8 @@
 > [ステージ4](../README.md#ステージ4-ビルド) を参照してください。
 
 Windows 11 を同じブートボリュームに入れつつ、**4 GiB の小さな Ubuntu を
-復旧用に残す**構成です。Ubuntu の GRUB を先に起動するのではなく、
-Windows Boot Manager のメニューから Ubuntu を選ぶ形にします。
+復旧用に残す**構成です。ESP の shim/GRUB を先頭ローダーにし、GRUB の
+メニューから **Windows 11（既定）** と **Ubuntu (recovery)** を選びます。
 
 ```text
 ESP (FAT32)                  既存を保持。Windows と Ubuntu の両方の EFI を置く
@@ -74,15 +74,16 @@ RAM の内訳と、データボリュームを使う場合の注意は
    - 同じ SSH ホスト鍵を使うので、既存の `known_hosts` がそのまま通る
    - `/etc/fstab` は新しい UUID で生成
    - GRUB は signed バイナリ (`grubaa64.efi.signed`) を `\EFI\ubuntu` に
-     置き、回復用メニューを直接生成する（ネットワーク経路では
-     `grub-install --bootloader-id=ubuntu`）
+     置く。`\EFI\ubuntu\grub.cfg` は `pipeline/write_grub_menu.py` が
+     カーネル・initrd・UUID を検出して生成する
 4. Windows を新しい NTFS パーティションに適用
 5. WinPE で `OEM\esp-part.txt` に記録した ESP 番号を選び、`bcdboot` を実行。
     `bcdboot` は既存の `\EFI\BOOT\BOOTAA64.EFI`（Ubuntu の shim）を
     上書きしないため、Windows Boot Manager を明示的にコピーする。
     QEMU 停止後、ホスト側の `pipeline/finish_winpe.sh` が
-    `\manual-finish.log` を確認し、BCD に `BOOTAPP` エントリ
-    （`\EFI\ubuntu\grubaa64.efi`）を追加する
+    `\manual-finish.log` を確認し、ESP を GRUB 先頭ローダーに整える:
+    `\EFI\BOOT\BOOTAA64.EFI` に shim、`\EFI\BOOT\grubaa64.efi` に GRUB を置き、
+    `\EFI\ubuntu\grub.cfg` にメニューを書き、BCD から Ubuntu bootapp を削除する
 
 ## 途中から再開する
 
@@ -106,45 +107,73 @@ sudo env FROM_STEP=11 ./scripts/build.sh ... --yes
 
 ## 起動メニュー
 
-再起動すると Windows Boot Manager が 1 秒のメニューを出します。表示中に
-何かキーを押すとカウントダウンが止まるので、そこで Ubuntu を選べます
-（`--boot-menu 秒数` で変更できます。`--boot-menu 0` は Ubuntu の
-エントリを選べなくなるため指定できません）。
+再起動すると、ファームウェアは ESP の `\EFI\BOOT\BOOTAA64.EFI`（Ubuntu の
+shim）を起動し、shim が GRUB を起動します。GRUB は
+`\EFI\ubuntu\grub.cfg` を読み、次のメニューを 1 秒表示します。
 
 ```text
-Windows 11
+Windows 11            (default)
 Ubuntu (recovery)
 ```
 
-既定は Windows です。ファームウェアが起動するのは
-`\EFI\BOOT\BOOTAA64.EFI`（`finish_winpe.sh` が置く Windows Boot Manager）
-なので、Ubuntu 側の GRUB が壊れても Windows は起動します。
+表示中に何かキーを押すとカウントダウンが止まります。矢印キーで Ubuntu を
+選び、Enter で起動します。`--boot-menu 秒数` で表示時間を変更できます。
+`--boot-menu 0` は Ubuntu を選べなくなるため、Ubuntu を残す構成では
+指定できません。
 
-`pipeline/bcd_add_ubuntu.py` は Ubuntu エントリと同時に
-`displaybootmenu` を有効にします。`--boot-menu 1` の 1 秒間に何かキーを
-押すとカウントダウンが止まり、矢印キーで Ubuntu を選べます。
+メニューは EFI コンソールに出るため、**OCI のシリアルコンソールからも
+表示・選択できます**。QEMU の AAVMF では `timeout=1` でも、メニュー表示直後に
+Down + Enter を送れば Ubuntu が起動することを確認済みです。
 
-`finish_winpe.sh` は `bootmgfw.efi` を `\EFI\BOOT` にコピーし直すため、
-その後に `pipeline/finish_disk.sh` で OCI A1 用パッチを当てる順序が重要です。
-`finish_disk.sh` は両方のファイルを読み直してパッチを検証し、失敗時は
-非ゼロで終了します。
+既定の Windows 11 を選ぶと、GRUB は ESP を root にしてから
+`\EFI\Microsoft\Boot\bootmgfw.efi` を chainload します。`$root` が Ubuntu の
+まま chainload すると BCD を読めず `0xc00000bb` で止まるため、
+`search --file --set=root /EFI/Microsoft/Boot/bootmgfw.efi` を先に実行します。
+
+GRUB の FAT ドライバは、先頭クラスタが 65536 以上のファイルを
+`not a regular file` として開けません。`bootmgfw.efi` は
+`pipeline/finish_disk.sh` が mtools で低クラスタに置き、開始クラスタを
+検査します。
+
+Windows Boot Manager の BCD には Ubuntu の bootapp エントリを残しません
+（ARM64 の BootMgr では bootapp を起動できないため）。GRUB が Ubuntu を
+直接起動します。Windows Boot Manager 自身のメニューは Windows のエントリ
+だけを 1 秒表示しますが、Ubuntu を選ぶメニューではありません。
+
+### ブートファイルの関係
+
+```text
+\EFI\BOOT\BOOTAA64.EFI            Ubuntu shim（ファームウェアのフォールバック）
+\EFI\BOOT\grubaa64.efi            GRUB（shim が同じディレクトリから読む）
+\EFI\ubuntu\shimaa64.efi          NVRAM の Ubuntu エントリ用 shim
+\EFI\ubuntu\grubaa64.efi          GRUB（signed、prefix は /EFI/ubuntu）
+\EFI\ubuntu\grub.cfg              GRUB メニュー（実際に読まれる設定）
+\EFI\BOOT\grub.cfg                同じ内容のコピー
+\EFI\Microsoft\Boot\bootmgfw.efi  Windows Boot Manager（OCI A1 用パッチ済み）
+\EFI\Microsoft\Boot\BCD           Windows のみ
+```
+
+`finish_winpe.sh` は shim/GRUB と GRUB メニューを配置し、BCD から Ubuntu
+bootapp を削除します。`finish_disk.sh` は `bootmgfw.efi` だけに OCI A1 用
+パッチを当て、FAT の開始クラスタと GRUB メニューを検証します。
+`inspect_image.sh` は最終状態（shim/GRUB、メニュー、BCD、開始クラスタ）を
+読み取り専用で表示します。
 
 ## 確認しておくこと
 
 - **ESP の空き容量**: `bcdboot` が約 30 MiB、GRUB が約 15 MiB 使います。
   40 MiB を切ると `host_apply.sh` が中止します
-- **Secure Boot**: 有効な環境では `\EFI\ubuntu\shimaa64.efi` を
-  `path` に指定してください（既定は `grubaa64.efi`）
-- **BCD の Ubuntu エントリ**: WinPE の `bcdedit /set {GUID} device
-  partition=S:` はこの環境では通りません。そのため QEMU 停止後に
-  `pipeline/finish_winpe.sh` が `pipeline/bcd_add_ubuntu.py` で
-  Windows Boot Manager と同じ ESP device 要素をコピーして書き込みます。
-  WinPE 側は `\manual-finish.log` に進捗を残すだけで、失敗時は
-  ビルドが停止します
+- **Secure Boot**: パッチ済み `bootmgfw.efi` は署名が無効になるため、
+  Secure Boot は**無効**にしてください。shim/GRUB 自体は署名済みですが、
+  chainload する Windows のパッチで Secure Boot が失敗します
+- **BCD**: `finish_winpe.sh` / `finish_disk.sh` が Ubuntu bootapp と、
+  削除したオブジェクトへの参照を除去します。Windows の displayorder は
+  Windows のみになります
 - **4 GiB で足りるか**: live ISO の minimal rootfs を使う場合は
-  2.2〜2.6 GiB 程度（initramfs 込み）。
-  `apt` のリストとキャッシュは削除済み。`df` の結果がログに出ます
-- **Windows Update**: 大型更新で ESP やブート順が書き換わる可能性があります
+  2.2〜2.6 GiB 程度（initramfs 込み）。`apt` のリストとキャッシュは削除済み。
+  `df` の結果がログに出ます
+- **Windows Update**: 大型更新で ESP やブート順が書き換わる可能性があります。
+  更新後に `pipeline/inspect_image.sh` で GRUB/BCD を確認してください
 
 ## 上級者向け: 既に小さな Ubuntu が入っている場合（`--reuse-ubuntu`）
 
@@ -182,17 +211,22 @@ live 起動しか登録しないので、この Ubuntu は別のインストー�
 
 ## 復旧環境の使い方
 
-Windows が起動しなくなったら、Boot Manager のメニューで
-`Ubuntu (recovery)` を選びます。ログインは元のユーザー名・パスワード、
-または退避した `authorized_keys` による SSH です。ネットワークは
-元の netplan（OCI の DHCP）をそのまま使うので、IP は同じサブネットで
-DHCP から取ります。OCI のコンソールからは `ubuntu` / 設定したパスワード、
-または `serial-getty@ttyAMA0` で入れます。
+Windows が起動しなくなったら、GRUB のメニューで `Ubuntu (recovery)` を
+選びます。シリアルコンソールでも VNC でも同じメニューを操作できます。
+ログインは元のユーザー名・パスワード、または退避した `authorized_keys` に
+よる SSH です。ネットワークは元の netplan（OCI の DHCP）をそのまま使うので、
+IP は同じサブネットで DHCP から取ります。Ubuntu のコンソールは
+`serial-getty@ttyAMA0` で `login:` を出します。
+
+Windows 側のシリアル復旧は期待できません。ARM64 の Windows は EMS/SAC を
+サポートしておらず、`bcdedit /ems` はエラーを出さずに何もしません。
+Windows の復旧は RDP / WinRM を使ってください。
 
 ## やらないこと
 
 - 既存 Ubuntu の in-place 縮小（`resize2fs`）はしません。中身を作り直す方が
   小さく確実です
 - XFS の Ubuntu には対応しません（縮小できないため）
-- Ubuntu の GRUB から Windows を選ぶ構成にはしません（Windows 側を既定に
-  するため。`GRUB_DISABLE_OS_PROBER=true` を設定しています）
+- ARM64 Windows Boot Manager の bootapp エントリで Ubuntu を起動する構成には
+  しません（BootMgr が Linux の EFI アプリを起動できないため）。GRUB を
+  先頭ローダーにし、GRUB から Windows を chainload します

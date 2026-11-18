@@ -86,10 +86,10 @@ Windows Update の余裕を考えるなら A だけ 64 GB にしても構いま�
 （50 + 64 = 114 GB で無料枠内）。
 
 Ubuntu を 4 GiB の復旧環境として残す場合は `--keep-ubuntu` を付けます。
-ESP を保持したまま古い Ubuntu root と BOOT を作り直し、Windows Boot
-Manager から GRUB を chainload します。ESP は GPT の種別から探すため、
-`p1=root, p13=BOOT, p15=ESP` の OCI 標準レイアウトでも動きます。
-詳細は [DUALBOOT.md](DUALBOOT.md)。
+ESP を保持したまま古い Ubuntu root と BOOT を作り直し、ESP の shim/GRUB を
+先頭ローダーにして Windows 11 と Ubuntu (recovery) を選べるようにします。
+ESP は GPT の種別から探すため、`p1=root, p13=BOOT, p15=ESP` の OCI 標準
+レイアウトでも動きます。詳細は [DUALBOOT.md](DUALBOOT.md)。
 
 ## ステージ2-B live を toram で起動する
 
@@ -331,55 +331,30 @@ sudo mount -t davfs https://webdav.pcloud.com /mnt/iso
 してください。`/dev/shm` の上限を 100% にしても、それは tmpfs の上限が
 広がるだけで、QEMU 用のメモリが増えるわけではありません。
 
-## シリアルコンソール (SAC)
+## シリアルコンソールとブートメニュー
 
-`oem/specialize.ps1` がビルド時に EMS/SAC を有効にします。完成した Windows は
-COM1 (115200 bps) で `SAC>` を返すので、RDP が壊れても OCI のシリアル
-コンソールから直せます。
+`--keep-ubuntu` / `--reuse-ubuntu` 構成では、OCI のシリアルコンソールに
+GRUB のメニューが出ます。既定は **Windows 11** で、矢印キーで
+`Ubuntu (recovery)` を選べます。メニューの表示時間は `--boot-menu 秒数`
+（既定 1 秒）で、表示中に何かキーを押すとカウントダウンが止まります。
 
-使い方:
-
-1. インスタンス詳細 → **Console connection** → シリアル接続を作る
-2. Cloud Shell から接続する（VNC ではない）
-3. `SAC>` が出たら `cmd`
-4. `ch -si 1`（または `Esc`+`Tab`）でチャンネルを切り替え、Enter
-5. 管理者の資格情報を入れると `C:\Windows\System32>` が出る
-6. `powershell` と入力すれば PowerShell も起動できる
-
-できること: `ipconfig` / `netsh` / `bcdedit` / `diskpart` / `sc` / `sfc` /
-`chkdsk` / `shutdown` など。RDP のファイアウォールや NLA を直すには十分です。
-
-できないこと:
-
-- GUI。テキストのみ
-- WinRE での操作（SAC は起動した OS の中で動く）
-- 長い文字列の貼り付け（ターミナル側の上限）
-- 対話的な TUI（VT100 非対応で表示が崩れる）
-
-注意: SAC は管理者シェルそのものです。コンソール接続の権限を持つ人は実質
-フルアクセスになります。IAM を絞ってください。
-
-イメージには適用済みなので操作は不要ですが、手で入れた Windows に後から
-足す場合は次の 2 行です。
-
-```cmd
-bcdedit /ems {current} on
-bcdedit /emssettings EMSPORT:1 EMSBAUDRATE:115200
+```text
+Windows 11            (default)
+Ubuntu (recovery)
 ```
 
-### ブートメニュー
+`Ubuntu (recovery)` を選ぶと、Ubuntu の `login:` がシリアルに出ます。
+ログイン後は `ip a` でアドレスを確認するか、SSH で入ってください。
 
-`--boot-menu 秒数` で `displaybootmenu yes` / `timeout` / `bootems yes` を
-設定します。シリアルにも VNC にもメニューが出るので、セーフモードや
-`--keep-ubuntu` の Ubuntu 復旧エントリを選べます。既定は 1 秒で、表示中に
-何かキーを押せばカウントダウンが止まります。`--boot-menu 0` は Ubuntu を
-残す構成では使えません（メニューが隠れて復旧エントリを選べなくなるため）。
+ARM64 の Windows は EMS/SAC に対応していません。`bcdedit /ems` はエラーを
+返さずに何も設定しないため、**Windows が起動した後のシリアル復旧は
+できません**。Windows の復旧は RDP / WinRM を使ってください。
 
-メニューを出さない構成に戻すには:
+Windows のみの構成では GRUB は入らず、`--boot-menu` は Windows Boot
+Manager のメニュー表示時間になります。メニューを消すには:
 
 ```cmd
 bcdedit /set {bootmgr} displaybootmenu no
-bcdedit /set {bootmgr} bootems no
 ```
 
 ## ステージ6 後片付け
@@ -416,7 +391,7 @@ oci bv boot-volume-backup create \
 | preflight がメモリ不足を警告/失敗する | 表示される見積もり（guest `--mem` + staging + media + overhead）を確認。`--mem` を下げる、不要なプロセスを止める、ISO/ドライバを既に tmpfs に置いて重複コピーを避ける |
 | `/dev/shm` が小さい（50% のまま） | `sudo ./scripts/setup.sh` で RAM の 100% に再マウントされる。手動なら `sudo mount -o remount,size=100% /dev/shm`。`SHM_SIZE=80%` や `--shm-size 16G` でもよい |
 | live (toram) で `/` と `/dev/shm` の空きが偏る | `/`(overlay=/cow)・`/dev/shm`・`/tmp` は別 tmpfs だが RAM を共有する。ISO を `$HOME` に置くと `/cow` を圧迫しやすい。staging は `/dev/shm/build`、ISO は `/dev/shm/iso` が既定（明示するなら `--build-dir /dev/shm/build`） |
-| シリアルに `SAC>` が出ない | `C:\OEM\specialize.log` に `sac-configured` があるか。コンソール接続がシリアル（VNC ではない）か |
+| シリアルに `SAC>` が出ない | ARM64 Windows は EMS/SAC 非対応です（仕様）。シリアルで操作できるのは GRUB メニューと Ubuntu 復旧環境だけです。Windows は RDP / WinRM で復旧してください |
 | ビルド中にディスク不足になる | ブートボリュームを 64 GB 以上に |
 | `--virtio *.rpm` で `cannot read an RPM` になる | `rpm2cpio` と `cpio` が要る。`scripts/setup.sh` か `apt-get install rpm2cpio cpio` |
 | `qemu-system-aarch64: not found` | `scripts/setup.sh` |

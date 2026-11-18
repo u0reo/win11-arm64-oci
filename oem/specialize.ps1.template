@@ -96,17 +96,30 @@ Log "firewall-configured"
 # No hibernation; AC power never sleeps.
 & powercfg.exe /h off 2>&1 | Out-File -Append -Encoding ascii $Log
 & powercfg.exe /change standby-timeout-ac 0 2>&1 | Out-File -Append -Encoding ascii $Log
+# powercfg /h off removes hiberfil.sys but can leave a BootMgr resumeobject
+# behind.  BootMgr then stops at "Start boot option" before Windows starts.
+# Delete both resume values explicitly; missing values are harmless.
+& bcdedit.exe /deletevalue '{bootmgr}' resumeobject 2>&1 | Out-File -Append -Encoding ascii $Log
+& bcdedit.exe /deletevalue '{current}' resumeobject 2>&1 | Out-File -Append -Encoding ascii $Log
+Log ("hibernation-off resume-rc=" + $LASTEXITCODE)
 
-# Serial recovery: EMS/SAC on COM1.  Always on, so the OCI serial console
-# (Cloud Shell) gives a text command prompt when RDP is broken.  The prompt
-# is "SAC>"; type "cmd" there to get an administrative command prompt.
+# The firmware RTC on QEMU and OCI is UTC.  Without this Windows reads it as
+# local time and the clock is off by the time-zone offset (9 hours for JST).
+& reg.exe add "HKLM\SYSTEM\CurrentControlSet\Control\TimeZoneInformation" /v RealTimeIsUniversal /t REG_DWORD /d 1 /f 2>&1 | Out-File -Append -Encoding ascii $Log
+Log ("rtc-utc rc=" + $LASTEXITCODE)
+
+# Serial recovery: ARM64 Windows does not implement EMS/SAC.  bcdedit
+# accepts these commands and exits 0 without writing the BCD elements, so
+# they are kept only as harmless no-ops for x64 compatibility.  Do not
+# treat them as a recovery path; repair Windows through RDP or WinRM.
 & bcdedit.exe /ems '{current}' on 2>&1 | Out-File -Append -Encoding ascii $Log
 $EmsRc = $LASTEXITCODE
 & bcdedit.exe /emssettings EMSPORT:1 EMSBAUDRATE:115200 2>&1 | Out-File -Append -Encoding ascii $Log
-Log ("sac-configured ems=" + $EmsRc + " settings=" + $LASTEXITCODE)
+Log ("ems-attempted ems=" + $EmsRc + " settings=" + $LASTEXITCODE + " (ARM64: expected no-op)")
 
-# Optional boot menu over serial and VNC (--boot-menu SECONDS).  Zero turns
-# it off; the build scripts default to 1 s, which any key press pauses.
+# Optional boot menu over serial and VNC (--boot-menu SECONDS).  With Ubuntu
+# kept, GRUB is the first loader and gets its own timeout; this BCD menu
+# covers Windows-only builds.  bootems is x64-only and harmless here.
 $BootMenu = {{BOOT_MENU_TIMEOUT}}
 if ($BootMenu -gt 0) {
     & bcdedit.exe /set '{bootmgr}' displaybootmenu yes 2>&1 | Out-File -Append -Encoding ascii $Log

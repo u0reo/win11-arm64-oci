@@ -43,16 +43,17 @@ try {
     & netsh.exe advfirewall set allprofiles state off 2>&1 | Out-File -Append -Encoding ascii $Log
     Log "services-configured"
 
-    # Serial recovery: the OCI serial console is COM1.  EMS gives a text
-    # prompt (SAC>) even when RDP and WinRM are both broken.  bcdedit is
-    # idempotent, so this is safe on every boot.
+    # Serial recovery: bcdedit /ems is a no-op on ARM64 Windows (EMS/SAC is
+    # not implemented).  Keep the calls for x64 compatibility; repair
+    # Windows through RDP or WinRM.  bcdedit is idempotent, so this is safe
+    # on every boot.
     & bcdedit.exe /ems '{current}' on 2>&1 | Out-File -Append -Encoding ascii $Log
     $emsRc = $LASTEXITCODE
     & bcdedit.exe /emssettings EMSPORT:1 EMSBAUDRATE:115200 2>&1 | Out-File -Append -Encoding ascii $Log
     $emsSettingsRc = $LASTEXITCODE
     & bcdedit.exe /set '{bootmgr}' bootems yes 2>&1 | Out-File -Append -Encoding ascii $Log
     $bootEmsRc = $LASTEXITCODE
-    Log ("ems-configured ems=" + $emsRc + " settings=" + $emsSettingsRc + " bootmgr=" + $bootEmsRc)
+    Log ("ems-attempted ems=" + $emsRc + " settings=" + $emsSettingsRc + " bootmgr=" + $bootEmsRc + " (ARM64: expected no-op)")
 
     # Wait for both listeners.  netstat is used because Get-NetAdapter and
     # Get-NetTCPConnection can hang while the network stack is initializing.

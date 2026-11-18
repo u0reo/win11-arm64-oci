@@ -13,8 +13,9 @@
 # a third of the size and is read without mounting (rpm2cpio + cpio).
 #
 # Add --keep-ubuntu to keep a small Ubuntu recovery system on the same disk
-# (Windows Boot Manager chainloads its GRUB).  The old Ubuntu root is replaced
-# by a fresh minimal install; its netplan and SSH settings are copied over.
+# (ESP shim/GRUB boots first, and its menu chainloads Windows).  The old
+# Ubuntu root is replaced by a fresh minimal install; its netplan and SSH
+# settings are copied over.
 # The ESP is found by GPT type, so the OCI ARM64 layout (p1=root, p13=BOOT,
 # p15=ESP) works as well as the older p1=ESP, p2=ubuntu layout.
 #
@@ -23,12 +24,13 @@
 # space is used for Windows.  This is the only mode that tolerates the
 # target disk being the running root, because nothing on p2 is written.
 #
-# EMS/SAC is always enabled on COM1, so the OCI serial console gives a text
-# recovery shell ("SAC>" then "cmd") even when RDP is broken.
+# ARM64 Windows does not implement EMS/SAC: bcdedit accepts the commands but
+# writes nothing.  Use RDP or WinRM for Windows recovery.
 #
-# Add --boot-menu SECONDS to show the Windows boot menu (serial and VNC) for
-# that many seconds.  The default is 1; any key press stops the countdown.
-# --boot-menu 0 turns the menu off (rejected when Ubuntu is kept).
+# Add --boot-menu SECONDS to show the boot menu (serial and VNC) for that
+# many seconds.  With Ubuntu kept this is the GRUB menu; otherwise it is the
+# Windows Boot Manager menu.  The default is 1; any key press stops the
+# countdown.  --boot-menu 0 turns the menu off (rejected when Ubuntu is kept).
 #
 # If a build stopped after the disk was repartitioned, set FROM_STEP=7 (or 6
 # for just the recovery Ubuntu) to resume without running host_apply.sh:
@@ -453,13 +455,14 @@ EOF
 if [ "$KEEP_UBUNTU" = 1 ]; then
     cat <<EOF
 The ${RECOVERY_SIZE} recovery Ubuntu is installed on the same disk.  The
-Windows Boot Manager menu shows it as "Ubuntu (recovery)" (${BOOT_MENU}
-second timeout).
+GRUB menu shows "Ubuntu (recovery)" next to "Windows 11" (${BOOT_MENU}
+second timeout, Windows 11 is the default).
 EOF
 elif [ "$REUSE_UBUNTU" = 1 ]; then
     cat <<EOF
-The installed Ubuntu on partition 2 is untouched.  The Windows Boot Manager
-menu should show it as "Ubuntu (recovery)" (${BOOT_MENU} second timeout).
+The installed Ubuntu on partition 2 is untouched.  The GRUB menu should
+show it as "Ubuntu (recovery)" (${BOOT_MENU} second timeout, Windows 11
+is the default).
 EOF
 fi
 

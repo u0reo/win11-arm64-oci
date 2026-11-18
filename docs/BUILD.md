@@ -19,7 +19,7 @@
 | 6 | 復旧用 Ubuntu を構築（`KEEP_UBUNTU=1`） | `pipeline/make_recovery_ubuntu.sh` |
 | 7 | `boot.wim` に自動実行コマンドを埋込 | `pipeline/make_manual_bootwim.sh` |
 | 8 | 起動用 FAT イメージ作成 | `pipeline/make_bootfat.sh` |
-| 9 | WinPE でドライバ + `bcdboot`（自動） | QEMU phase A |
+| 9 | WinPE でドライバ + `bcdboot`、ESP を shim/GRUB に仕上げ（自動） | QEMU phase A + `pipeline/finish_winpe.sh` |
 | 10 | Windows 初回起動 + 準備完了待ち | QEMU phase B |
 | 11 | ACPI シャットダウン | `internal/qmp-powerdown.py` |
 | 12 | ESP パッチ + 検査 | `pipeline/finish_disk.sh` / `pipeline/inspect_image.sh` |
@@ -75,21 +75,27 @@ vioscsi / netkvm / viogpudo を取り出せます。`rpm2cpio` と `cpio` は
 - `manual_finish.cmd` が DISM + bcdboot を実行し、進捗を
   `C:\manual-finish.log` に書いて **`wpeutil shutdown`** で VM を落とす
 - QEMU 停止後、`pipeline/finish_winpe.sh` がログの `MANUAL_FINISH_OK` を
-  確認し、BCD の Ubuntu エントリと `\EFI\BOOT\BOOTAA64.EFI` を仕上げる
+  確認し、ESP を GRUB 先頭ローダーに整える。`\EFI\BOOT\BOOTAA64.EFI` に
+  shim、`\EFI\BOOT\grubaa64.efi` に GRUB を置き、`\EFI\ubuntu\grub.cfg` に
+  メニューを書き、BCD から Ubuntu bootapp を削除する。Windows のみの構成
+  では `\EFI\BOOT\BOOTAA64.EFI` を `bootmgfw.efi` のままにする
 
 そのため VNC 操作は不要です。WinPE の ARM64 PL011 には Windows の
 シリアルドライバーが無いため、COM1 ではなくファイルで成否を判定します。
 
 ### ESP パッチの検証
 
-`finish_winpe.sh` は `bcdboot` が作った `bootmgfw.efi` を
-`\EFI\BOOT\BOOTAA64.EFI` にコピーしますが、この時点ではまだ OCI A1 用の
-パッチが入っていません。最後に `pipeline/finish_disk.sh` が両方のファイルの
-`AllocatePages` 呼び出しを `EfiAllocateAnyPages` に変えます。
+Ubuntu を残す構成では、`finish_winpe.sh` が `bcdboot` の後で
+`\EFI\BOOT\BOOTAA64.EFI` を shim に置き換えます。このファイルは OCI A1 用
+パッチの対象外です。GRUB が chainload する
+`\EFI\Microsoft\Boot\bootmgfw.efi` だけに `pipeline/finish_disk.sh` が
+`AllocatePages` → `EfiAllocateAnyPages` のパッチを当てます。
 
 パッチ後のファイルを読み直して `mov w0, #1` を確認し、サイトが無い・
 書き込み後に値が変わらない場合は**ビルドを失敗**させます。以前のように
-「パッチできなかったのに `OK` と表示する」ことはありません。
+「パッチできなかったのに `OK` と表示する」ことはありません。GRUB の FAT
+ドライバは開始クラスタ 65536 以上のファイルを開けないため、書き込み後の
+開始クラスタも検査します。
 
 ### なぜ 2 回 QEMU を起動するのか
 
@@ -169,28 +175,38 @@ qcow2 パスを `/dev/sdb` に置き換え、最後に
 `pipeline/finish_disk.sh /dev/sdb` と `pipeline/inspect_image.sh /dev/sdb`
 を実行します。`DISK=/dev/sdb` を各スクリプトに渡しても同じです。
 
-## シリアル (SAC) とブートメニュー
+## シリアルとブートメニュー
 
-Windows の specialize パスと初回ログオンの `C:\OEM\boot.ps1` が BCD を
-書き換えます。`boot.ps1` は毎回起動時に走りますが、`bcdedit` は冪等
-なので設定は変わりません。
+`--keep-ubuntu` / `--reuse-ubuntu` 構成では、`finish_winpe.sh` が ESP を
+GRUB 先頭ローダーに整えます。`\EFI\BOOT\BOOTAA64.EFI` に shim、
+`\EFI\BOOT\grubaa64.efi` に GRUB を置き、`\EFI\ubuntu\grub.cfg` に
+メニューを書きます。Windows のみの構成では `\EFI\BOOT\BOOTAA64.EFI` は
+従来どおり `bootmgfw.efi` です。
 
 | 設定 | 内容 | 指定 |
 |---|---|---|
-| EMS/SAC | COM1 115200 で `SAC>` を出す。`specialize.ps1` と `boot.ps1` が設定 | なし（常時） |
-| ブートメニュー | `displaybootmenu` / `timeout` / `bootems` | `--boot-menu 秒数` |
-
-`displaybootmenu` は `pipeline/bcd_add_ubuntu.py` も有効にします。
-specialize のログがロックで欠けても、Ubuntu エントリを追加した時点で
-メニューは必ず表示されます。
+| 先頭ローダー | shim → GRUB → Windows 11 / Ubuntu (recovery)（Ubuntu を残す場合） | なし |
+| ブートメニュー | GRUB または Windows Boot Manager の `timeout` | `--boot-menu 秒数` |
+| BCD | Ubuntu bootapp とダングリング参照を削除し、Windows のみにする | なし |
 
 `--boot-menu` の既定は 1 秒です。表示中に何かキーを押すとカウントダウンが
-止まるので、既定のままでもメニューを操作できます。0 はメニューを明示的に
-消します（`displaybootmenu no` / `bootems no`）。Ubuntu のエントリを隠さない
-よう、Ubuntu を残す構成では 0 を指定できません。`BOOT_MENU_TIMEOUT` 環境
-変数でも渡せます（`internal/build-image.sh` を直接使う場合）。
+止まるので、既定のままでもメニューを操作できます。`0` は Ubuntu 復旧
+エントリを選べなくなるため、Ubuntu を残す構成では指定できません。
+`BOOT_MENU_TIMEOUT` 環境変数でも渡せます（`internal/build-image.sh` を
+直接使う場合）。
 
-SAC の使い方と制約は [OCI.md](OCI.md#シリアルコンソール-sac) を参照して
+GRUB のメニューは EFI コンソールに出るので、OCI のシリアルコンソールからも
+VNC からも操作できます。QEMU の AAVMF では `timeout=1` でも、メニュー
+表示直後に Down + Enter を送れば Ubuntu が起動することを確認済みです。
+
+`specialize.ps1` と `boot.ps1` は後方互換のため `bcdedit /ems` を呼びますが、
+ARM64 の Windows は EMS/SAC に対応しておらず、この呼び出しは何も設定
+しません。Windows のシリアル復旧はできないため、RDP / WinRM を使って
+ください。
+
+GRUB が Windows を chainload する前に `search --file --set=root
+/EFI/Microsoft/Boot/bootmgfw.efi` を実行する理由と、`bootmgfw.efi` の
+開始クラスタ制限は [DUALBOOT.md](DUALBOOT.md#起動メニュー) を参照して
 ください。
 
 ## 言語

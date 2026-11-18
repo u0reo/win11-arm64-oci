@@ -23,9 +23,10 @@ Services:
   WinRM 5985/tcp (Basic + unencrypted enabled for lab compatibility)
 
 Serial:
-  COM1 115200    EMS/SAC always enabled (bcdedit /ems in specialize.ps1).
-                 The OCI serial console shows "SAC>"; type "cmd" for an
-                 administrative command prompt.  The boot menu is shown for
+  COM1 115200    GRUB menu at boot (Windows 11 default, Ubuntu recovery).
+                 ARM64 Windows does not support EMS/SAC, so there is no
+                 serial command prompt after Windows starts; use RDP or
+                 WinRM to repair Windows.  The menu is shown for
                  --boot-menu SECONDS (default 1 s, 0 = off).
 
 A scheduled task named "OEM Bootstrap" runs C:\OEM\bootstrap.cmd as SYSTEM

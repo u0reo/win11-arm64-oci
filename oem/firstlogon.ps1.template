@@ -14,6 +14,13 @@ function Log($m) {
 $User = "{{WIN_USERNAME}}"
 $Pw   = "{{WIN_PASSWORD}}"
 
+# RunOnce can replay this after a manual repair; the done file is written
+# only after boot.ps1 has completed.
+if (Test-Path "$Oem\firstlogon.done") {
+    Log "=== firstlogon already done; skip ==="
+    exit 0
+}
+
 Log "=== firstlogon start ==="
 Log ("whoami=" + (whoami))
 
@@ -22,7 +29,12 @@ Log ("whoami=" + (whoami))
 # also run it.
 & net.exe user $User $Pw 2>&1 | Out-File -Append -Encoding ascii $Log
 & net.exe user $User /active:yes 2>&1 | Out-File -Append -Encoding ascii $Log
-& net.exe localgroup Administrators $User /add 2>&1 | Out-File -Append -Encoding ascii $Log
+$Admins = & net.exe localgroup Administrators 2>&1
+if ($Admins | Select-String -SimpleMatch $User) {
+    Log "user-already-administrator"
+} else {
+    & net.exe localgroup Administrators $User /add 2>&1 | Out-File -Append -Encoding ascii $Log
+}
 try {
     Set-LocalUser -Name $User -PasswordNeverExpires $true -ErrorAction Stop
     Log "user-password-never-expires"

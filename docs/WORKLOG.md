@@ -5320,3 +5320,27 @@ winload(1742) が別世代 (≒8036) の ntoskrnl.exe を拒否している。
   `-cpu max` だけでは `PC=0x5200` で止まる。
 - `meta-data` の `local-hostname` は live では反映されず、ホスト名は
   `ubuntu-server` のままだった。動作への影響はない。
+
+### 最終イメージの起動検証（2026-11-18）
+
+- `/dev/sdb` の最終構成: p1=Ubuntu recovery (ext4, 4 GiB)、p2=Windows 11
+  (NTFS, 45.9 GiB)、p15=ESP (vfat, 99 MiB)。ESP は
+  `EFI/BOOT/BOOTAA64.EFI` = shim、`EFI/BOOT/grubaa64.efi` = GRUB、
+  `EFI/ubuntu/grub.cfg` = GRUB メニュー。`bootmgfw.efi` は OCI A1 用
+  パッチ済み（sha256 `37202f54...`、開始クラスタ 31522）。
+- `timeout=1` でキーを押さずに起動 → GRUB の既定 `Windows 11` が選ばれ、
+  WinRM が `Microsoft Windows [Version 10.0.26300.9457]` を返した。
+- シリアルソケットからメニュー表示直後に Down + Enter → `Ubuntu 26.04.1
+  LTS win11-live ttyAMA0` の `login:` まで到達した。
+- Ubuntu エントリの無い新しい NVRAM でも、ファームウェア →
+  `\EFI\BOOT\BOOTAA64.EFI`（shim）→ GRUB → Ubuntu の `login:` を確認した。
+- Windows 初回起動後に BCD へ Ubuntu のファームウェアミラー
+  `{c8fa8d61-e318-11f1-baa2-806e6f6e6963}` が再生成された。
+  `bcd_remove_ubuntu.py` を拡張し、削除したオブジェクトへの
+  `{fwbootmgr}` のダングリング参照も除去。実 ESP に適用し、冪等性を確認。
+- `inspect_image.sh` は BCD を直読みして `displaybootmenu=True`,
+  `timeout=1s`, `EMS/SAC: unavailable` を表示する。
+- 未解決: パッチ済み `bootmgfw.efi` は QEMU で約 68 秒後にゲストが終了する
+  （stock は起動する）。OCI A1 実機での最終起動確認は未実施。ESP の FAT
+  backup 差分 `offset 65: original 00 / backup 01` も残存（`fsck.fat -a` は
+  mostly harmless と表示）。

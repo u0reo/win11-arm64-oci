@@ -269,7 +269,8 @@ mountpoint -q "$MNT/boot/efi" || "${SUDO[@]}" mount "$ESPDEV" "$MNT/boot/efi"
 if [ "$OFFLINE" = 1 ]; then
     # Use the signed image from the ISO pool and point it at the modules on
     # the recovery filesystem.  No grub-install (and no NVRAM write) is
-    # needed; the Windows boot manager's BOOTAPP entry starts grubaa64.efi.
+    # needed; finish_winpe.sh installs the shim/GRUB pair in EFI/BOOT and
+    # GRUB reads the menu from EFI/ubuntu/grub.cfg.
     "${SUDO[@]}" dpkg-deb -x "$GRUB_SIGNED_DEB" "$TMP/grub-signed"
     "${SUDO[@]}" dpkg-deb -x "$GRUB_MODULES_DEB" "$TMP/grub-bin"
     "${SUDO[@]}" install -D -m 644 \

@@ -218,6 +218,12 @@
         <HideWirelessSetupInOOBE>true</HideWirelessSetupInOOBE>
         <NetworkLocation>Work</NetworkLocation>
         <ProtectYourPC>3</ProtectYourPC>
+        <!-- Hide* only hides individual pages.  Without these, Windows 11
+             can still launch the defaultuser0 "user OOBE" and wait for a
+             region/language choice.  The values are also what the offline
+             recovery procedure sets in the OOBE registry key. -->
+        <SkipMachineOOBE>true</SkipMachineOOBE>
+        <SkipUserOOBE>true</SkipUserOOBE>
       </OOBE>
 
       <UserAccounts>

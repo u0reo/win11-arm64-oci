@@ -84,9 +84,10 @@ grep -F " *$ISO" SHA256SUMS | sha256sum -c -
 そのまま使ってください（この記事の例では
 `ubuntu-26.04.1-live-server-arm64.iso`）。
 
-`--keep-ubuntu` の 4 GiB Ubuntu は `debootstrap` でネットワークから作ります。
-別途 minimal イメージをダウンロードする必要はありません
-（[docs/DUALBOOT.md](docs/DUALBOOT.md)）。
+`--keep-ubuntu` の 4 GiB Ubuntu は、ビルドに使う live ISO 内の minimal
+rootfs から作ります。ISO が見つからない場合だけ `debootstrap` で
+ネットワークから取得します。別途 minimal イメージをダウンロードする
+必要はありません（[docs/DUALBOOT.md](docs/DUALBOOT.md)）。
 
 ## ステージ2 ビルド環境を作る
 
@@ -278,15 +279,15 @@ sudo ./scripts/build.sh --disk /dev/sda \
 model / serial / size を表示し、ISO のコピーとマウント解除を行ってから
 書き込みを始めます。
 
-SAC (EMS) は**常に有効**で、出来上がった Windows は COM1 で `SAC>` を
-返します。OCI のシリアルコンソール（Cloud Shell）から `cmd` と入力すると
-管理者のコマンドプロンプトが使えます。RDP が壊れたときの復旧手段です
-（[docs/OCI.md](docs/OCI.md#シリアルコンソール-sac)）。
+ARM64 の Windows は EMS/SAC に対応していません。`bcdedit /ems` は成功した
+ように見えて何も設定しないため、**Windows 側のシリアル復旧はできません**。
+Windows の復旧は RDP / WinRM を使ってください。
 
-シリアルと VNC にブートメニューを出したい場合は `--boot-menu 秒数` を
-足します。既定は **1 秒**で、表示中に何かキーを押せばカウントダウンは
-止まります。`--boot-menu 0` でメニューを消せます（Ubuntu を残す構成では
-復旧エントリを選べなくなるため不可）。
+`--boot-menu 秒数` は、Windows のみの構成では Windows Boot Manager の
+メニュー表示時間を、`--keep-ubuntu` / `--reuse-ubuntu` では GRUB の
+メニュー表示時間を指定します。既定は **1 秒**で、表示中に何かキーを押せば
+カウントダウンは止まります。`--boot-menu 0` でメニューを消せます
+（Ubuntu を残す構成では復旧エントリを選べなくなるため不可）。
 
 ```bash
 # 例: 5 秒に伸ばす（既定は 1 秒）
@@ -322,10 +323,12 @@ sudo ./scripts/build.sh --keep-ubuntu --ubuntu-size 4G --disk /dev/sdb \
 - RDP 3389 / WinRM 5985 が開いています（NLA 無効・ファイアウォール無効）
 - **OCI エージェントは入っていない**ので、コンソールのパスワードリセットは
   使えません。ビルド時のパスワードで入ってください
-- シリアルコンソールは `SAC>`（テキストの復旧シェル）になります。日常操作は
-  RDP で行い、SAC は RDP が壊れたとき用に取っておきます
-- 起動時に Windows Boot Manager のメニューが 1 秒だけシリアルと VNC に出ます
-  （`--boot-menu 秒数` で変更、`0` で非表示）
+- `--keep-ubuntu` / `--reuse-ubuntu` 構成では、シリアルコンソールと VNC に
+  GRUB のメニュー（Windows 11 が既定、Ubuntu (recovery) を選択可）が
+  1 秒だけ表示されます（`--boot-menu 秒数` で変更、`0` で非表示）。
+  Windows のみの構成では Windows Boot Manager のメニューが表示されます
+- ARM64 の Windows は EMS/SAC に対応していないため、Windows 側のシリアル
+  復旧はできません。Windows の復旧は RDP / WinRM を使ってください
 
 ### 資格情報
 

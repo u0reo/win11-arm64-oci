@@ -4,12 +4,21 @@
 # WinPE cannot use the PL011 serial port, so its COM1 markers never reach the
 # host.  manual_finish.cmd writes the same markers to \manual-finish.log on
 # the Windows volume instead.  This script checks that log, then repairs the
-# two things that WinPE cannot do reliably:
+# ESP:
 #
-#   1. add the recovery Ubuntu entry to the Windows Boot Manager BCD
-#   2. put the Windows boot manager at \EFI\Boot\BOOTAA64.EFI, the path the
-#      firmware uses on an empty boot order.  bcdboot leaves an existing
-#      Ubuntu shim there, which would make the disk boot straight to GRUB.
+#   1. make GRUB the first loader.  \EFI\Boot\BOOTAA64.EFI is the signed
+#      Ubuntu shim, \EFI\Boot\grubaa64.efi is the signed GRUB, and
+#      \EFI\ubuntu\grub.cfg is the menu:
+#          Windows 11        (default)
+#          Ubuntu (recovery)
+#      The EFI console carries the menu to the OCI serial console, so the
+#      arrow keys and Enter work there too.
+#   2. remove the old Windows Boot Manager bootapp entry for Ubuntu.  ARM64
+#      BootMgr cannot start a Linux EFI application, and GRUB now starts
+#      Ubuntu instead.
+#
+# A Windows-only build (no \EFI\ubuntu\grubaa64.efi) keeps the Windows boot
+# manager at \EFI\Boot\BOOTAA64.EFI so the firmware fallback starts Windows.
 #
 # The target can be a qcow2 file or a raw block device.
 # Usage: ./finish_winpe.sh <disk.qcow2|/dev/sdX> [--timeout N] [--skip-log-check]
@@ -26,7 +35,7 @@ while [ $# -gt 0 ]; do
     case "$1" in
         --timeout) TIMEOUT=${2:?--timeout needs a value}; shift 2 ;;
         --skip-log-check) CHECK_LOG=0; shift ;;
-        -h|--help) sed -n '2,15p' "$0"; exit 0 ;;
+        -h|--help) sed -n '2,25p' "$0"; exit 0 ;;
         -*) echo "unknown option: $1" >&2; exit 2 ;;
         *) [ -z "$IMG" ] || { echo "too many arguments" >&2; exit 2; }
            IMG=$1; shift ;;
@@ -34,6 +43,7 @@ while [ $# -gt 0 ]; do
 done
 [ -n "$IMG" ] || { echo "usage: $0 <disk.qcow2|/dev/sdX> [--timeout N]" >&2; exit 2; }
 case "$TIMEOUT" in ''|*[!0-9]*) echo "--timeout must be a number" >&2; exit 2 ;; esac
+TIMEOUT=$((10#$TIMEOUT))
 
 RAW=0
 if [ -b "$IMG" ]; then
@@ -49,14 +59,16 @@ fi
 
 ESP=$(mktemp -d /tmp/finish-winpe-esp.XXXXXX)
 WIN=$(mktemp -d /tmp/finish-winpe-ntfs.XXXXXX)
+UB=$(mktemp -d /tmp/finish-winpe-ubuntu.XXXXXX)
 NBD=0
 cleanup() {
     set +e
+    sudo -n umount "$UB" 2>/dev/null
     sudo -n umount "$WIN" 2>/dev/null
     sudo -n umount "$ESP" 2>/dev/null
     [ "$NBD" = 1 ] && sudo -n qemu-nbd --disconnect /dev/nbd0 >/dev/null 2>&1
     cleanup_part_loops
-    rmdir "$WIN" "$ESP" 2>/dev/null
+    rmdir "$UB" "$WIN" "$ESP" 2>/dev/null
 }
 trap cleanup EXIT
 
@@ -112,29 +124,82 @@ sudo -n mkdir -p "$ESP"
 sudo -n mount -t vfat "$ESPDEV" "$ESP"
 BCD="$ESP/EFI/Microsoft/Boot/BCD"
 BOOTMGR="$ESP/EFI/Microsoft/Boot/bootmgfw.efi"
+BOOTDIR="$ESP/EFI/BOOT"
+GRUB="$ESP/EFI/ubuntu/grubaa64.efi"
+SHIM="$ESP/EFI/ubuntu/shimaa64.efi"
 [ -f "$BCD" ] || { echo "missing $BCD" >&2; exit 1; }
 [ -f "$BOOTMGR" ] || { echo "missing $BOOTMGR" >&2; exit 1; }
-if [ -f "$ESP/EFI/ubuntu/grubaa64.efi" ]; then
-    python3 "$HERE/bcd_add_ubuntu.py" "$BCD" --timeout "$TIMEOUT"
-    # hivex writes a clean base hive.  The logs from an older bcdedit session
-    # must not be replayed over it on the next boot.
-    rm -f "$ESP/EFI/Microsoft/Boot/BCD.LOG" \
-          "$ESP/EFI/Microsoft/Boot/BCD.LOG1" \
-          "$ESP/EFI/Microsoft/Boot/BCD.LOG2"
+
+# The old Windows Boot Manager bootapp entry cannot work on ARM64.  Remove it
+# whether or not Ubuntu is kept, so the Windows menu never offers it.
+if ! sudo -n python3 "$HERE/bcd_remove_ubuntu.py" "$BCD"; then
+    echo "could not clean the BCD" >&2
+    exit 1
+fi
+# hivex writes a clean base hive.  The logs from an older bcdedit session
+# must not be replayed over it on the next boot.
+sudo -n rm -f "$ESP/EFI/Microsoft/Boot/BCD.LOG" \
+              "$ESP/EFI/Microsoft/Boot/BCD.LOG1" \
+              "$ESP/EFI/Microsoft/Boot/BCD.LOG2"
+
+if [ -f "$GRUB" ]; then
+    if [ "$TIMEOUT" = 0 ]; then
+        echo "error: --timeout 0 would hide the Ubuntu recovery entry" >&2
+        exit 2
+    fi
+    UBDEV=$(find_ubuntu_root "$DEV")
+    [ -n "$UBDEV" ] || {
+        echo "no ext2/3/4 Ubuntu root on $DEV" >&2
+        exit 1
+    }
+    echo "  Ubuntu root: $UBDEV"
+    sudo -n mount -t ext4 -o ro "$UBDEV" "$UB"
+
+    # The firmware's fallback path should start GRUB, not Windows.  shim is
+    # the signed first stage; it loads grubaa64.efi from its own directory.
+    sudo -n mkdir -p "$BOOTDIR"
+    if [ -f "$SHIM" ]; then
+        sudo -n cp -f "$SHIM" "$BOOTDIR/BOOTAA64.EFI"
+        sudo -n cp -f "$GRUB" "$BOOTDIR/grubaa64.efi"
+        BOOT_SRC=$SHIM
+        echo "  EFI/Boot/BOOTAA64.EFI = EFI/ubuntu/shimaa64.efi"
+        echo "  EFI/Boot/grubaa64.efi = EFI/ubuntu/grubaa64.efi"
+    else
+        sudo -n cp -f "$GRUB" "$BOOTDIR/BOOTAA64.EFI"
+        sudo -n rm -f "$BOOTDIR/grubaa64.efi"
+        BOOT_SRC=$GRUB
+        echo "  warning: no shimaa64.efi; EFI/Boot/BOOTAA64.EFI = GRUB"
+        echo "           Secure Boot must be off in this configuration"
+    fi
+
+    sudo -n python3 "$HERE/write_grub_menu.py" \
+        "$ESP" "$UB" "$UBDEV" --timeout "$TIMEOUT"
+    sudo -n umount "$UB"
+
+    for f in "$ESP/EFI/ubuntu/grub.cfg" "$ESP/EFI/BOOT/grub.cfg"; do
+        [ -f "$f" ] || { echo "missing $f" >&2; exit 1; }
+    done
+    grep -q 'menuentry "Windows 11"' "$ESP/EFI/ubuntu/grub.cfg" || {
+        echo "GRUB menu has no Windows entry" >&2
+        exit 1
+    }
+    grep -q 'menuentry "Ubuntu (recovery)"' "$ESP/EFI/ubuntu/grub.cfg" || {
+        echo "GRUB menu has no Ubuntu entry" >&2
+        exit 1
+    }
+    echo "  GRUB menu: Windows 11 (default, ${TIMEOUT}s), Ubuntu (recovery)"
 else
-    echo "  \EFI\ubuntu\grubaa64.efi is absent; leaving the BCD alone"
+    # Windows-only build: leave the firmware fallback on the Windows loader.
+    sudo -n mkdir -p "$BOOTDIR"
+    sudo -n cp -f "$BOOTMGR" "$BOOTDIR/BOOTAA64.EFI"
+    BOOT_SRC=$BOOTMGR
+    echo "  EFI/Boot/BOOTAA64.EFI = EFI/Microsoft/Boot/bootmgfw.efi"
 fi
 
-# Do not rely on bcdboot here: when the ESP already has an Ubuntu shim at
-# this path, bcdboot leaves it in place.  Copy the Windows boot manager over
-# it so an empty UEFI boot order starts Windows and its menu.
-sudo -n mkdir -p "$ESP/EFI/Boot"
-sudo -n cp -f "$BOOTMGR" "$ESP/EFI/Boot/BOOTAA64.EFI"
 sync
-a=$(sha256sum "$BOOTMGR" | awk '{print $1}')
-b=$(sha256sum "$ESP/EFI/Boot/BOOTAA64.EFI" | awk '{print $1}')
-[ "$a" = "$b" ] || { echo "fallback boot manager copy failed" >&2; exit 1; }
-echo "  EFI/Boot/BOOTAA64.EFI = EFI/Microsoft/Boot/bootmgfw.efi"
+a=$(sha256sum "$BOOTDIR/BOOTAA64.EFI" | awk '{print $1}')
+b=$(sha256sum "$BOOT_SRC" | awk '{print $1}')
+[ "$a" = "$b" ] || { echo "fallback loader copy failed" >&2; exit 1; }
 echo "  sha256 $a"
 sudo -n umount "$ESP"
 
