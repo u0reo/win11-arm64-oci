@@ -43,6 +43,25 @@ fs_type() {
     printf '%s\n' "$t"
 }
 
+# True when a running QEMU process has <disk> in its own command line.
+# /proc/PID/comm is used instead of pgrep -f: it names the real executable,
+# so a diagnostic shell command that merely mentions "qemu-system-aarch64"
+# cannot produce a false positive.  comm is readable without root.
+qemu_uses_disk() {
+    local disk=$1 p pid
+    for p in /proc/[0-9]*; do
+        pid=${p#/proc/}
+        [ "$pid" = "$$" ] && continue
+        case "$(cat "$p/comm" 2>/dev/null)" in
+            qemu-system-*) ;;
+            *) continue ;;
+        esac
+        tr '\0' ' ' < "$p/cmdline" 2>/dev/null |
+            grep -qF -- "$disk" && return 0
+    done
+    return 1
+}
+
 # ---------------------------------------------------------------------------
 # GPT helpers.  These read the partition table from disk, so they work even
 # when the kernel still has an old view of it.

@@ -19,18 +19,20 @@ elif [ ! -f "$IMG" ]; then
     exit 1
 fi
 
-if pgrep -f "qemu-system-aarch64.*$IMG" >/dev/null 2>&1; then
+if qemu_uses_disk "$IMG"; then
     echo "QEMU still references $IMG" >&2
     exit 1
 fi
 
 ESP=$(mktemp -d /tmp/finish-esp.XXXXXX)
+PATCH_LOG=$(mktemp /tmp/patch-bootmgfw.XXXXXX)
 NBD=0
 cleanup() {
     set +e
     sudo -n umount "$ESP" 2>/dev/null
     [ "$NBD" = 1 ] && sudo -n qemu-nbd --disconnect /dev/nbd0 >/dev/null 2>&1
     cleanup_part_loops
+    rm -f "$PATCH_LOG"
     rmdir "$ESP" 2>/dev/null
 }
 trap cleanup EXIT
@@ -63,17 +65,24 @@ sudo -n mount -t vfat "$ESPDEV" "$ESP"
 echo "[3/4] patch ESP boot managers"
 for rel in EFI/Microsoft/Boot/bootmgfw.efi EFI/Boot/bootaa64.efi; do
     f="$ESP/$rel"
-    [ -f "$f" ] || { echo "  $rel: absent"; continue; }
+    [ -f "$f" ] || { echo "  $rel: missing" >&2; exit 1; }
     tmp=$(mktemp /tmp/bootmgfw.XXXXXX)
     cp "$f" "$tmp"
-    if python3 "$HERE/patch_bootmgfw.py" "$tmp" "$tmp.patched" >/tmp/patch.out 2>&1; then
-        sudo -n cp "$tmp.patched" "$f"
-        echo "  $rel: patched"
-        sed -n '1,8p' /tmp/patch.out | sed 's/^/    /'
-    else
-        echo "  $rel: no patch site (left unchanged)"
-        sed -n '1,4p' /tmp/patch.out | sed 's/^/    /'
+    if ! python3 "$HERE/patch_bootmgfw.py" "$tmp" "$tmp.patched" >"$PATCH_LOG" 2>&1; then
+        echo "  $rel: patch failed" >&2
+        sed -n '1,12p' "$PATCH_LOG" | sed 's/^/    /' >&2
+        rm -f "$tmp" "$tmp.patched"
+        exit 1
     fi
+    sudo -n cp "$tmp.patched" "$f"
+    if ! python3 "$HERE/patch_bootmgfw.py" --dry-run --require-patched "$f" >"$PATCH_LOG" 2>&1; then
+        echo "  $rel: verification failed after writing" >&2
+        sed -n '1,12p' "$PATCH_LOG" | sed 's/^/    /' >&2
+        rm -f "$tmp" "$tmp.patched"
+        exit 1
+    fi
+    echo "  $rel: patched and verified"
+    sed -n '1,8p' "$PATCH_LOG" | sed 's/^/    /'
     rm -f "$tmp" "$tmp.patched"
 done
 sync

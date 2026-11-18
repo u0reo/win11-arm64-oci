@@ -42,7 +42,7 @@ elif [ ! -f "$IMG" ]; then
     echo "missing $IMG" >&2
     exit 1
 fi
-if pgrep -f "qemu-system-aarch64.*$IMG" >/dev/null 2>&1; then
+if qemu_uses_disk "$IMG"; then
     echo "QEMU still references $IMG" >&2
     exit 1
 fi

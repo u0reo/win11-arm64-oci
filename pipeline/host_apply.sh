@@ -121,7 +121,7 @@ free_slots() {
 [ -d "$MEDIA/oem" ] || { echo "missing $MEDIA/oem" >&2; exit 1; }
 [ -d "$DRIVERS" ] || { echo "missing $DRIVERS; run internal/stage-drivers.sh" >&2; exit 1; }
 
-if pgrep -f "qemu-system-aarch64.*$IMG" >/dev/null 2>&1; then
+if qemu_uses_disk "$IMG"; then
     echo "QEMU still references $IMG; stop it first" >&2
     exit 1
 fi

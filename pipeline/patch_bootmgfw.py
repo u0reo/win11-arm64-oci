@@ -34,8 +34,13 @@ LDR_X8_28 = 0xF9401508
 MOV_W0_1 = 0x52800020
 
 
-def find_site(data: bytes, pe: pefile.PE) -> tuple[int, int, int]:
-    """Return (file_offset, rva, section_va) for the target mov w0,#2."""
+def find_site(data: bytes, pe: pefile.PE) -> tuple[int, int, int, int]:
+    """Return (file_offset, rva, section_va, current_alloc_type).
+
+    The immediate is 2 (EfiAllocateAddress) in the stock boot manager and
+    1 (EfiAllocateAnyPages) after patching.  Accept both so a second run
+    verifies instead of failing.
+    """
     hits = []
     for s in pe.sections:
         if not (s.Characteristics & 0x20000000):  # IMAGE_SCN_MEM_EXECUTE
@@ -43,8 +48,15 @@ def find_site(data: bytes, pe: pefile.PE) -> tuple[int, int, int]:
         blob = data[s.PointerToRawData:s.PointerToRawData + s.SizeOfRawData]
         for i in range(0, len(blob) - 20, 4):
             words = struct.unpack_from("<5I", blob, i)
-            if words == (ADD_X3_SP_70, MOV_X2_1, MOV_W1_2, MOV_W0_2, LDR_X8_28):
-                hits.append((s.PointerToRawData + i + 12, s.VirtualAddress + i + 12, s.VirtualAddress))
+            if words[:3] == (ADD_X3_SP_70, MOV_X2_1, MOV_W1_2) and \
+                    words[3] in (MOV_W0_2, MOV_W0_1) and \
+                    words[4] == LDR_X8_28:
+                hits.append((
+                    s.PointerToRawData + i + 12,
+                    s.VirtualAddress + i + 12,
+                    s.VirtualAddress,
+                    words[3],
+                ))
     if len(hits) != 1:
         raise SystemExit(f"expected exactly one bootmgfw site, found {len(hits)}: {hits}")
     return hits[0]
@@ -55,15 +67,18 @@ def main() -> int:
     ap.add_argument("src")
     ap.add_argument("dst", nargs="?")
     ap.add_argument("--dry-run", action="store_true")
+    ap.add_argument("--require-patched", action="store_true",
+                    help="fail unless the site already uses AnyPages")
     a = ap.parse_args()
 
     data = bytearray(open(a.src, "rb").read())
     pe = pefile.PE(a.src, fast_load=True)
-    off, rva, _ = find_site(data, pe)
-    cur = struct.unpack_from("<I", data, off)[0]
-    if cur != MOV_W0_2:
+    off, rva, _, cur = find_site(data, pe)
+    if cur not in (MOV_W0_2, MOV_W0_1):
         raise SystemExit(f"unexpected instruction at {off:#x}: {cur:#010x}")
-    struct.pack_into("<I", data, off, MOV_W0_1)
+    already = cur == MOV_W0_1
+    if not already:
+        struct.pack_into("<I", data, off, MOV_W0_1)
 
     def dis(w: int) -> str:
         # Only the two mov immediates matter here; keeping capstone out of
@@ -78,17 +93,31 @@ def main() -> int:
     print(f"imagebase={pe.OPTIONAL_HEADER.ImageBase:#x}")
     print(f"site: file_offset={off:#x} rva={rva:#x}")
     print(f"  {cur:#010x}  {dis(cur)}  ->  {MOV_W0_1:#010x}  {dis(MOV_W0_1)}")
+    if a.require_patched and not already:
+        print("state=stock")
+        return 3
     if a.dry_run:
+        print(f"state={'patched' if already else 'stock'}")
         print("dry-run: not writing")
         return 0
+    if already and not a.dst:
+        print("state=patched")
+        print("already patched; nothing to write")
+        return 0
+
     dst = a.dst or a.src
     open(dst, "wb").write(bytes(data))
-    orig = open(a.src, "rb").read()
     new = open(dst, "rb").read()
-    diff = [i for i in range(len(orig)) if orig[i] != new[i]]
-    if not diff or set(diff) - set(range(off, off + 4)):
-        raise SystemExit(f"unexpected diff: {diff[:10]}")
-    print(f"changed_bytes={diff}")
+    if already:
+        print("state=patched")
+        print("already patched; copied without changes")
+    else:
+        orig = open(a.src, "rb").read()
+        diff = [i for i in range(len(orig)) if orig[i] != new[i]]
+        if not diff or set(diff) - set(range(off, off + 4)):
+            raise SystemExit(f"unexpected diff: {diff[:10]}")
+        print(f"changed_bytes={diff}")
+        print("state=patched")
     print(f"sha256={hashlib.sha256(new).hexdigest()}")
     print(f"wrote={dst}")
     return 0
