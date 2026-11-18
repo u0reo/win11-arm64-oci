@@ -137,7 +137,17 @@ MEM_TOTAL_KB=$(awk '/^MemTotal:/{print $2}' /proc/meminfo 2>/dev/null || echo 0)
 MEM_AVAIL_MB=$(( MEM_AVAIL_KB / 1024 ))
 MEM_TOTAL_MB=$(( MEM_TOTAL_KB / 1024 ))
 MEDIA_MB=0
+media_on_tmpfs() {
+    local p=$1
+    [ -n "$p" ] && [ -e "$p" ] || return 1
+    findmnt -no FSTYPE --target "$p" 2>/dev/null | grep -qx tmpfs
+}
 for mp in "${ISO:-}" "${VIRTIO_ISO:-}" "${VIRTIO:-}" "${VIRTIO_RPM:-}" "${DRIVERS_DIR:-}" "${DRIVERS:-}"; do
+    # Media already on a tmpfs lives in RAM and is not copied again;
+    # adding it would count the same pages twice.
+    if media_on_tmpfs "$mp"; then
+        continue
+    fi
     MEDIA_MB=$(( MEDIA_MB + $(size_mb "$mp") ))
 done
 STAGING_MB=2048
