@@ -24,10 +24,10 @@
 #   SIZE=50G             qcow2 virtual size (ignored for a block device)
 #   MEM=8192             guest RAM in MiB
 #   SMP=4                guest vCPUs
-#   KEEP_UBUNTU=1        keep the ESP (found by GPT type) and replace the
-#                        Ubuntu root/BOOT with a recovery system + Windows
 #   FRESH_UBUNTU=1       erase the disk and create a new ESP, a recovery
-#                        system and Windows from scratch
+#                        system and Windows from scratch.  The recovery
+#                        system copies /etc/netplan/*.yaml and an
+#                        authorized_keys file from the running Ubuntu.
 #   RECOVERY_SIZE=4G     size of that recovery partition
 #   REUSE_UBUNTU=1       p2 is an installed Ubuntu; only use the free space
 #   BOOT_MENU_TIMEOUT=1  seconds to show the boot menu (0 = off).  GRUB when
@@ -64,7 +64,6 @@ SMP=${SMP:-4}
 SHM_SIZE=${SHM_SIZE:-100%}
 WINRM_PORT=${WINRM_PORT:-15985}
 DISK=${DISK:-$ROOT/build/win11-arm64.qcow2}
-KEEP_UBUNTU=${KEEP_UBUNTU:-0}
 REUSE_UBUNTU=${REUSE_UBUNTU:-0}
 FRESH_UBUNTU=${FRESH_UBUNTU:-0}
 RECOVERY_SIZE=${RECOVERY_SIZE:-4G}
@@ -75,7 +74,7 @@ case "$BOOT_MENU_TIMEOUT" in
     *) BOOT_MENU_TIMEOUT=$((10#$BOOT_MENU_TIMEOUT)) ;;
 esac
 if [ "$BOOT_MENU_TIMEOUT" = 0 ] &&
-   { [ "$KEEP_UBUNTU" = 1 ] || [ "$REUSE_UBUNTU" = 1 ] || [ "$FRESH_UBUNTU" = 1 ]; }; then
+   { [ "$REUSE_UBUNTU" = 1 ] || [ "$FRESH_UBUNTU" = 1 ]; }; then
     echo "BOOT_MENU_TIMEOUT=0 would hide the Ubuntu recovery entry" >&2
     exit 1
 fi
@@ -113,10 +112,6 @@ fi
 if [ "$DISK" = "$ROOT/build/win11-arm64.qcow2" ] && [ "$BUILD" != "$ROOT/build" ]; then
     DISK="$BUILD/win11-arm64.qcow2"
 fi
-if [ "$KEEP_UBUNTU" = 1 ] && [ "$RAW" != 1 ]; then
-    echo "KEEP_UBUNTU needs DISK=/dev/sdX (the Ubuntu volume itself)" >&2
-    exit 1
-fi
 if [ "$FRESH_UBUNTU" = 1 ] && [ "$RAW" != 1 ]; then
     echo "FRESH_UBUNTU needs DISK=/dev/sdX (an empty or disposable disk)" >&2
     exit 1
@@ -125,12 +120,8 @@ if [ "$REUSE_UBUNTU" = 1 ] && [ "$RAW" != 1 ]; then
     echo "REUSE_UBUNTU needs DISK=/dev/sdX (the installed Ubuntu disk)" >&2
     exit 1
 fi
-if [ "$REUSE_UBUNTU" = 1 ] && [ "$KEEP_UBUNTU" = 1 ]; then
-    echo "REUSE_UBUNTU and KEEP_UBUNTU are mutually exclusive" >&2
-    exit 1
-fi
-if [ "$FRESH_UBUNTU" = 1 ] && { [ "$KEEP_UBUNTU" = 1 ] || [ "$REUSE_UBUNTU" = 1 ]; }; then
-    echo "FRESH_UBUNTU cannot be combined with KEEP_UBUNTU or REUSE_UBUNTU" >&2
+if [ "$FRESH_UBUNTU" = 1 ] && [ "$REUSE_UBUNTU" = 1 ]; then
+    echo "FRESH_UBUNTU cannot be combined with REUSE_UBUNTU" >&2
     exit 1
 fi
 
@@ -195,25 +186,23 @@ if [ "$FROM_STEP" -le 3 ]; then
 fi
 
 if [ "$FROM_STEP" -le 4 ]; then
-    step "4/13 save the Ubuntu network and SSH settings"
-    if [ "$KEEP_UBUNTU" = 1 ] || [ "$FRESH_UBUNTU" = 1 ]; then
-        if [ -s "$BUILD/ubuntu-config/MANIFEST.txt" ]; then
-            echo "  reusing the settings already saved in $BUILD/ubuntu-config"
-            sed 's/^/  /' "$BUILD/ubuntu-config/MANIFEST.txt"
-        elif [ "$KEEP_UBUNTU" = 1 ]; then
-            "$PIPE/save_ubuntu_config.sh" "$DISK" "$BUILD/ubuntu-config"
+    step "4/13 check the live network and SSH settings"
+    if [ "$FRESH_UBUNTU" = 1 ]; then
+        netplan_count=$(find /etc/netplan -maxdepth 1 -type f -name '*.yaml' 2>/dev/null | wc -l)
+        echo "  netplan: $netplan_count file(s) in /etc/netplan"
+        key_src=""
+        for f in /home/ubuntu/.ssh/authorized_keys /home/*/.ssh/authorized_keys /root/.ssh/authorized_keys; do
+            [ -s "$f" ] || continue
+            key_src=$f
+            break
+        done
+        if [ -n "$key_src" ]; then
+            echo "  authorized_keys: $key_src"
         else
-            # Fresh disk: there is nothing to read from the target.  A
-            # complete saved config was reused above; otherwise start empty
-            # so make_recovery_ubuntu.sh writes its default netplan.
-            if [ -d "$BUILD/ubuntu-config" ] &&
-               [ -n "$(ls -A "$BUILD/ubuntu-config" 2>/dev/null)" ]; then
-                echo "  discarding the incomplete $BUILD/ubuntu-config"
-                rm -rf "$BUILD/ubuntu-config"
-            fi
-            mkdir -p "$BUILD/ubuntu-config"
-            echo "  fresh disk: no saved settings; the recovery Ubuntu uses defaults"
+            echo "  WARN: no authorized_keys found; the recovery login will" >&2
+            echo "  use the generated password printed in step 6" >&2
         fi
+        echo "  step 6 copies these into the recovery Ubuntu; nothing is staged"
     else
         echo "  skipped (no recovery Ubuntu requested)"
     fi
@@ -222,15 +211,15 @@ fi
 if [ "$FROM_STEP" -le 5 ]; then
     step "5/13 apply install.wim to the target"
     MEDIA="$BUILD/media" DRIVERS="$BUILD/drivers" DRIVERS_EXTRA="$BUILD/drivers-extra" \
-    SIZE="$SIZE" KEEP_UBUNTU="$KEEP_UBUNTU" REUSE_UBUNTU="$REUSE_UBUNTU" \
+    SIZE="$SIZE" REUSE_UBUNTU="$REUSE_UBUNTU" \
     FRESH_UBUNTU="$FRESH_UBUNTU" RECOVERY_SIZE="$RECOVERY_SIZE" \
     "$PIPE/host_apply.sh" "$ISO" "$DISK" "$IMAGE_INDEX"
 fi
 
 if [ "$FROM_STEP" -le 6 ]; then
     step "6/13 install the recovery Ubuntu"
-    if [ "$KEEP_UBUNTU" = 1 ] || [ "$FRESH_UBUNTU" = 1 ]; then
-        "$PIPE/make_recovery_ubuntu.sh" "$DISK" "$BUILD/ubuntu-config"
+    if [ "$FRESH_UBUNTU" = 1 ]; then
+        "$PIPE/make_recovery_ubuntu.sh" "$DISK"
     else
         echo "  skipped (no recovery Ubuntu requested)"
     fi

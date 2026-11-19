@@ -84,7 +84,7 @@ grep -F " *$ISO" SHA256SUMS | sha256sum -c -
 そのまま使ってください（この記事の例では
 `ubuntu-26.04.1-live-server-arm64.iso`）。
 
-`--fresh-ubuntu` / `--keep-ubuntu` の 4 GiB Ubuntu は、ビルドに使う live ISO 内の minimal
+`--fresh-ubuntu` の 4 GiB Ubuntu は、ビルドに使う live ISO 内の minimal
 rootfs から作ります。ISO が見つからない場合だけ `debootstrap` で
 ネットワークから取得します。別途 minimal イメージをダウンロードする
 必要はありません（[docs/DUALBOOT.md](docs/DUALBOOT.md)）。
@@ -284,7 +284,7 @@ ARM64 の Windows は EMS/SAC に対応していません。`bcdedit /ems` は�
 Windows の復旧は RDP / WinRM を使ってください。
 
 `--boot-menu 秒数` は、Windows のみの構成では Windows Boot Manager の
-メニュー表示時間を、`--fresh-ubuntu` / `--keep-ubuntu` / `--reuse-ubuntu`
+メニュー表示時間を、`--fresh-ubuntu` / `--reuse-ubuntu`
 では GRUB のメニュー表示時間を指定します。既定は **1 秒**で、表示中に
 何かキーを押せばカウントダウンは止まります。`--boot-menu 0` でメニューを
 消せます（Ubuntu を残す構成では復旧エントリを選べなくなるため不可）。
@@ -306,21 +306,13 @@ sudo ./scripts/build.sh --fresh-ubuntu --ubuntu-size 4G --disk /dev/sdb \
   --virtio /dev/shm/iso/virtio-win.iso --yes
 ```
 
-退避済みの `ubuntu-config` が staging ディレクトリ（live では
-`/dev/shm/build/ubuntu-config`）にあれば再利用し、無ければ既定の netplan
-（DHCP）と `ubuntu` ユーザーで復旧環境を作ります。ランダムなパスワードは
-ビルドログのステップ6に表示されます。
+復旧 Ubuntu は、ビルドを実行している Ubuntu（live `toram` なら live 環境）の
+`/etc/netplan/*.yaml` と `authorized_keys` だけを引き継ぎます。パスワード
+ハッシュ、ユーザーアカウント、SSH ホスト鍵、`sudoers` はコピーしません。
+`ubuntu` ユーザーを新規作成し、ランダムなパスワードをビルドログのステップ6に
+表示します。`--ubuntu-size` は `--fresh-ubuntu` と一緒にだけ使えます。
 
-既存の ESP を残しつつ、その Ubuntu root を 4 GiB の復旧環境に置き換える場合は
-`--keep-ubuntu` を足します。
-
-```bash
-sudo ./scripts/build.sh --keep-ubuntu --ubuntu-size 4G --disk /dev/sdb \
-  --iso /dev/shm/iso/Win11_ARM64_26H2.iso \
-  --virtio /dev/shm/iso/virtio-win.iso --yes
-```
-
-パーティション構成、残す設定、起動メニューは
+パーティション構成、起動メニュー、`--reuse-ubuntu` は
 [docs/DUALBOOT.md](docs/DUALBOOT.md) を参照してください。
 
 `build.sh` の中で何が起きるか（13 段階、WinPE、QEMU 2 回、手動フォールバック）は
@@ -339,7 +331,7 @@ sudo ./scripts/build.sh --keep-ubuntu --ubuntu-size 4G --disk /dev/sdb \
 - RDP 3389 / WinRM 5985 が開いています（NLA 無効・ファイアウォール無効）
 - **OCI エージェントは入っていない**ので、コンソールのパスワードリセットは
   使えません。ビルド時のパスワードで入ってください
-- `--fresh-ubuntu` / `--keep-ubuntu` / `--reuse-ubuntu` 構成では、シリアル
+- `--fresh-ubuntu` / `--reuse-ubuntu` 構成では、シリアル
   コンソールと VNC に GRUB のメニュー（Windows 11 が既定、Ubuntu (recovery)
   を選択可）が 1 秒だけ表示されます（`--boot-menu 秒数` で変更、`0` で非表示）。
   Windows のみの構成では Windows Boot Manager のメニューが表示されます

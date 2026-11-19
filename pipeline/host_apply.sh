@@ -6,20 +6,12 @@
 #
 # The target can be a qcow2 file (created from scratch) or a raw block
 # device such as /dev/sdb.  A block device is wiped completely, unless
-# KEEP_UBUNTU=1 or REUSE_UBUNTU=1 is set.
+# REUSE_UBUNTU=1 is set.
 #
 # FRESH_UBUNTU=1 builds the dual-boot layout from an empty disk.  It does not
 # reuse the old ESP: p1 is a new 100 MiB ESP, p2 is the RECOVERY_SIZE ext4
 # recovery system and p3 is Windows (the rest).  pipeline/make_recovery_ubuntu.sh
 # fills the recovery partition afterwards.
-#
-# KEEP_UBUNTU=1 keeps the existing ESP (found by its GPT type, not by a
-# fixed partition number) and replaces the old Ubuntu root - plus the
-# separate BOOT partition used by the stock OCI ARM64 image - with a small
-# ext4 recovery system (RECOVERY_SIZE, default 4G) and a new Windows
-# partition.  It accepts both layouts:
-#   p1=ESP, p2=Ubuntu                        (older, pre-shrunk)
-#   p15=ESP, p13=BOOT, p1=Ubuntu root        (stock OCI ARM64)
 #
 # Usage: ./host_apply.sh <windows-arm64.iso> <disk.qcow2|/dev/sdX> [index]
 #
@@ -42,13 +34,12 @@ DRIVERS=${DRIVERS:-$BUILD/drivers}
 DRIVERS_EXTRA=${DRIVERS_EXTRA:-$BUILD/drivers-extra}
 SIZE=${SIZE:-50G}
 SDB=${SDB:-/dev/nbd0}
-KEEP_UBUNTU=${KEEP_UBUNTU:-0}
 REUSE_UBUNTU=${REUSE_UBUNTU:-0}
 FRESH_UBUNTU=${FRESH_UBUNTU:-0}
 RECOVERY_SIZE=${RECOVERY_SIZE:-4G}
 
-if [ "$FRESH_UBUNTU" = 1 ] && { [ "$KEEP_UBUNTU" = 1 ] || [ "$REUSE_UBUNTU" = 1 ]; }; then
-    echo "FRESH_UBUNTU cannot be combined with KEEP_UBUNTU or REUSE_UBUNTU" >&2
+if [ "$FRESH_UBUNTU" = 1 ] && [ "$REUSE_UBUNTU" = 1 ]; then
+    echo "FRESH_UBUNTU cannot be combined with REUSE_UBUNTU" >&2
     exit 1
 fi
 
@@ -108,23 +99,6 @@ size_bytes() {
         *[Tt]) awk -v n="${1%[Tt]}" 'BEGIN{printf "%.0f", n*1024*1024*1024*1024}' ;;
         *) printf '%s\n' "$1" ;;
     esac
-}
-
-# Print the lowest WANT free partition slots (numbers) on DISK.  Read the
-# on-disk GPT with sgdisk here: lsblk can still show deleted partitions for
-# a moment after sgdisk, which would make us pick an occupied slot.
-free_slots() {
-    local disk=$1 want=$2 n=1 found=0 used
-    used=$(sudo -n sgdisk -p "$disk" |
-        awk '$1 ~ /^[0-9]+$/ { print $1 }' | sort -n)
-    while [ "$found" -lt "$want" ]; do
-        if ! printf '%s\n' "$used" | grep -qx "$n"; then
-            printf '%s ' "$n"
-            found=$((found + 1))
-        fi
-        n=$((n + 1))
-    done
-    printf '\n'
 }
 
 [ -f "$ISO" ] || { echo "missing ISO: $ISO" >&2; exit 1; }
@@ -187,14 +161,9 @@ if [ "$RAW" = 1 ]; then
     DEV=$IMG
     echo "  size: $(sudo -n blockdev --getsize64 "$DEV") bytes"
 else
-    if [ "$KEEP_UBUNTU" = 1 ]; then
-        echo "[2/6] reuse the existing qcow2 ($IMG)"
-        [ -f "$IMG" ] || { echo "KEEP_UBUNTU needs an existing qcow2: $IMG" >&2; exit 1; }
-    else
-        echo "[2/6] create fresh qcow2 ($SIZE)"
-        rm -f "$IMG"
-        qemu-img create -f qcow2 "$IMG" "$SIZE" >/dev/null
-    fi
+    echo "[2/6] create fresh qcow2 ($SIZE)"
+    rm -f "$IMG"
+    qemu-img create -f qcow2 "$IMG" "$SIZE" >/dev/null
     sudo -n qemu-nbd --disconnect "$SDB" >/dev/null 2>&1 || true
     sleep 1
     sudo -n qemu-nbd --connect="$SDB" --format=qcow2 "$IMG"
@@ -253,156 +222,10 @@ if [ "$REUSE_UBUNTU" = 1 ]; then
     [ -n "$WIN_START" ] || { echo "cannot determine the Windows start sector" >&2; exit 1; }
     sudo -n mkntfs -f -F -L Windows -p "$WIN_START" -H 255 -S 63 "$WINPART" >/dev/null
     echo "  formatted ($WINPART starts at sector $WIN_START)"
-elif [ "$KEEP_UBUNTU" = 1 ]; then
-    echo "[3/6] keep the ESP, replace the Ubuntu root with $RECOVERY_SIZE, add Windows"
-    sudo -n partprobe "$DEV" 2>/dev/null || true
-    sleep 1
-
-    ESPDEV=$(find_esp "$DEV")
-    [ -n "$ESPDEV" ] || {
-        echo "no EFI System partition found on $DEV" >&2
-        lsblk -o NAME,SIZE,FSTYPE,PARTTYPENAME "$DEV" >&2
-        exit 1
-    }
-    ESP_N=$(dev_part_num "$ESPDEV")
-    ESP_FS=$(fs_type "$ESPDEV")
-    [ "$ESP_FS" = vfat ] || { echo "$ESPDEV is not FAT32 ($ESP_FS)" >&2; exit 1; }
-
-    ROOTDEV=$(find_ubuntu_root "$DEV")
-    [ -n "$ROOTDEV" ] || {
-        echo "no ext2/3/4 Ubuntu root found on $DEV" >&2
-        lsblk -o NAME,SIZE,FSTYPE,PARTTYPENAME "$DEV" >&2
-        exit 1
-    }
-    ROOT_N=$(dev_part_num "$ROOTDEV")
-    [ -n "$ROOT_N" ] || { echo "cannot determine the Ubuntu root partition number" >&2; exit 1; }
-    [ "$ROOTDEV" != "$ESPDEV" ] || { echo "the ESP is also the Ubuntu root?" >&2; exit 1; }
-
-    BOOTDEV=$(find_linux_boot "$DEV")
-    [ "$BOOTDEV" != "$ROOTDEV" ] || BOOTDEV=""
-    BOOT_N=""
-    if [ -n "$BOOTDEV" ]; then
-        BOOT_N=$(dev_part_num "$BOOTDEV")
-        [ -n "$BOOT_N" ] || { echo "cannot determine the BOOT partition number" >&2; exit 1; }
-    fi
-
-    EXISTING_WIN=$(find_windows "$DEV")
-    if [ -n "$EXISTING_WIN" ]; then
-        echo "a Windows/NTFS partition already exists at $EXISTING_WIN" >&2
-        echo "refusing to create a second one" >&2
-        exit 1
-    fi
-
-    echo "  ESP:   $ESPDEV (partition $ESP_N, kept)"
-    echo "  root:  $ROOTDEV (replaced)"
-    [ -n "$BOOTDEV" ] && echo "  boot:  $BOOTDEV (removed)"
-    require_esp_free "$ESPDEV"
-
-    # Space that becomes available after the old root and BOOT are removed.
-    # Read it from the GPT, not from lsblk: the kernel may still show the
-    # old partition table.
-    TOTAL_BYTES=$(sudo -n blockdev --getsize64 "$DEV")
-    SECTOR_SIZE=$(sudo -n blockdev --getss "$DEV")
-    AVAIL_BYTES=$TOTAL_BYTES
-    for n in $(gpt_part_numbers "$DEV"); do
-        if [ "$n" = "$ROOT_N" ]; then continue; fi
-        if [ -n "$BOOT_N" ] && [ "$n" = "$BOOT_N" ]; then continue; fi
-        AVAIL_BYTES=$((AVAIL_BYTES - $(gpt_part_sectors "$DEV" "$n") * SECTOR_SIZE))
-    done
-    AVAIL_BYTES=$((AVAIL_BYTES - 2 * 1024 * 1024))
-    AVAIL_GIB=$((AVAIL_BYTES / 1024 / 1024 / 1024))
-    NEED_BYTES=$(( $(size_bytes "$RECOVERY_SIZE") + 40 * 1024 * 1024 * 1024 ))
-    echo "  space for Windows + recovery: ${AVAIL_GIB} GiB"
-    if [ "$AVAIL_BYTES" -lt "$NEED_BYTES" ]; then
-        echo "not enough space for Windows (need 40 GiB plus $RECOVERY_SIZE)" >&2
-        echo "  free some space on $DEV first" >&2
-        exit 1
-    fi
-
-    # Start the recovery partition where the removed partitions began.  On
-    # the stock OCI layout this reclaims both the 923 MiB BOOT partition and
-    # the 49 GiB root, leaving one large contiguous area for Windows.
-    FIRST_START=$(gpt_part_start "$DEV" "$ROOT_N")
-    if [ -n "$BOOT_N" ]; then
-        BOOT_START=$(gpt_part_start "$DEV" "$BOOT_N")
-        if [ "$BOOT_START" -lt "$FIRST_START" ]; then
-            FIRST_START=$BOOT_START
-        fi
-    fi
-    FIRST_START=$(( (FIRST_START + 2047) / 2048 * 2048 ))
-
-    ESP_START=$(gpt_part_start "$DEV" "$ESP_N")
-    ESP_PARTUUID=$(sudo -n blkid -s PARTUUID -o value "$ESPDEV" 2>/dev/null || true)
-
-    DEL=(-d "$ROOT_N")
-    if [ -n "$BOOT_N" ]; then
-        DEL+=(-d "$BOOT_N")
-    fi
-    echo "  removing partition(s): ${DEL[*]}"
-    sudo -n sgdisk "${DEL[@]}" "$DEV" >/dev/null
-    release_part "$DEV" "$ROOT_N"
-    if [ -n "$BOOT_N" ]; then
-        release_part "$DEV" "$BOOT_N"
-    fi
-    sudo -n partprobe "$DEV" 2>/dev/null || true
-    sleep 2
-
-    read -r RECOVERY_N _ < <(free_slots "$DEV" 2)
-    [ -n "$RECOVERY_N" ] || { echo "cannot find a free partition number" >&2; exit 1; }
-    echo "  creating recovery at sector $FIRST_START (slot $RECOVERY_N)"
-    sudo -n sgdisk \
-        -n "$RECOVERY_N:${FIRST_START}:+$RECOVERY_SIZE" \
-        -t "$RECOVERY_N:8300" -c "$RECOVERY_N:Ubuntu" \
-        "$DEV" >/dev/null
-    sudo -n partprobe "$DEV" 2>/dev/null || true
-    RECPART=$(partition_dev "$DEV" "$RECOVERY_N") || {
-        echo "recovery partition did not appear" >&2
-        exit 1
-    }
-    REC_START=$(gpt_part_start "$DEV" "$RECOVERY_N")
-    REC_BYTES=$(sudo -n blockdev --getsize64 "$RECPART")
-    WIN_START=$(( (REC_START + REC_BYTES / SECTOR_SIZE + 2047) / 2048 * 2048 ))
-
-    read -r WINDOWS_N < <(free_slots "$DEV" 1)
-    [ -n "$WINDOWS_N" ] || { echo "cannot find a free partition number" >&2; exit 1; }
-    echo "  creating Windows at sector $WIN_START (slot $WINDOWS_N)"
-    sudo -n sgdisk \
-        -n "$WINDOWS_N:${WIN_START}:0" \
-        -t "$WINDOWS_N:0700" -c "$WINDOWS_N:Windows" \
-        "$DEV" >/dev/null
-    sudo -n partprobe "$DEV" 2>/dev/null || true
-    WINPART=$(partition_dev "$DEV" "$WINDOWS_N") || {
-        echo "Windows partition did not appear" >&2
-        exit 1
-    }
-    WIN_START=$(gpt_part_start "$DEV" "$WINDOWS_N")
-
-    echo "  GPT:"
-    sudo -n sgdisk -p "$DEV" | sed -n '/^Number/,$p'
-
-    # The ESP must still be exactly where it was: same slot, type and start.
-    [ -n "$ESP_N" ] && [ -b "$ESPDEV" ] || { echo "the ESP disappeared" >&2; exit 1; }
-    [ "$(gpt_part_type "$DEV" "$ESP_N")" = "$ESP_GUID" ] || {
-        echo "the ESP type changed; refusing to overwrite it" >&2; exit 1; }
-    [ "$(gpt_part_start "$DEV" "$ESP_N")" = "$ESP_START" ] || {
-        echo "the ESP moved; refusing to overwrite it" >&2; exit 1; }
-    if [ -n "$ESP_PARTUUID" ]; then
-        NEW_ESP_PARTUUID=$(sudo -n blkid -s PARTUUID -o value "$ESPDEV" 2>/dev/null || true)
-        [ "$NEW_ESP_PARTUUID" = "$ESP_PARTUUID" ] || {
-            echo "the ESP PARTUUID changed; refusing to overwrite it" >&2; exit 1; }
-    fi
-
-    sudo -n wipefs -a "$RECPART" >/dev/null 2>&1 || true
-    sudo -n wipefs -a "$WINPART" >/dev/null 2>&1 || true
-    sudo -n mkfs.ext4 -F -L Ubuntu "$RECPART" >/dev/null
-    sudo -n mkntfs -f -F -L Windows -p "$WIN_START" -H 255 -S 63 "$WINPART" >/dev/null
-    echo "  formatted ($RECPART $RECOVERY_SIZE ext4, $WINPART NTFS from sector $WIN_START)"
-    echo "  ESP kept as $ESPDEV (partition $ESP_N)"
 elif [ "$FRESH_UBUNTU" = 1 ]; then
     echo "[3/6] erase the disk and create ESP + $RECOVERY_SIZE Ubuntu + Windows"
     [ "$RAW" = 1 ] || { echo "FRESH_UBUNTU needs a block device" >&2; exit 1; }
     TOTAL_BYTES=$(sudo -n blockdev --getsize64 "$DEV")
-    SECTOR_SIZE=$(sudo -n blockdev --getss "$DEV")
     NEED_BYTES=$(( $(size_bytes "$RECOVERY_SIZE") + 40 * 1024 * 1024 * 1024 ))
     if [ "$TOTAL_BYTES" -lt "$NEED_BYTES" ]; then
         echo "not enough space: Windows needs 40 GiB plus $RECOVERY_SIZE" >&2

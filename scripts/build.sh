@@ -15,15 +15,11 @@
 # Add --fresh-ubuntu to build a small Ubuntu recovery system on an empty (or
 # disposable) disk: p1=ESP (100 MiB), p2=Ubuntu (RECOVERY_SIZE, default 4G)
 # and p3=Windows (the rest).  Nothing from the old disk is reused, not even
-# the ESP.  When a saved netplan/SSH configuration exists in the staging
-# directory it is reused; otherwise the recovery system starts with defaults.
-#
-# Add --keep-ubuntu to keep the existing ESP on a disk that already has an
-# Ubuntu install (ESP shim/GRUB boots first, and its menu chainloads
-# Windows).  The old Ubuntu root is replaced by a fresh minimal install; its
-# netplan and SSH settings are copied over.
-# The ESP is found by GPT type, so the OCI ARM64 layout (p1=root, p13=BOOT,
-# p15=ESP) works as well as the older p1=ESP, p2=ubuntu layout.
+# the ESP.  Only the running Ubuntu's /etc/netplan/*.yaml and an
+# authorized_keys file are copied into the recovery system; passwords, user
+# accounts, SSH host keys and a staged configuration directory are not used.
+# --ubuntu-size SIZE changes that partition (default 4G) and is only valid
+# together with --fresh-ubuntu.
 #
 # Add --reuse-ubuntu instead when you already installed a small Ubuntu on
 # partition 2 and booted it: partition 2 is left alone and only the free
@@ -44,7 +40,7 @@
 #
 #   sudo env FROM_STEP=7 ./scripts/build.sh ... --yes
 #
-# Pass the same --fresh-ubuntu / --keep-ubuntu flags you started with.
+# Pass the same --fresh-ubuntu flag you started with.
 #
 # The target must not be the running root (except with --reuse-ubuntu).  Boot
 # the Ubuntu live ISO with `toram` first (scripts/prepare.sh).  Media that
@@ -78,7 +74,6 @@ DRIVERS=""
 IMAGE_INDEX=${IMAGE_INDEX:-1}
 MEM=${MEM:-6144}
 SMP=${SMP:-4}
-KEEP_UBUNTU=0
 REUSE_UBUNTU=${REUSE_UBUNTU:-0}
 FRESH_UBUNTU=${FRESH_UBUNTU:-0}
 UBUNTU_SIZE_SET=0
@@ -110,7 +105,6 @@ while [ $# -gt 0 ]; do
         --build-dir) BUILD_DIR=$2; shift 2 ;;
         --min-free-gb) MIN_FREE_GB=$2; shift 2 ;;
         --shm-size) SHM_SIZE=$2; shift 2 ;;
-        --keep-ubuntu) KEEP_UBUNTU=1; shift ;;
         --fresh-ubuntu) FRESH_UBUNTU=1; shift ;;
         --ubuntu-size) RECOVERY_SIZE=$2; UBUNTU_SIZE_SET=1; shift 2 ;;
         --reuse-ubuntu) REUSE_UBUNTU=1; shift ;;
@@ -126,14 +120,10 @@ while [ $# -gt 0 ]; do
     esac
 done
 
-# --ubuntu-size alone keeps the old meaning: resize the kept recovery system.
-# With --fresh-ubuntu it only changes the new partition's size.
-if [ "$UBUNTU_SIZE_SET" = 1 ] &&
-   [ "$KEEP_UBUNTU" != 1 ] && [ "$FRESH_UBUNTU" != 1 ]; then
-    KEEP_UBUNTU=1
-fi
-if [ "$FRESH_UBUNTU" = 1 ] && [ "$KEEP_UBUNTU" = 1 ]; then
-    echo "build: --fresh-ubuntu and --keep-ubuntu are mutually exclusive" >&2
+# --ubuntu-size only makes sense when a new recovery partition is created.
+if [ "$UBUNTU_SIZE_SET" = 1 ] && [ "$FRESH_UBUNTU" != 1 ]; then
+    echo "build: --ubuntu-size needs --fresh-ubuntu" >&2
+    echo "  --reuse-ubuntu leaves the existing Ubuntu partition unchanged" >&2
     exit 1
 fi
 
@@ -160,9 +150,9 @@ if [ "$BOOT_MENU" -gt 999 ]; then
     echo "build: --boot-menu must be 999 seconds or less" >&2
     exit 1
 fi
-if [ "$BOOT_MENU" -eq 0 ] && { [ "$KEEP_UBUNTU" = 1 ] || [ "$REUSE_UBUNTU" = 1 ] || [ "$FRESH_UBUNTU" = 1 ]; }; then
+if [ "$BOOT_MENU" -eq 0 ] && { [ "$REUSE_UBUNTU" = 1 ] || [ "$FRESH_UBUNTU" = 1 ]; }; then
     echo "build: --boot-menu 0 would hide the Ubuntu recovery entry." >&2
-    echo "  Use --boot-menu 1 (or more) with --fresh-ubuntu / --keep-ubuntu / --reuse-ubuntu." >&2
+    echo "  Use --boot-menu 1 (or more) with --fresh-ubuntu / --reuse-ubuntu." >&2
     exit 1
 fi
 case "$FROM_STEP" in
@@ -191,8 +181,8 @@ fi
 if [ "$FILE_TARGET" = 0 ]; then
     [ -b "$DISK" ] || { echo "build: $DISK is not a block device" >&2; exit 1; }
 fi
-if [ "$FILE_TARGET" = 1 ] && { [ "$KEEP_UBUNTU" = 1 ] || [ "$REUSE_UBUNTU" = 1 ] || [ "$FRESH_UBUNTU" = 1 ]; }; then
-    echo "build: --fresh-ubuntu, --keep-ubuntu and --reuse-ubuntu need a block device (--disk)" >&2
+if [ "$FILE_TARGET" = 1 ] && { [ "$REUSE_UBUNTU" = 1 ] || [ "$FRESH_UBUNTU" = 1 ]; }; then
+    echo "build: --fresh-ubuntu and --reuse-ubuntu need a block device (--disk)" >&2
     exit 1
 fi
 
@@ -308,8 +298,6 @@ fi
 UBUNTU_MODE="no (whole disk Windows)"
 if [ "$REUSE_UBUNTU" = 1 ]; then
     UBUNTU_MODE="reuse the installed p2"
-elif [ "$KEEP_UBUNTU" = 1 ]; then
-    UBUNTU_MODE="keep ${RECOVERY_SIZE} recovery system"
 elif [ "$FRESH_UBUNTU" = 1 ]; then
     UBUNTU_MODE="create ${RECOVERY_SIZE} recovery system (fresh disk)"
 fi
@@ -345,23 +333,13 @@ elif [ "$FROM_STEP" -ge 6 ]; then
   The existing partitions, the Windows image and the ESP are left as they
   are.  No partition is created or formatted by this run.
 EOF
-elif [ "$KEEP_UBUNTU" = 1 ]; then
-    cat <<EOF
-  The ESP stays.  The old Ubuntu root (and the OCI BOOT partition, if
-  present) is replaced by a ${RECOVERY_SIZE} ext4 recovery Ubuntu (fresh
-  minimal install) and the rest becomes Windows.  Existing partition
-  numbers are not assumed: the ESP is found by its GPT type and the new
-  partitions use the next free numbers.  Its netplan and SSH settings are
-  copied from the current Ubuntu before it is erased.
-  EVERYTHING ELSE ON $DISK WILL BE DESTROYED.
-EOF
 elif [ "$FRESH_UBUNTU" = 1 ]; then
     cat <<EOF
   The disk is repartitioned from scratch, including a new 100 MiB ESP:
   p1=ESP, p2=${RECOVERY_SIZE} ext4 recovery Ubuntu, p3=Windows (the rest).
-  The old partition table is erased.  If a saved netplan/SSH configuration
-  already exists in the staging directory it is reused; otherwise the
-  recovery Ubuntu starts with defaults.
+  The old partition table is erased.  The recovery Ubuntu copies only
+  /etc/netplan/*.yaml and an authorized_keys file from the Ubuntu running
+  this build; everything else is fresh.
   ALL DATA ON $DISK WILL BE DESTROYED.
 EOF
 elif [ "$FILE_TARGET" = 1 ]; then
@@ -470,7 +448,7 @@ fi
 export DISK
 export ISO
 export IMAGE_INDEX MEM SMP SIZE
-export KEEP_UBUNTU RECOVERY_SIZE REUSE_UBUNTU FRESH_UBUNTU
+export RECOVERY_SIZE REUSE_UBUNTU FRESH_UBUNTU
 export BOOT_MENU_TIMEOUT="$BOOT_MENU"
 export FROM_STEP
 export SHM_SIZE
@@ -492,13 +470,7 @@ cat <<EOF
 $DISK now contains Windows 11 ARM64.
 EOF
 
-if [ "$KEEP_UBUNTU" = 1 ]; then
-    cat <<EOF
-The ${RECOVERY_SIZE} recovery Ubuntu is installed on the same disk.  The
-GRUB menu shows "Ubuntu (recovery)" next to "Windows 11" (${BOOT_MENU}
-second timeout, Windows 11 is the default).
-EOF
-elif [ "$FRESH_UBUNTU" = 1 ]; then
+if [ "$FRESH_UBUNTU" = 1 ]; then
     cat <<EOF
 A new ESP (p1) and a ${RECOVERY_SIZE} recovery Ubuntu (p2) are installed on
 the same disk; Windows is p3.  The GRUB menu shows "Ubuntu (recovery)" next

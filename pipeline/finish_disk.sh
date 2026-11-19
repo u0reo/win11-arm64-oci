@@ -2,7 +2,7 @@
 # Patch the installed ESP's Windows boot manager for OCI A1 and verify the
 # GRUB first-loader layout.  QEMU must be stopped first.
 #
-# GRUB is the first loader in Ubuntu-kept builds: \EFI\Boot\BOOTAA64.EFI is
+# GRUB is the first loader in dual-boot builds: \EFI\Boot\BOOTAA64.EFI is
 # the signed Ubuntu shim and \EFI\Boot\grubaa64.efi is GRUB.  GRUB chainloads
 # \EFI\Microsoft\Boot\bootmgfw.efi, so only that copy needs the OCI A1 patch
 # there.  A Windows-only build keeps a second bootmgfw copy at

@@ -108,8 +108,10 @@ gh workflow run build-image.yml \
 ```
 
 ブロックデバイスへ直接書く場合は `-f disk=/dev/sdb` を渡します（消去されます）。
-ブートメニューをシリアルと VNC に出す場合は `-f boot_menu=5` を足します
-（既定は 1 秒、0 で非表示）。ARM64 の Windows は EMS/SAC 非対応です。
+Windows と 4 GiB の復旧 Ubuntu を新規作成する場合は、さらに
+`-f fresh_ubuntu=true` を足します（ブロックデバイスが必要です）。ブートメニューを
+シリアルと VNC に出す場合は `-f boot_menu=5` を足します（既定は 1 秒、0 で
+非表示）。ARM64 の Windows は EMS/SAC 非対応です。
 `release` environment の承認後、runner 上でビルドが始まります。
 TCG の場合、数時間かかることがあります。
 

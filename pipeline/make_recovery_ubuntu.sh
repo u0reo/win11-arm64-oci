@@ -2,23 +2,26 @@
 # Install a small Ubuntu Server (recovery only) into the ext4 recovery
 # partition created by host_apply.sh.
 #
-#   sudo ./pipeline/make_recovery_ubuntu.sh /dev/sdb build/ubuntu-config
+#   sudo ./pipeline/make_recovery_ubuntu.sh /dev/sdb
 #
 # The recovery partition must already exist and be formatted ext4
-# (host_apply.sh does that in FRESH_UBUNTU/KEEP_UBUNTU mode).  Both it and
-# the ESP are found by their GPT type, so the stock OCI layout (p15=ESP,
-# p13=BOOT, p1=root), the fresh p1=ESP/p2=Ubuntu/p3=Windows layout and the
-# older p1=ESP, p2=root layout all work.  The ESP is left untouched apart
-# from the GRUB files, which land in \EFI\ubuntu.  In the offline path the
-# signed shim (shimaa64.efi) is installed there too, so finish_winpe.sh can
-# make \EFI\Boot\BOOTAA64.EFI a shim that starts signed GRUB.
+# (host_apply.sh does that in FRESH_UBUNTU mode).  Both it and the ESP are
+# found by their GPT type.  The ESP is left untouched apart from the GRUB
+# files, which land in \EFI\ubuntu.  In the offline path the signed shim
+# (shimaa64.efi) is installed there too, so finish_winpe.sh can make
+# \EFI\Boot\BOOTAA64.EFI a shim that starts signed GRUB.
 #
 # The point is a login you can fall back to when Windows misbehaves, so the
 # network install is deliberately minimal: no snapd, no cloud-init, no
 # firmware.  The offline path reuses the ISO's minimal server rootfs, which
-# already carries those files.  The netplan and SSH configuration saved by
-# save_ubuntu_config.sh is copied in, so the same keys and the same DHCP
-# setup work.
+# already carries those files.
+#
+# Only two things are taken from the Ubuntu that runs this build:
+#   - /etc/netplan/*.yaml
+#   - an authorized_keys file (the ubuntu user first, then /home/*, then
+#     /root)
+# Password hashes, user accounts, SSH host keys and sudoers are not copied;
+# the recovery system gets a new ubuntu account with a generated password.
 #
 # Two installers are supported:
 #
@@ -38,8 +41,7 @@ set -euo pipefail
 HERE=$(cd "$(dirname "$0")" && pwd)
 # shellcheck source=partitions.sh
 . "$HERE/partitions.sh"
-DISK=${1:?usage: $0 <disk> <config-dir>}
-CONFIG=${2:?usage: $0 <disk> <config-dir>}
+DISK=${1:?usage: $0 <disk>}
 
 MIRROR=${MIRROR:-http://ports.ubuntu.com/ubuntu-ports}
 RELEASE=${RELEASE:-}
@@ -52,7 +54,6 @@ GRUB_MODULES_DEB=${GRUB_MODULES_DEB:-}
 SHIM_SIGNED_DEB=${SHIM_SIGNED_DEB:-}
 
 [ -b "$DISK" ] || { echo "recovery: $DISK is not a block device" >&2; exit 1; }
-[ -d "$CONFIG" ] || { echo "recovery: missing config dir $CONFIG" >&2; exit 1; }
 
 if [ "$OFFLINE" = auto ]; then
     if [ -n "$SQUASHFS" ] || compgen -G '/cdrom/casper/*.squashfs' >/dev/null; then
@@ -127,7 +128,7 @@ ROOTDEV=$(find_ubuntu_root "$DISK")
 }
 
 if [ -z "$RELEASE" ]; then
-    for f in "$CONFIG/etc/os-release" "$CONFIG/usr/lib/os-release"; do
+    for f in /etc/os-release /usr/lib/os-release; do
         [ -f "$f" ] || continue
         RELEASE=$(sed -n 's/^VERSION_CODENAME=//p' "$f" | tr -d '"' | head -1)
         [ -n "$RELEASE" ] && break
@@ -179,7 +180,7 @@ if [ "$OFFLINE" = 1 ]; then
     # is already there (normally only lost+found).  -xattrs keeps file
     # capabilities such as ping's.
     "${SUDO[@]}" unsquashfs -no-progress -xattrs -f -d "$MNT" "$SQUASHFS"
-    if [ -z "$RELEASE" ] && [ -f "$MNT/etc/os-release" ]; then
+    if [ -f "$MNT/etc/os-release" ]; then
         RELEASE=$(sed -n 's/^VERSION_CODENAME=//p' "$MNT/etc/os-release" | tr -d '"' | head -1)
     fi
     RELEASE=${RELEASE:-resolute}
@@ -339,72 +340,48 @@ EOF
     run update-grub || echo "  WARN: update-grub failed"
 fi
 
-echo "[4/6] hostname, timezone, accounts"
-for f in hostname hosts timezone localtime; do
-    [ -e "$CONFIG/etc/$f" ] && "${SUDO[@]}" cp -a "$CONFIG/etc/$f" "$MNT/etc/$f"
-done
-if [ ! -e "$CONFIG/etc/timezone" ]; then
+echo "[4/6] create the ubuntu account and install authorized_keys"
+[ -e "$MNT/etc/localtime" ] || \
     "${SUDO[@]}" ln -sf /usr/share/zoneinfo/UTC "$MNT/etc/localtime"
+
+PASSWORD_GENERATED=0
+if [ -z "$RECOVERY_PASSWORD" ]; then
+    # head closes the pipe early, so swallow the SIGPIPE status.
+    RECOVERY_PASSWORD=$( (tr -dc 'A-Za-z0-9' </dev/urandom | head -c 16) || true )
+    PASSWORD_GENERATED=1
 fi
-
-if [ -f "$CONFIG/etc/group" ]; then
-    for g in $(awk -F: '$3>=1000 && $3<60000 {print $1}' "$CONFIG/etc/group"); do
-        run groupadd -f -g "$(awk -F: -v n="$g" '$1==n{print $3}' "$CONFIG/etc/group")" "$g" || true
-    done
-fi
-
-CREATED=""
-[ -f "$CONFIG/etc/passwd" ] || echo "  WARN: no saved passwd; no accounts to copy"
-while IFS=: read -r name _ uid gid gecos home shell; do
-    [ "$uid" -ge 1000 ] 2>/dev/null || continue
-    [ "$uid" -lt 60000 ] || continue
-    case "$shell" in */nologin|*/false) continue ;; esac
-    if ! run id -u "$name" >/dev/null 2>&1; then
-        run useradd -u "$uid" -g "$gid" -m -d "$home" -s "$shell" -c "$gecos" "$name" || continue
-    fi
-    hash=$(awk -F: -v n="$name" '$1==n{print $2}' "$CONFIG/etc/shadow" 2>/dev/null || true)
-    if [ -n "$hash" ] && [ "$hash" != "!" ] && [ "$hash" != "*" ]; then
-        run usermod -p "$hash" "$name" || true
-    fi
-    run usermod -aG sudo "$name" || true
-    target_uid=$(run id -u "$name" 2>/dev/null || echo "$uid")
-    target_gid=$(run id -g "$name" 2>/dev/null || echo "$gid")
-    if [ -f "$CONFIG/users/$name.authorized_keys" ]; then
-        "${SUDO[@]}" install -d -m 700 -o "$target_uid" -g "$target_gid" "$MNT$home/.ssh"
-        "${SUDO[@]}" install -m 600 -o "$target_uid" -g "$target_gid" \
-            "$CONFIG/users/$name.authorized_keys" "$MNT$home/.ssh/authorized_keys"
-    fi
-    CREATED="$CREATED $name"
-done < <(cat "$CONFIG/etc/passwd" 2>/dev/null || true)
-
-if [ -f "$CONFIG/users/root.authorized_keys" ]; then
-    "${SUDO[@]}" install -d -m 700 -o 0 -g 0 "$MNT/root/.ssh"
-    "${SUDO[@]}" install -m 600 -o 0 -g 0 \
-        "$CONFIG/users/root.authorized_keys" "$MNT/root/.ssh/authorized_keys"
-fi
-
-if [ -d "$CONFIG/etc/sudoers.d" ]; then
-    "${SUDO[@]}" cp -a "$CONFIG/etc/sudoers.d/." "$MNT/etc/sudoers.d/" 2>/dev/null || true
-    "${SUDO[@]}" chown -R root:root "$MNT/etc/sudoers.d"
-    "${SUDO[@]}" chmod 0440 "$MNT"/etc/sudoers.d/* 2>/dev/null || true
-fi
-
-if [ -z "$CREATED" ]; then
-    if [ -z "$RECOVERY_PASSWORD" ]; then
-        # head closes the pipe early, so swallow the SIGPIPE status.
-        RECOVERY_PASSWORD=$( (tr -dc 'A-Za-z0-9' </dev/urandom | head -c 16) || true )
-        echo "  note: no account could be copied; created 'ubuntu' with a random password"
-    fi
+if run id -u ubuntu >/dev/null 2>&1; then
+    run usermod -aG sudo ubuntu
+else
     run useradd -m -s /bin/bash -G sudo ubuntu
-    echo "ubuntu:$RECOVERY_PASSWORD" | "${SUDO[@]}" chroot "$MNT" chpasswd
-    CREATED=" ubuntu"
+fi
+echo "ubuntu:$RECOVERY_PASSWORD" | "${SUDO[@]}" chroot "$MNT" chpasswd
+CREATED=" ubuntu"
+
+KEY_SRC=""
+for f in /home/ubuntu/.ssh/authorized_keys /home/*/.ssh/authorized_keys /root/.ssh/authorized_keys; do
+    "${SUDO[@]}" test -s "$f" || continue
+    KEY_SRC=$f
+    break
+done
+if [ -n "$KEY_SRC" ]; then
+    TARGET_UID=$(run id -u ubuntu)
+    TARGET_GID=$(run id -g ubuntu)
+    "${SUDO[@]}" install -d -m 700 -o "$TARGET_UID" -g "$TARGET_GID" \
+        "$MNT/home/ubuntu/.ssh"
+    "${SUDO[@]}" install -m 600 -o "$TARGET_UID" -g "$TARGET_GID" \
+        "$KEY_SRC" "$MNT/home/ubuntu/.ssh/authorized_keys"
+    echo "  authorized_keys from $KEY_SRC"
+else
+    echo "  WARN: no non-empty authorized_keys found; use the password above" >&2
 fi
 
 echo "[5/6] netplan, SSH, fstab"
 "${SUDO[@]}" mkdir -p "$MNT/etc/netplan"
-if compgen -G "$CONFIG/netplan/*.yaml" >/dev/null; then
-    "${SUDO[@]}" cp -a "$CONFIG"/netplan/*.yaml "$MNT/etc/netplan/"
-    echo "  copied $(ls -1 "$CONFIG"/netplan/*.yaml | wc -l) netplan file(s)"
+"${SUDO[@]}" rm -f "$MNT"/etc/netplan/*.yaml
+if compgen -G '/etc/netplan/*.yaml' >/dev/null; then
+    "${SUDO[@]}" cp -a /etc/netplan/*.yaml "$MNT/etc/netplan/"
+    echo "  copied $(ls -1 /etc/netplan/*.yaml | wc -l) netplan file(s) from /etc/netplan"
 else
     "${SUDO[@]}" tee "$MNT/etc/netplan/01-recovery.yaml" >/dev/null <<'EOF'
 network:
@@ -416,22 +393,13 @@ network:
       dhcp4: true
       dhcp6: false
 EOF
-    echo "  no saved netplan; wrote a DHCP match for en*"
+    echo "  no netplan on the running system; wrote a DHCP match for en*"
 fi
 "${SUDO[@]}" chmod 600 "$MNT"/etc/netplan/*.yaml
 
-if [ -f "$CONFIG/ssh/sshd_config" ]; then
-    "${SUDO[@]}" cp -a "$CONFIG/ssh/sshd_config" "$MNT/etc/ssh/sshd_config"
-fi
-if [ -d "$CONFIG/ssh/sshd_config.d" ]; then
-    "${SUDO[@]}" cp -a "$CONFIG/ssh/sshd_config.d/." "$MNT/etc/ssh/sshd_config.d/"
-fi
-if compgen -G "$CONFIG/ssh/hostkeys/*" >/dev/null; then
-    "${SUDO[@]}" cp -a "$CONFIG"/ssh/hostkeys/. "$MNT/etc/ssh/"
-    "${SUDO[@]}" chmod 600 "$MNT"/etc/ssh/ssh_host_*_key 2>/dev/null || true
-    "${SUDO[@]}" chmod 644 "$MNT"/etc/ssh/ssh_host_*_key.pub 2>/dev/null || true
-    echo "  reused the SSH host keys"
-fi
+# New host keys on first boot are expected: this is a fresh recovery system,
+# not a copy of the machine that ran the build.
+run ssh-keygen -A >/dev/null 2>&1 || echo "  WARN: ssh-keygen -A failed" >&2
 
 run systemctl enable systemd-networkd >/dev/null 2>&1 || true
 run systemctl enable ssh >/dev/null 2>&1 || true
@@ -466,5 +434,11 @@ fi
 echo
 echo "OK: recovery Ubuntu installed on $ROOTDEV"
 echo "    accounts:$CREATED"
-[ -n "$RECOVERY_PASSWORD" ] && echo "    password for ubuntu: $RECOVERY_PASSWORD"
+if [ -n "$KEY_SRC" ]; then
+    echo "    SSH: ubuntu with authorized_keys from $KEY_SRC"
+else
+    echo "    SSH: no authorized_keys; use the serial console"
+fi
+[ "$PASSWORD_GENERATED" = 1 ] && \
+    echo "    generated password for ubuntu: $RECOVERY_PASSWORD"
 echo "    GRUB is the first loader; Windows 11 is chainloaded from it"

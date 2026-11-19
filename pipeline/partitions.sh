@@ -13,7 +13,6 @@
 # such loops must call cleanup_part_loops from their EXIT trap.
 
 ESP_GUID=c12a7328-f81f-11d2-ba4b-00a0c93ec93b
-LINUX_BOOT_GUID=bc13c2ff-59e6-4262-a352-b275fd6f7172
 WINDOWS_GUID=ebd0a0a2-b9e5-4433-87c0-68b6b72699c7
 
 # /dev/sda -> /dev/sda1, /dev/nvme0n1 -> /dev/nvme0n1p1
@@ -101,36 +100,6 @@ gpt_part_type() {
 : "${PART_LOOP_CACHE:=$(mktemp /tmp/part-loops.XXXXXX)}"
 export PART_LOOP_CACHE
 
-# Detach the fallback loops for one disk and forget them.  Used after the
-# GPT entries have been deleted/recreated, so an old loop cannot be reused.
-release_part_disk() {
-    local disk=$1 d n dev
-    [ -s "$PART_LOOP_CACHE" ] || return 0
-    while read -r d n dev; do
-        [ "$d" = "$disk" ] || continue
-        case "$dev" in
-            /dev/loop*) sudo -n losetup -d "$dev" 2>/dev/null || true ;;
-        esac
-    done < "$PART_LOOP_CACHE"
-    awk -v d="$disk" '$1 != d' "$PART_LOOP_CACHE" > "$PART_LOOP_CACHE.new"
-    mv "$PART_LOOP_CACHE.new" "$PART_LOOP_CACHE"
-}
-
-# Detach the fallback loop for one partition and forget it.  Used after a
-# GPT entry has been deleted/recreated.
-release_part() {
-    local disk=$1 num=$2 dev
-    [ -s "$PART_LOOP_CACHE" ] || return 0
-    dev=$(awk -v d="$disk" -v n="$num" '$1 == d && $2 == n { print $3; exit }' \
-        "$PART_LOOP_CACHE")
-    case "$dev" in
-        /dev/loop*) sudo -n losetup -d "$dev" 2>/dev/null || true ;;
-    esac
-    awk -v d="$disk" -v n="$num" '!($1 == d && $2 == n)' \
-        "$PART_LOOP_CACHE" > "$PART_LOOP_CACHE.new"
-    mv "$PART_LOOP_CACHE.new" "$PART_LOOP_CACHE"
-}
-
 cleanup_part_loops() {
     local _d _n dev
     [ -s "$PART_LOOP_CACHE" ] || { rm -f "$PART_LOOP_CACHE" 2>/dev/null; return 0; }
@@ -183,21 +152,6 @@ partition_dev() {
     printf '%s\n' "$loop"
 }
 
-# Partition number for a device returned by partition_dev.  Fallback loops
-# are remembered in the cache; ordinary loop partitions (e.g. a test image)
-# fall through to sysfs like any other block device.
-dev_part_num() {
-    local dev=$1 n
-    if [ -s "$PART_LOOP_CACHE" ]; then
-        n=$(awk -v d="$dev" '$3 == d { print $2; exit }' "$PART_LOOP_CACHE")
-        if [ -n "$n" ]; then
-            printf '%s\n' "$n"
-            return 0
-        fi
-    fi
-    part_number "$dev"
-}
-
 # ---------------------------------------------------------------------------
 # Partition discovery by GPT type.
 # ---------------------------------------------------------------------------
@@ -240,17 +194,6 @@ find_ubuntu_root() {
         fi
     done
     [ -n "$best" ] && printf '%s\n' "$best"
-    return 0
-}
-
-# The separate /boot partition used by the stock OCI ARM64 image.
-find_linux_boot() {
-    local disk=$1 n
-    for n in $(gpt_part_numbers "$disk"); do
-        if [ "$(gpt_part_type "$disk" "$n")" = "$LINUX_BOOT_GUID" ]; then
-            partition_dev "$disk" "$n" && return 0
-        fi
-    done
     return 0
 }
 

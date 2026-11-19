@@ -22,8 +22,8 @@
 # are still on /dev/sda.  The live ISO itself must already be in RAM (toram).
 #
 # Add --fresh-ubuntu to that command for a 4 GiB recovery Ubuntu with a new
-# ESP, --keep-ubuntu to keep the existing ESP, or leave it out for Windows
-# only.
+# ESP, or leave it out for Windows only.  The recovery system copies only
+# /etc/netplan/*.yaml and authorized_keys from the running live system.
 #
 # --ssh        write a cloud-init seed (user-data + meta-data) to the ESP and
 #             label the ESP `CIDATA`.  The live session then creates the user
@@ -432,7 +432,9 @@ Windows plus a 4 GiB recovery Ubuntu (new ESP):
     --iso /dev/shm/iso/Win11_ARM64_26H2.iso \
     --virtio /dev/shm/iso/virtio-win.iso --mem 6144 --yes
 
-Use --keep-ubuntu instead of --fresh-ubuntu to preserve the existing ESP.
+The recovery Ubuntu copies /etc/netplan and authorized_keys from this live
+session (with --ssh, the keys seeded into the ESP).  No other account or SSH
+settings are copied.
 
 The staging directory defaults to /dev/shm/build.
 --virtio also accepts virtio-win-*.noarch.rpm (283 MiB instead of 837 MiB).

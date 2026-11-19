@@ -131,7 +131,8 @@ SHIM="$ESP/EFI/ubuntu/shimaa64.efi"
 [ -f "$BOOTMGR" ] || { echo "missing $BOOTMGR" >&2; exit 1; }
 
 # The old Windows Boot Manager bootapp entry cannot work on ARM64.  Remove it
-# whether or not Ubuntu is kept, so the Windows menu never offers it.
+# whether or not a recovery Ubuntu is included, so the Windows menu never
+# offers it.
 if ! sudo -n python3 "$HERE/bcd_remove_ubuntu.py" "$BCD"; then
     echo "could not clean the BCD" >&2
     exit 1
