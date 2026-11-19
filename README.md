@@ -299,6 +299,9 @@ sudo ./scripts/build.sh --boot-menu 5 --disk /dev/sdb \
 空のディスクから、ESP ごと新しく作って Windows と 4 GiB の Ubuntu 復旧環境を
 入れる場合は `--fresh-ubuntu` を足します。既存の ESP は使わず、
 `p1=ESP (100 MiB)`、`p2=Ubuntu (4 GiB)`、`p3=Windows (残り)` を新規作成します。
+`--winre-partition` を足すと、Windows の回復用に `p4`（NTFS、既定 1 GiB）も
+最初から作ります。この場合は約 45 GiB（Windows 40 GiB + Ubuntu 4 GiB +
+WinRE 1 GiB）以上のディスクが必要です。
 
 ```bash
 sudo ./scripts/build.sh --fresh-ubuntu --ubuntu-size 4G --disk /dev/sdb \
@@ -311,6 +314,20 @@ sudo ./scripts/build.sh --fresh-ubuntu --ubuntu-size 4G --disk /dev/sdb \
 ハッシュ、ユーザーアカウント、SSH ホスト鍵、`sudoers` はコピーしません。
 `ubuntu` ユーザーを新規作成し、ランダムなパスワードをビルドログのステップ6に
 表示します。`--ubuntu-size` は `--fresh-ubuntu` と一緒にだけ使えます。
+
+専用の Windows RE パーティションも作る場合は、`--fresh-ubuntu` に
+`--winre-partition` を足します。サイズは `--winre-size 1G` で変更できます
+（最小 1 GiB。`Winre.wim` が約 795 MB あるため）。Windows の specialize が
+WinRE を `p4` にインストールし、OEM のスクリプトが実際の配置を確認して、
+まだ C: にある場合だけ `reagentc` で `p4` へ移します。移動できなかった場合は
+C: の WinRE を有効なまま残してビルドを続け、`pipeline/inspect_image.sh` が
+実際の配置を表示します。
+
+```bash
+sudo ./scripts/build.sh --fresh-ubuntu --winre-partition --disk /dev/sdb \
+  --iso /dev/shm/iso/Win11_ARM64_26H2.iso \
+  --virtio /dev/shm/iso/virtio-win.iso --yes
+```
 
 パーティション構成、起動メニュー、`--reuse-ubuntu` は
 [docs/DUALBOOT.md](docs/DUALBOOT.md) を参照してください。

@@ -39,6 +39,18 @@ dns=169.254.169.254,1.1.1.1
 "@ | Out-File -Encoding ascii "$Oem\net.cfg"
 }
 
+# Move Windows RE to the dedicated partition created by host_apply.sh.
+# Windows setup's own WinRE specialize pass usually installs it on the
+# type-2700 partition before this command runs; winre.ps1 verifies that
+# and falls back to reagentc when WinRE is still on C:.
+if (Test-Path "$Oem\winre-part.txt") {
+    & powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$Oem\winre.ps1" 2>&1 |
+        Out-File -Append -Encoding ascii $Log
+    Log ("winre-script rc=" + $LASTEXITCODE)
+} else {
+    Log "winre-script-skip (no dedicated partition)"
+}
+
 # Built-in Administrator: same credential as the normal account.
 & net.exe user Administrator $Pw 2>&1 | Out-File -Append -Encoding ascii $Log
 & net.exe user Administrator /active:yes 2>&1 | Out-File -Append -Encoding ascii $Log

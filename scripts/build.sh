@@ -21,6 +21,13 @@
 # --ubuntu-size SIZE changes that partition (default 4G) and is only valid
 # together with --fresh-ubuntu.
 #
+# Add --winre-partition to leave room for a dedicated Windows RE partition
+# (p4, WINRE_SIZE, default 1G) after Windows.  It needs --fresh-ubuntu.
+# --winre-size SIZE changes that partition (minimum 1G) and needs
+# --winre-partition.  The Windows specialize pass moves WinRE from C: to p4
+# with reagentc; if that fails, the build reports it and leaves the working
+# WinRE on C:.
+#
 # Add --reuse-ubuntu instead when you already installed a small Ubuntu on
 # partition 2 and booted it: partition 2 is left alone and only the free
 # space is used for Windows.  This is the only mode that tolerates the
@@ -78,6 +85,9 @@ REUSE_UBUNTU=${REUSE_UBUNTU:-0}
 FRESH_UBUNTU=${FRESH_UBUNTU:-0}
 UBUNTU_SIZE_SET=0
 RECOVERY_SIZE=${RECOVERY_SIZE:-4G}
+WINRE_PARTITION=${WINRE_PARTITION:-0}
+WINRE_SIZE=${WINRE_SIZE:-1G}
+WINRE_SIZE_SET=0
 BOOT_MENU=${BOOT_MENU_TIMEOUT:-}
 FROM_STEP=${FROM_STEP:-0}
 BUILD_DIR=${BUILD_DIR:-}
@@ -107,6 +117,8 @@ while [ $# -gt 0 ]; do
         --shm-size) SHM_SIZE=$2; shift 2 ;;
         --fresh-ubuntu) FRESH_UBUNTU=1; shift ;;
         --ubuntu-size) RECOVERY_SIZE=$2; UBUNTU_SIZE_SET=1; shift 2 ;;
+        --winre-partition) WINRE_PARTITION=1; shift ;;
+        --winre-size) WINRE_SIZE=$2; WINRE_SIZE_SET=1; shift 2 ;;
         --reuse-ubuntu) REUSE_UBUNTU=1; shift ;;
         --boot-menu) BOOT_MENU=$2; shift 2 ;;
         --to-ram)
@@ -125,6 +137,36 @@ if [ "$UBUNTU_SIZE_SET" = 1 ] && [ "$FRESH_UBUNTU" != 1 ]; then
     echo "build: --ubuntu-size needs --fresh-ubuntu" >&2
     echo "  --reuse-ubuntu leaves the existing Ubuntu partition unchanged" >&2
     exit 1
+fi
+
+size_bytes() {
+    case "$1" in
+        *[Kk]) awk -v n="${1%[Kk]}" 'BEGIN{printf "%.0f", n*1024}' ;;
+        *[Mm]) awk -v n="${1%[Mm]}" 'BEGIN{printf "%.0f", n*1024*1024}' ;;
+        *[Gg]) awk -v n="${1%[Gg]}" 'BEGIN{printf "%.0f", n*1024*1024*1024}' ;;
+        *[Tt]) awk -v n="${1%[Tt]}" 'BEGIN{printf "%.0f", n*1024*1024*1024*1024}' ;;
+        *) printf '%s\n' "$1" ;;
+    esac
+}
+
+if [ "$WINRE_SIZE_SET" = 1 ] && [ "$WINRE_PARTITION" != 1 ]; then
+    echo "build: --winre-size needs --winre-partition" >&2
+    exit 1
+fi
+if [ "$WINRE_PARTITION" = 1 ] && [ "$FRESH_UBUNTU" != 1 ]; then
+    echo "build: --winre-partition needs --fresh-ubuntu" >&2
+    echo "  a dedicated Windows RE partition is only created by the fresh layout" >&2
+    exit 1
+fi
+if [ "$WINRE_PARTITION" = 1 ]; then
+    if [[ ! ${WINRE_SIZE:-} =~ ^[0-9]+([KkMmGgTt])?$ ]]; then
+        echo "build: --winre-size must look like 1G, 1024M or a byte count" >&2
+        exit 1
+    fi
+    if [ "$(size_bytes "$WINRE_SIZE")" -lt $((1024 * 1024 * 1024)) ]; then
+        echo "build: --winre-size must be at least 1G (Winre.wim is about 795 MB)" >&2
+        exit 1
+    fi
 fi
 
 valid_shm_size "$SHM_SIZE" || {
@@ -281,8 +323,16 @@ SERIAL=""
 if [ "$FILE_TARGET" = 0 ]; then
     SIZE_BYTES=$(blockdev --getsize64 "$DISK")
     SIZE_GB=$(( SIZE_BYTES / 1024 / 1024 / 1024 ))
-    if [ "$SIZE_GB" -lt 40 ]; then
-        echo "build: $DISK is only ${SIZE_GB} GiB; Windows needs at least 40" >&2
+    MIN_BYTES=$(( 40 * 1024 * 1024 * 1024 ))
+    if [ "$FRESH_UBUNTU" = 1 ]; then
+        MIN_BYTES=$(( MIN_BYTES + $(size_bytes "$RECOVERY_SIZE") ))
+    fi
+    if [ "$WINRE_PARTITION" = 1 ]; then
+        MIN_BYTES=$(( MIN_BYTES + $(size_bytes "$WINRE_SIZE") ))
+    fi
+    if [ "$SIZE_BYTES" -lt "$MIN_BYTES" ]; then
+        MIN_GB=$(( (MIN_BYTES + 1024 * 1024 * 1024 - 1) / 1024 / 1024 / 1024 ))
+        echo "build: $DISK is only ${SIZE_GB} GiB; this layout needs at least ${MIN_GB} GiB" >&2
         exit 1
     fi
     SIZE_TEXT="${SIZE_GB} GiB"
@@ -301,6 +351,10 @@ if [ "$REUSE_UBUNTU" = 1 ]; then
 elif [ "$FRESH_UBUNTU" = 1 ]; then
     UBUNTU_MODE="create ${RECOVERY_SIZE} recovery system (fresh disk)"
 fi
+WINRE_MODE="no (Windows RE stays on C:)"
+if [ "$WINRE_PARTITION" = 1 ]; then
+    WINRE_MODE="yes (p4 ${WINRE_SIZE}, Windows RE)"
+fi
 
 cat <<EOF
 
@@ -317,6 +371,7 @@ cat <<EOF
   serial   ttyAMA0 (GRUB/Ubuntu; Windows has no EMS/SAC)
   bootmenu $([ "$BOOT_MENU" = 0 ] && echo 'off' || echo "${BOOT_MENU}s (serial + VNC)")
   ubuntu   $UBUNTU_MODE
+  winre    $WINRE_MODE
 
 EOF
 
@@ -336,7 +391,16 @@ EOF
 elif [ "$FRESH_UBUNTU" = 1 ]; then
     cat <<EOF
   The disk is repartitioned from scratch, including a new 100 MiB ESP:
-  p1=ESP, p2=${RECOVERY_SIZE} ext4 recovery Ubuntu, p3=Windows (the rest).
+  p1=ESP, p2=${RECOVERY_SIZE} ext4 recovery Ubuntu,
+  p3=Windows (the rest$([ "$WINRE_PARTITION" = 1 ] && echo " minus ${WINRE_SIZE} for Windows RE")).
+EOF
+    if [ "$WINRE_PARTITION" = 1 ]; then
+        cat <<EOF
+  p4=${WINRE_SIZE} NTFS Windows RE.  The Windows specialize pass moves
+  Winre.wim from C: to p4; if reagentc fails, WinRE stays on C:.
+EOF
+    fi
+    cat <<EOF
   The old partition table is erased.  The recovery Ubuntu copies only
   /etc/netplan/*.yaml and an authorized_keys file from the Ubuntu running
   this build; everything else is fresh.
@@ -449,6 +513,7 @@ export DISK
 export ISO
 export IMAGE_INDEX MEM SMP SIZE
 export RECOVERY_SIZE REUSE_UBUNTU FRESH_UBUNTU
+export WINRE_PARTITION WINRE_SIZE
 export BOOT_MENU_TIMEOUT="$BOOT_MENU"
 export FROM_STEP
 export SHM_SIZE
@@ -476,6 +541,13 @@ A new ESP (p1) and a ${RECOVERY_SIZE} recovery Ubuntu (p2) are installed on
 the same disk; Windows is p3.  The GRUB menu shows "Ubuntu (recovery)" next
 to "Windows 11" (${BOOT_MENU} second timeout, Windows 11 is the default).
 EOF
+    if [ "$WINRE_PARTITION" = 1 ]; then
+        cat <<EOF
+A ${WINRE_SIZE} Windows RE partition is p4.  Check that the build moved
+Winre.wim there (pipeline/inspect_image.sh); if it did not, Windows RE is
+still working from C:.
+EOF
+    fi
 elif [ "$REUSE_UBUNTU" = 1 ]; then
     cat <<EOF
 The installed Ubuntu on partition 2 is untouched.  The GRUB menu should

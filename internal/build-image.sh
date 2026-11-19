@@ -29,6 +29,10 @@
 #                        system copies /etc/netplan/*.yaml and an
 #                        authorized_keys file from the running Ubuntu.
 #   RECOVERY_SIZE=4G     size of that recovery partition
+#   WINRE_PARTITION=1    leave WINRE_SIZE at the end of the disk for a
+#                        dedicated Windows RE partition (p4).  Needs
+#                        FRESH_UBUNTU=1.
+#   WINRE_SIZE=1G        size of the Windows RE partition (minimum 1G)
 #   REUSE_UBUNTU=1       p2 is an installed Ubuntu; only use the free space
 #   BOOT_MENU_TIMEOUT=1  seconds to show the boot menu (0 = off).  GRUB when
 #                        a recovery Ubuntu is included, otherwise Windows
@@ -67,6 +71,8 @@ DISK=${DISK:-$ROOT/build/win11-arm64.qcow2}
 REUSE_UBUNTU=${REUSE_UBUNTU:-0}
 FRESH_UBUNTU=${FRESH_UBUNTU:-0}
 RECOVERY_SIZE=${RECOVERY_SIZE:-4G}
+WINRE_PARTITION=${WINRE_PARTITION:-0}
+WINRE_SIZE=${WINRE_SIZE:-1G}
 # 1 s by default; any key press stops the countdown.  0 turns the menu off.
 BOOT_MENU_TIMEOUT=${BOOT_MENU_TIMEOUT:-1}
 case "$BOOT_MENU_TIMEOUT" in
@@ -122,6 +128,10 @@ if [ "$REUSE_UBUNTU" = 1 ] && [ "$RAW" != 1 ]; then
 fi
 if [ "$FRESH_UBUNTU" = 1 ] && [ "$REUSE_UBUNTU" = 1 ]; then
     echo "FRESH_UBUNTU cannot be combined with REUSE_UBUNTU" >&2
+    exit 1
+fi
+if [ "$WINRE_PARTITION" = 1 ] && [ "$FRESH_UBUNTU" != 1 ]; then
+    echo "WINRE_PARTITION needs FRESH_UBUNTU=1" >&2
     exit 1
 fi
 
@@ -213,6 +223,7 @@ if [ "$FROM_STEP" -le 5 ]; then
     MEDIA="$BUILD/media" DRIVERS="$BUILD/drivers" DRIVERS_EXTRA="$BUILD/drivers-extra" \
     SIZE="$SIZE" REUSE_UBUNTU="$REUSE_UBUNTU" \
     FRESH_UBUNTU="$FRESH_UBUNTU" RECOVERY_SIZE="$RECOVERY_SIZE" \
+    WINRE_PARTITION="$WINRE_PARTITION" WINRE_SIZE="$WINRE_SIZE" \
     "$PIPE/host_apply.sh" "$ISO" "$DISK" "$IMAGE_INDEX"
 fi
 

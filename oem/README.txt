@@ -8,6 +8,9 @@ Logs after first boot:
   C:\OEM\firstlogon.log
   C:\OEM\boot.log
   C:\OEM\done.txt
+  C:\OEM\winre.log        (only with --winre-partition)
+  C:\OEM\winre.done       (WinRE is on the dedicated partition)
+  C:\OEM\winre.failed     (WinRE is still on C:; the build continues)
 
 Accounts:
   User           / <WIN_PASSWORD>       (local Administrators)

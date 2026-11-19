@@ -14,6 +14,7 @@
 
 ESP_GUID=c12a7328-f81f-11d2-ba4b-00a0c93ec93b
 WINDOWS_GUID=ebd0a0a2-b9e5-4433-87c0-68b6b72699c7
+WINRE_GUID=de94bba4-06d1-4d40-a16a-bfd50179d6ac
 
 # /dev/sda -> /dev/sda1, /dev/nvme0n1 -> /dev/nvme0n1p1
 part() {
@@ -174,6 +175,28 @@ find_esp() {
         fi
     done
     return 0
+}
+
+# Number of the Windows Recovery Environment partition.  Prints nothing
+# when the disk has no dedicated WinRE partition (the usual layout keeps
+# WinRE in C:).
+find_winre_num() {
+    local disk=$1 n
+    for n in $(gpt_part_numbers "$disk"); do
+        if [ "$(gpt_part_type "$disk" "$n")" = "$WINRE_GUID" ]; then
+            printf '%s\n' "$n"
+            return 0
+        fi
+    done
+    return 0
+}
+
+# Device of the Windows Recovery Environment partition.
+find_winre() {
+    local disk=$1 n
+    n=$(find_winre_num "$disk")
+    [ -n "$n" ] || return 0
+    partition_dev "$disk" "$n"
 }
 
 # Largest ext2/3/4 partition.  On the stock OCI layout this is the 49 GiB

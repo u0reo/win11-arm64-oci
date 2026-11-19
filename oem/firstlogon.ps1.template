@@ -42,6 +42,16 @@ try {
 
 & "$Oem\boot.ps1"
 
+# Retry the Windows RE move if the specialize pass could not do it.  OOBE
+# runs its own WinRE installation task, so this is the first point where the
+# final configuration is known.  The script is idempotent and quick when
+# WinRE is already on the dedicated partition.
+if (Test-Path "$Oem\winre-part.txt") {
+    & powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$Oem\winre.ps1" 2>&1 |
+        Out-File -Append -Encoding ascii $Log
+    Log ("winre-script rc=" + $LASTEXITCODE)
+}
+
 # Do not keep an interactive console session logged in after setup.
 & reg.exe add "HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon" /v AutoAdminLogon /t REG_SZ /d 0 /f 2>&1 |
     Out-File -Append -Encoding ascii $Log

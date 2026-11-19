@@ -40,15 +40,19 @@ fi
 
 WORK=$(mktemp -d /tmp/finish-disk.XXXXXX)
 ESP=$(mktemp -d /tmp/finish-esp.XXXXXX)
+WIN=$(mktemp -d /tmp/finish-ntfs.XXXXXX)
+WRE=$(mktemp -d /tmp/finish-winre.XXXXXX)
 PATCH_LOG="$WORK/patch.log"
 NBD=0
 cleanup() {
     set +e
     sudo -n umount "$ESP" 2>/dev/null
+    sudo -n umount "$WIN" 2>/dev/null
+    sudo -n umount "$WRE" 2>/dev/null
     [ "$NBD" = 1 ] && sudo -n qemu-nbd --disconnect /dev/nbd0 >/dev/null 2>&1
     cleanup_part_loops
     rm -rf "$WORK"
-    rmdir "$ESP" 2>/dev/null
+    rmdir "$ESP" "$WIN" "$WRE" 2>/dev/null
 }
 trap cleanup EXIT
 
@@ -252,12 +256,48 @@ sudo -n rm -f "$ESP/EFI/Microsoft/Boot/BCD.LOG" \
               "$ESP/EFI/Microsoft/Boot/BCD.LOG2"
 sync
 sudo -n umount "$ESP"
+
+echo "[4/4] final check"
+# qemu-nbd stays connected until after the Windows RE check below.
+# Windows RE is informative here, not fatal: a failed move still leaves a
+# working WinRE on C:.  inspect_image.sh shows the same data read-only.
+WINRE_N=$(find_winre_num "$DEV")
+if [ -n "$WINRE_N" ]; then
+    WINREPART=$(partition_dev "$DEV" "$WINRE_N" || true)
+    if [ -n "$WINREPART" ] &&
+       sudo -n mount -t ntfs-3g -o ro "$WINREPART" "$WRE"; then
+        if [ -s "$WRE/Recovery/WindowsRE/Winre.wim" ]; then
+            echo "  Windows RE: p$WINRE_N has Winre.wim ($(stat -c %s "$WRE/Recovery/WindowsRE/Winre.wim") bytes)"
+            WINPART=$(find_windows "$DEV" || true)
+            if [ -n "$WINPART" ] &&
+               sudo -n mount -t ntfs-3g -o ro "$WINPART" "$WIN"; then
+                WINRE_START=$(gpt_part_start "$DEV" "$WINRE_N")
+                if [ -n "$WINRE_START" ]; then
+                    WINRE_SSIZE=$(sudo -n blockdev --getss "$DEV" 2>/dev/null || echo 512)
+                    WINRE_OFFSET=$(( WINRE_START * WINRE_SSIZE ))
+                    python3 "$HERE/winre_report.py" \
+                        "$WIN/Windows/System32/Recovery/ReAgent.xml" \
+                        --offset "$WINRE_OFFSET" --partition "$WINRE_N" |
+                        sed 's/^/    /'
+                fi
+                sudo -n umount "$WIN"
+            fi
+        else
+            echo "  warning: p$WINRE_N has no Winre.wim; Windows RE is still on C:" >&2
+            echo "  see C:\\OEM\\winre.log and C:\\OEM\\winre.failed in the image" >&2
+        fi
+        sudo -n umount "$WRE"
+    else
+        echo "  warning: cannot mount the Windows RE partition read-only" >&2
+    fi
+else
+    echo "  no dedicated Windows RE partition (WinRE stays on C:)"
+fi
+
 if [ "$NBD" = 1 ]; then
     sudo -n qemu-nbd --disconnect /dev/nbd0 >/dev/null 2>&1
     NBD=0
 fi
-
-echo "[4/4] final check"
 if [ "$RAW" = 1 ]; then
     lsblk -o NAME,SIZE,FSTYPE,PARTTYPENAME "$DEV"
 else

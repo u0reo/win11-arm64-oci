@@ -11,7 +11,7 @@ Windows 11 を同じブートボリュームに入れつつ、**4 GiB の小さ�
 
 | ディスク | フラグ | レイアウト |
 |---|---|---|
-| 空、または中身を全部捨ててよい | `--fresh-ubuntu` | p1=ESP (100 MiB), p2=Ubuntu, p3=Windows |
+| 空、または中身を全部捨ててよい | `--fresh-ubuntu` | p1=ESP (100 MiB), p2=Ubuntu, p3=Windows（+ p4=Windows RE） |
 | p2 の Ubuntu をそのまま使う | `--reuse-ubuntu` | p1=ESP, p2=Ubuntu, p3=Windows（上級者向け） |
 
 `--fresh-ubuntu` は **ESP も含めて新規作成**するので、元のディスクに何も
@@ -22,7 +22,12 @@ fresh の最終レイアウト:
   p1  ESP (FAT32, 100 MiB)      shim/GRUB、Windows Boot Manager、BCD
   p2  Ubuntu recovery (ext4)    Ubuntu Server minimal（--ubuntu-size、既定 4 GiB）
   p3  Windows (NTFS, 残り)      wimlib-imagex で適用
+  p4  Windows RE (NTFS, 1 GiB)  --winre-partition を付けた場合のみ
 ```
+
+`--winre-partition` を付けると、p3 は「残り − WinRE サイズ」になり、
+p4 に type `2700`（Windows RE）・NTFS のパーティションを作ります。p4 は
+p3 の後ろなので、GRUB が読む p1/p2 の配置には影響しません。
 
 ## 何を引き継ぐか
 
@@ -78,7 +83,21 @@ sudo ./scripts/build.sh --fresh-ubuntu --ubuntu-size 4G \
 エラーになります（`--reuse-ubuntu` は p2 を書き換えないためサイズ指定は
 無意味です）。
 
-Windows は残り全部を使います（50 GB のボリュームなら約 45 GiB）。
+専用の Windows RE も作る場合は `--winre-partition` を足します。
+
+```bash
+sudo ./scripts/build.sh --fresh-ubuntu --winre-partition \
+  --winre-size 1G --disk /dev/sdb --iso /path/to/win11.iso \
+  --virtio /path/to/virtio-win.iso --yes
+```
+
+`--winre-size` は `--winre-partition` と一緒にだけ使え、最小は 1 GiB です
+（`Winre.wim` が約 795 MB あるため）。`--winre-partition` は
+`--fresh-ubuntu` 専用です。この構成では約 45 GiB（Windows 40 GiB +
+Ubuntu 4 GiB + WinRE 1 GiB）以上のディスクが必要です。
+
+Windows は残り（WinRE を作る場合はその分を引いた領域）を使います。
+50 GB のボリュームなら Windows は約 44 GiB です。
 
 RAM の内訳と、データボリュームを使う場合の注意は
 [OCI.md の「24 GB で足りるか」](OCI.md#24-gb-で足りるか) にあります。
@@ -92,6 +111,11 @@ RAM の内訳と、データボリュームを使う場合の注意は
 2. `host_apply.sh` がパーティションを作る（ステップ5）
    - `sgdisk --zap-all` の後、p1=ESP 100 MiB、p2=Ubuntu
      （`RECOVERY_SIZE`）、p3=Windows（残り）を作成し、3 つともフォーマット
+   - `--winre-partition` なら p3 を「残り − `WINRE_SIZE`」にし、p4 を
+     type `2700`・NTFS・GPT 属性 `0x8000000000000001`（ドライブレターなし、
+     必須パーティション）で作成する。
+     p4 の番号と開始オフセットを `OEM\winre-part.txt` /
+     `OEM\winre-offset.txt` に記録する
 3. `make_recovery_ubuntu.sh` が復旧パーティションに minimal Ubuntu を構築
    （ステップ6）
    - live ISO が見えている場合は、ISO 内の minimal rootfs
@@ -115,6 +139,26 @@ RAM の内訳と、データボリュームを使う場合の注意は
     `\manual-finish.log` を確認し、ESP を GRUB 先頭ローダーに整える:
     `\EFI\BOOT\BOOTAA64.EFI` に shim、`\EFI\BOOT\grubaa64.efi` に GRUB を置き、
     `\EFI\ubuntu\grub.cfg` にメニューを書き、BCD から Ubuntu bootapp を削除する
+
+## Windows RE パーティション
+
+`--winre-partition` を付けると、Windows の回復環境を C: の中ではなく専用の
+p4 に置きます。Windows 自身の specialize パスが type `2700` のパーティション
+を見つけて `Winre.wim` を p4 へインストールします（OEM のスクリプトより先に
+動きます）。`oem/winre.ps1` はその結果を `ReAgent.xml` の開始オフセットで
+確認し、まだ C: にある場合だけ `reagentc /disable` → `/setreimage` →
+`/enable` で p4 へ移します。
+
+移動に失敗した場合は、C: の WinRE を有効な状態に戻してビルドを続けます。
+`C:\OEM\winre.log` に手順と `reagentc` の戻り値が残り、成功時は
+`winre.done`、失敗時は `winre.failed` ができます。ビルド後の
+`pipeline/inspect_image.sh` は、p4 の `Winre.wim` と `ReAgent.xml` の
+実際の場所を表示します。
+
+```text
+Windows RE: p4 に Winre.wim がある      → 専用パーティションで動作
+Windows RE: p4 が空、C: に Winre.wim    → C: の WinRE で動作（フォールバック）
+```
 
 ## 途中から再開する
 

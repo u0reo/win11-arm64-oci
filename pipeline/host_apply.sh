@@ -11,7 +11,8 @@
 # FRESH_UBUNTU=1 builds the dual-boot layout from an empty disk.  It does not
 # reuse the old ESP: p1 is a new 100 MiB ESP, p2 is the RECOVERY_SIZE ext4
 # recovery system and p3 is Windows (the rest).  pipeline/make_recovery_ubuntu.sh
-# fills the recovery partition afterwards.
+# fills the recovery partition afterwards.  With WINRE_PARTITION=1, p3 leaves
+# WINRE_SIZE at the end for p4, a dedicated Windows RE partition.
 #
 # Usage: ./host_apply.sh <windows-arm64.iso> <disk.qcow2|/dev/sdX> [index]
 #
@@ -37,9 +38,17 @@ SDB=${SDB:-/dev/nbd0}
 REUSE_UBUNTU=${REUSE_UBUNTU:-0}
 FRESH_UBUNTU=${FRESH_UBUNTU:-0}
 RECOVERY_SIZE=${RECOVERY_SIZE:-4G}
+WINRE_PARTITION=${WINRE_PARTITION:-0}
+WINRE_SIZE=${WINRE_SIZE:-1G}
+WINREPART=""
 
 if [ "$FRESH_UBUNTU" = 1 ] && [ "$REUSE_UBUNTU" = 1 ]; then
     echo "FRESH_UBUNTU cannot be combined with REUSE_UBUNTU" >&2
+    exit 1
+fi
+if [ "$WINRE_PARTITION" = 1 ] && [ "$FRESH_UBUNTU" != 1 ]; then
+    echo "WINRE_PARTITION needs FRESH_UBUNTU" >&2
+    echo "  the dedicated Windows RE partition is only created by the fresh layout" >&2
     exit 1
 fi
 
@@ -100,6 +109,23 @@ size_bytes() {
         *) printf '%s\n' "$1" ;;
     esac
 }
+
+valid_size() {
+    [[ ${1:-} =~ ^[0-9]+([KkMmGgTt])?$ ]]
+}
+
+if [ "$WINRE_PARTITION" = 1 ]; then
+    valid_size "$WINRE_SIZE" || {
+        echo "WINRE_SIZE must look like 1G, 1024M or a byte count" >&2
+        exit 1
+    }
+    # This image's Winre.wim is about 795 MB, and reagentc needs room to
+    # stage it.  Anything smaller than 1 GiB is not a usable WinRE volume.
+    if [ "$(size_bytes "$WINRE_SIZE")" -lt $((1024 * 1024 * 1024)) ]; then
+        echo "WINRE_SIZE must be at least 1G" >&2
+        exit 1
+    fi
+fi
 
 [ -f "$ISO" ] || { echo "missing ISO: $ISO" >&2; exit 1; }
 [ -f "$MEDIA/autounattend.xml" ] || { echo "missing $MEDIA/autounattend.xml; run make_oemdrv.sh first" >&2; exit 1; }
@@ -223,29 +249,66 @@ if [ "$REUSE_UBUNTU" = 1 ]; then
     sudo -n mkntfs -f -F -L Windows -p "$WIN_START" -H 255 -S 63 "$WINPART" >/dev/null
     echo "  formatted ($WINPART starts at sector $WIN_START)"
 elif [ "$FRESH_UBUNTU" = 1 ]; then
-    echo "[3/6] erase the disk and create ESP + $RECOVERY_SIZE Ubuntu + Windows"
+    if [ "$WINRE_PARTITION" = 1 ]; then
+        echo "[3/6] erase the disk and create ESP + $RECOVERY_SIZE Ubuntu + Windows + $WINRE_SIZE Windows RE"
+    else
+        echo "[3/6] erase the disk and create ESP + $RECOVERY_SIZE Ubuntu + Windows"
+    fi
     [ "$RAW" = 1 ] || { echo "FRESH_UBUNTU needs a block device" >&2; exit 1; }
     TOTAL_BYTES=$(sudo -n blockdev --getsize64 "$DEV")
     NEED_BYTES=$(( $(size_bytes "$RECOVERY_SIZE") + 40 * 1024 * 1024 * 1024 ))
+    if [ "$WINRE_PARTITION" = 1 ]; then
+        NEED_BYTES=$(( NEED_BYTES + $(size_bytes "$WINRE_SIZE") ))
+    fi
     if [ "$TOTAL_BYTES" -lt "$NEED_BYTES" ]; then
-        echo "not enough space: Windows needs 40 GiB plus $RECOVERY_SIZE" >&2
+        if [ "$WINRE_PARTITION" = 1 ]; then
+            echo "not enough space: Windows needs 40 GiB plus $RECOVERY_SIZE and $WINRE_SIZE for Windows RE" >&2
+        else
+            echo "not enough space: Windows needs 40 GiB plus $RECOVERY_SIZE" >&2
+        fi
         echo "  $DEV has $((TOTAL_BYTES / 1024 / 1024 / 1024)) GiB" >&2
         exit 1
     fi
     sudo -n sgdisk --zap-all "$DEV" >/dev/null
-    sudo -n sgdisk \
-        -n 1:2048:+100M -t 1:ef00 -c 1:"System" \
-        -n 2:0:+"$RECOVERY_SIZE" -t 2:8300 -c 2:"Ubuntu" \
-        -n 3:0:0 -t 3:0700 -c 3:"Windows" \
-        "$DEV" >/dev/null
+    if [ "$WINRE_PARTITION" = 1 ]; then
+        sudo -n sgdisk \
+            -n 1:2048:+100M -t 1:ef00 -c 1:"System" \
+            -n 2:0:+"$RECOVERY_SIZE" -t 2:8300 -c 2:"Ubuntu" \
+            -n 3:0:-"$WINRE_SIZE" -t 3:0700 -c 3:"Windows" \
+            -n 4:0:0 -t 4:2700 -c 4:"Windows RE" \
+            "$DEV" >/dev/null
+        # Match a Windows-created recovery partition: bit 63 hides it from
+        # Explorer (no automatic drive letter) and bit 0 marks it required so
+        # Windows keeps it.  reagentc assigns a letter only while moving the
+        # image and removes it again.
+        sudo -n sgdisk -A 4:set:63 -A 4:set:0 "$DEV" >/dev/null
+    else
+        sudo -n sgdisk \
+            -n 1:2048:+100M -t 1:ef00 -c 1:"System" \
+            -n 2:0:+"$RECOVERY_SIZE" -t 2:8300 -c 2:"Ubuntu" \
+            -n 3:0:0 -t 3:0700 -c 3:"Windows" \
+            "$DEV" >/dev/null
+    fi
     sudo -n partprobe "$DEV" 2>/dev/null || true
     sleep 2
     ESP_N=1
     ESPDEV=$(partition_dev "$DEV" 1) || { echo "ESP partition did not appear" >&2; exit 1; }
     RECPART=$(partition_dev "$DEV" 2) || { echo "Ubuntu partition did not appear" >&2; exit 1; }
     WINPART=$(partition_dev "$DEV" 3) || { echo "Windows partition did not appear" >&2; exit 1; }
+    if [ "$WINRE_PARTITION" = 1 ]; then
+        WINREPART=$(partition_dev "$DEV" 4) || {
+            echo "Windows RE partition did not appear" >&2; exit 1; }
+        [ -b "$WINREPART" ] || {
+            echo "Windows RE partition did not appear" >&2; exit 1; }
+    fi
     WIN_START=$(gpt_part_start "$DEV" 3)
     [ -n "$WIN_START" ] || { echo "cannot determine the Windows start sector" >&2; exit 1; }
+    if [ "$WINRE_PARTITION" = 1 ]; then
+        WINRE_START=$(gpt_part_start "$DEV" 4)
+        [ -n "$WINRE_START" ] || { echo "cannot determine the Windows RE start sector" >&2; exit 1; }
+        WINRE_SSIZE=$(sudo -n blockdev --getss "$DEV" 2>/dev/null || echo 512)
+        WINRE_OFFSET=$(( WINRE_START * WINRE_SSIZE ))
+    fi
     echo "  GPT:"
     sudo -n sgdisk -p "$DEV" | sed -n '/^Number/,$p'
     sudo -n wipefs -a "$ESPDEV" >/dev/null 2>&1 || true
@@ -254,8 +317,16 @@ elif [ "$FRESH_UBUNTU" = 1 ]; then
     sudo -n mkfs.vfat -F32 -n SYSTEM "$ESPDEV" >/dev/null
     sudo -n mkfs.ext4 -F -L Ubuntu "$RECPART" >/dev/null
     sudo -n mkntfs -f -F -L Windows -p "$WIN_START" -H 255 -S 63 "$WINPART" >/dev/null
-    echo "  formatted ($ESPDEV FAT32, $RECPART $RECOVERY_SIZE ext4,"
-    echo "             $WINPART NTFS from sector $WIN_START)"
+    if [ "$WINRE_PARTITION" = 1 ]; then
+        sudo -n wipefs -a "$WINREPART" >/dev/null 2>&1 || true
+        sudo -n mkntfs -f -F -L Recovery "$WINREPART" >/dev/null
+        echo "  formatted ($ESPDEV FAT32, $RECPART $RECOVERY_SIZE ext4,"
+        echo "             $WINPART NTFS from sector $WIN_START,"
+        echo "             $WINREPART $WINRE_SIZE NTFS Windows RE)"
+    else
+        echo "  formatted ($ESPDEV FAT32, $RECPART $RECOVERY_SIZE ext4,"
+        echo "             $WINPART NTFS from sector $WIN_START)"
+    fi
 else
     echo "[3/6] partition and format"
     sudo -n sgdisk --zap-all "$DEV" >/dev/null
@@ -298,10 +369,25 @@ sudo -n cp -a "$DRIVERS" "$WIN_MNT/drivers"
 # partition number on the Windows volume (and in the staging dir for logs).
 printf '%s\r\n' "$ESP_N" | sudo -n tee "$WIN_MNT/OEM/esp-part.txt" >/dev/null
 printf '%s\n' "$ESP_N" > "$BUILD/esp-part.txt"
+# The Windows specialize pass moves WinRE to this partition.  The build
+# attaches only the target disk in phase B, so it is always disk 0.
+if [ "$WINRE_PARTITION" = 1 ]; then
+    printf '4\r\n' | sudo -n tee "$WIN_MNT/OEM/winre-part.txt" >/dev/null
+    printf '4\n' > "$BUILD/winre-part.txt"
+    # winre.ps1 compares this with the offset in ReAgent.xml.  ReAgent.xml
+    # stores the byte offset of the WinRE partition, not its number.
+    printf '%s\r\n' "$WINRE_OFFSET" |
+        sudo -n tee "$WIN_MNT/OEM/winre-offset.txt" >/dev/null
+    printf '%s\n' "$WINRE_OFFSET" > "$BUILD/winre-offset.txt"
+fi
 sudo -n sync
 sudo -n umount "$WIN_MNT"
 WIN_MOUNTED=0
-echo "  staged (ESP is partition $ESP_N; WinPE reads OEM\\esp-part.txt)"
+if [ "$WINRE_PARTITION" = 1 ]; then
+    echo "  staged (ESP is partition $ESP_N, Windows RE is partition 4)"
+else
+    echo "  staged (ESP is partition $ESP_N; WinPE reads OEM\\esp-part.txt)"
+fi
 
 echo "[5b/6] clear the NTFS dirty flag (avoids a forced autochk on first boot)"
 sudo -n ntfsfix -d "$WINPART" || true

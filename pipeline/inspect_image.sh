@@ -11,16 +11,18 @@ IMG=${1:?usage: $0 <disk.qcow2|disk.raw|/dev/sdX>}
 
 ESP=$(mktemp -d /tmp/win-esp.XXXXXX)
 WIN=$(mktemp -d /tmp/win-ntfs.XXXXXX)
+WRE=$(mktemp -d /tmp/win-winre.XXXXXX)
 NBD=0
 LOOP=""
 cleanup() {
     set +e
     sudo -n umount "$ESP" 2>/dev/null
     sudo -n umount "$WIN" 2>/dev/null
+    sudo -n umount "$WRE" 2>/dev/null
     [ "$NBD" = 1 ] && sudo -n qemu-nbd --disconnect /dev/nbd0 >/dev/null 2>&1
     [ -n "$LOOP" ] && sudo -n losetup -d "$LOOP" >/dev/null 2>&1
     cleanup_part_loops
-    rmdir "$ESP" "$WIN" 2>/dev/null
+    rmdir "$ESP" "$WIN" "$WRE" 2>/dev/null
 }
 trap cleanup EXIT
 
@@ -52,6 +54,20 @@ WINPART=$(find_windows "$DEV")
 [ -n "$WINPART" ] || { echo "no Windows/NTFS partition found on $DEV" >&2; exit 1; }
 echo "ESP:      $ESPDEV"
 echo "Windows:  $WINPART"
+
+WINRE_N=$(find_winre_num "$DEV")
+WINREPART=""
+WRE_MOUNTED=0
+if [ -n "$WINRE_N" ]; then
+    WINREPART=$(partition_dev "$DEV" "$WINRE_N" || true)
+    if [ -n "$WINREPART" ] &&
+       sudo -n mount -t ntfs-3g -o ro "$WINREPART" "$WRE"; then
+        WRE_MOUNTED=1
+    fi
+    echo "Windows RE: p$WINRE_N ($WINREPART)"
+else
+    echo "Windows RE: no dedicated partition"
+fi
 
 sudo -n mount -t vfat -o ro "$ESPDEV" "$ESP"
 sudo -n mount -t ntfs-3g -o ro "$WINPART" "$WIN"
@@ -204,6 +220,44 @@ for name in ['CurrentVersion','CurrentBuild','CurrentBuildNumber','UBR','Display
         elif t==4: print(name,'=',int.from_bytes(b,'little'))
     except Exception: pass
 PY
+
+echo "=== Windows RE ==="
+if [ -n "$WINRE_N" ]; then
+    if [ "$WRE_MOUNTED" = 1 ]; then
+        for f in Winre.wim boot.sdi; do
+            p="$WRE/Recovery/WindowsRE/$f"
+            if [ -f "$p" ]; then
+                echo "  /Recovery/WindowsRE/$f  $(stat -c %s "$p") bytes"
+            else
+                echo "  /Recovery/WindowsRE/$f  missing"
+            fi
+        done
+        [ -f "$WRE/Recovery/WindowsRE/ReAgent.xml" ] &&
+            echo "  /Recovery/WindowsRE/ReAgent.xml present (backup)"
+    else
+        echo "  cannot mount p$WINRE_N read-only"
+    fi
+else
+    echo "  no type-2700 partition; WinRE stays on C:"
+fi
+if [ -f "$WIN/Recovery/WindowsRE/Winre.wim" ]; then
+    echo "  C: copy: /Recovery/WindowsRE/Winre.wim $(stat -c %s "$WIN/Recovery/WindowsRE/Winre.wim") bytes"
+else
+    echo "  C: copy: none"
+fi
+if [ -n "$WINRE_N" ]; then
+    WINRE_START=$(gpt_part_start "$DEV" "$WINRE_N")
+    if [ -n "$WINRE_START" ]; then
+        WINRE_SSIZE=$(sudo -n blockdev --getss "$DEV" 2>/dev/null || echo 512)
+        WINRE_OFFSET=$(( WINRE_START * WINRE_SSIZE ))
+        python3 "$HERE/winre_report.py" \
+            "$WIN/Windows/System32/Recovery/ReAgent.xml" \
+            --offset "$WINRE_OFFSET" --partition "$WINRE_N" | sed 's/^/  /'
+    fi
+else
+    python3 "$HERE/winre_report.py" \
+        "$WIN/Windows/System32/Recovery/ReAgent.xml" | sed 's/^/  /'
+fi
 
 echo "=== core display / RDP files ==="
 for f in Windows/System32/dwm.exe Windows/System32/dwmredir.dll Windows/System32/rdpidd.dll; do

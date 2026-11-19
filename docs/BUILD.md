@@ -41,6 +41,14 @@ Windows ISO と virtio-win は `/dev/shm/iso` に置くのが既定です。
 `make_recovery_ubuntu.sh` がその2つだけを復旧環境へコピーします。設定は
 [DUALBOOT.md](DUALBOOT.md)。
 
+`WINRE_PARTITION=1`（`--winre-partition`）を併用すると、p3 を `WINRE_SIZE`
+（既定 1 GiB）だけ短くし、p4 に type `2700` の Windows RE パーティションを
+作ります。Windows の specialize が `Winre.wim` を p4 に置きます。OEM の
+`winre.ps1` は `OEM\winre-offset.txt` と `ReAgent.xml` を比べて実際の場所を
+確認し、必要なら `reagentc` で移します。失敗時は C: の WinRE を有効なまま
+残すので、ビルドは継続します。ステップ12の `inspect_image.sh` が p4 の
+`Winre.wim` と `ReAgent.xml` の場所を表示します。
+
 ## virtio-win の指定
 
 `--virtio` は ISO と RPM のどちらも受け付けます（拡張子で判定）。
@@ -192,6 +200,7 @@ GRUB 先頭ローダーに整えます。`\EFI\BOOT\BOOTAA64.EFI` に shim、
 | 先頭ローダー | shim → GRUB → Windows 11 / Ubuntu (recovery)（Ubuntu を残す場合） | なし |
 | ブートメニュー | GRUB または Windows Boot Manager の `timeout` | `--boot-menu 秒数` |
 | BCD | Ubuntu bootapp とダングリング参照を削除し、Windows のみにする | なし |
+| Windows RE | 専用 p4（`--winre-partition`）または C: 内 | `--winre-partition` / `--winre-size` |
 
 `--boot-menu` の既定は 1 秒です。表示中に何かキーを押すとカウントダウンが
 止まるので、既定のままでもメニューを操作できます。`0` は Ubuntu 復旧

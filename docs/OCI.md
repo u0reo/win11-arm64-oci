@@ -89,7 +89,9 @@ Ubuntu を 4 GiB の復旧環境として残す場合は、空のボリューム
 `--fresh-ubuntu` を付けます。ESP ごと新規作成し、shim/GRUB を先頭ローダーに
 して Windows 11 と Ubuntu (recovery) を選べるようにします。復旧 Ubuntu は
 ビルドを実行している Ubuntu の netplan と authorized_keys だけを引き継ぎます。
-詳細は [DUALBOOT.md](DUALBOOT.md)。
+専用の Windows RE を p4 に作る場合は `--winre-partition` を足します
+（既定 1 GiB、`--winre-size` で変更）。この構成は約 45 GiB 以上のディスクが
+必要です。詳細は [DUALBOOT.md](DUALBOOT.md)。
 
 ## ステージ2-B live を toram で起動する
 
@@ -318,6 +320,7 @@ sudo mount -t davfs https://webdav.pcloud.com /mnt/iso
 |---|---|---|
 | Windows のみ | なし | 消える（Windows が全体を使う） |
 | Windows + 4 GiB Ubuntu（空のディスク） | `--fresh-ubuntu` | ESP ごと新規作成し、4 GiB で作る |
+| Windows + Ubuntu + 専用 WinRE | `--fresh-ubuntu --winre-partition` | 4 GiB Ubuntu と 1 GiB の p4 を作る |
 | 既存の 4 GiB Ubuntu を残す | `--reuse-ubuntu` | p2 のまま（上級者向け） |
 
 `--reuse-ubuntu` は、すでに p2 に 4 GiB 程度の Ubuntu を入れて起動して
