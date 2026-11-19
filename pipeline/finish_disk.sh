@@ -9,10 +9,12 @@
 # \EFI\Boot\BOOTAA64.EFI; it gets the same patch so the firmware fallback also
 # works on OCI.  The shim must never be patched.
 #
-# GRUB's FAT driver cannot open a chainloaded file whose first cluster is
-# 65536 or above ("not a regular file").  The patched bootmgfw.efi is written
-# through mtools, which allocates from the first free cluster, and its start
-# cluster is checked before the old file is replaced.
+# GRUB's FAT driver cannot open a file whose first cluster is 65536 or above
+# ("not a regular file").  That applies to the chainloaded bootmgfw.efi and
+# to the GRUB menu itself.  The patched loader is written through mtools and
+# its start cluster is checked; if it (or a menu file) lands too high, the
+# ESP is rebuilt with esp_compact.sh so those files sit in the first
+# clusters.
 #
 # The target can be a qcow2 file or a raw block device.
 # Usage: ./finish_disk.sh /path/to/disk.qcow2 | /dev/sdX
@@ -74,12 +76,13 @@ ESPDEV=$(find_esp "$DEV")
 }
 echo "  ESP: $ESPDEV"
 
-# Read the start cluster of a file in the ESP's FAT filesystem.  mshowfat
-# prints "::/path <start-end>" on stdout.
+# Read the first cluster of a file in the ESP's FAT filesystem.  mshowfat
+# prints "::/path <start-end> <start-end> ..."; a fragmented file has more
+# than one range, and GRUB looks at the first one.
 fat_start() {
     local dev=$1 path=$2 start
     start=$(sudo -n mshowfat -i "$dev" "$path" 2>/dev/null |
-        sed -n 's/.*<\([0-9][0-9]*\)-[0-9][0-9]*>.*/\1/p' | tail -1)
+        sed -n 's/^[^<]*<\([0-9][0-9]*\)-[0-9][0-9]*>.*/\1/p' | head -1)
     case "$start" in
         ''|*[!0-9]*) return 1 ;;
     esac
@@ -119,26 +122,32 @@ START=$(fat_start "$ESPDEV" "::/$NEW_REL") || {
     echo "  cannot read the start cluster of $NEW_REL" >&2
     exit 1
 }
-if [ "$START" -ge 65536 ]; then
-    # The old file occupies low clusters.  Free them and retry; mtools scans
-    # from the beginning of the FAT, so the new copy should reuse that space.
-    sudo -n mdel -i "$ESPDEV" "::/$BOOTMGR_REL" >/dev/null 2>&1 || true
-    sudo -n mdel -i "$ESPDEV" "::/$NEW_REL" >/dev/null 2>&1 || true
-    sudo -n mcopy -o -i "$ESPDEV" "$PATCHED" "::/$NEW_REL"
-    START=$(fat_start "$ESPDEV" "::/$NEW_REL") || START=999999
-fi
-if [ "$START" -ge 65536 ]; then
-    # Keep a bootable Windows loader on disk even though GRUB cannot open it.
-    sudo -n mdel -i "$ESPDEV" "::/$BOOTMGR_REL" >/dev/null 2>&1 || true
-    sudo -n mren -i "$ESPDEV" "::/$NEW_REL" "::/$BOOTMGR_REL" >/dev/null 2>&1 || true
-    echo "  $BOOTMGR_REL starts at cluster $START (>= 65536)" >&2
-    echo "  GRUB cannot chainload it.  Free low clusters on the ESP and rerun." >&2
-    exit 1
-fi
 
-sudo -n mdel -i "$ESPDEV" "::/$BOOTMGR_REL" >/dev/null 2>&1 || true
-sudo -n mren -i "$ESPDEV" "::/$NEW_REL" "::/$BOOTMGR_REL"
-sync
+# The GRUB menu is read by GRUB's own FAT driver as well, so it has the same
+# 65536 limit.  finish_winpe.sh writes it after bcdboot, which can already
+# put it past the limit.
+COMPACT=0
+[ "$START" -ge 65536 ] && COMPACT=1
+for rel in /EFI/ubuntu/grub.cfg /EFI/BOOT/grub.cfg; do
+    s=$(fat_start "$ESPDEV" "::$rel") || s=999999
+    if [ "$s" -ge 65536 ]; then
+        echo "  $rel starts at cluster $s (>= 65536)" >&2
+        COMPACT=1
+    fi
+done
+
+if [ "$COMPACT" = 1 ]; then
+    # There may be no free cluster below 65536 left (bcdboot fills the ESP
+    # from the start), so re-lay out the filesystem instead of shuffling
+    # files around.  esp_compact.sh builds and checks a new image first.
+    sudo -n mdel -i "$ESPDEV" "::/$NEW_REL" >/dev/null 2>&1 || true
+    echo "  rebuilding the ESP with the GRUB-visible files in low clusters"
+    sudo -n "$HERE/esp_compact.sh" "$ESPDEV" "$PATCHED" | sed 's/^/  /'
+else
+    sudo -n mdel -i "$ESPDEV" "::/$BOOTMGR_REL" >/dev/null 2>&1 || true
+    sudo -n mren -i "$ESPDEV" "::/$NEW_REL" "::/$BOOTMGR_REL"
+    sync
+fi
 
 mtools_copy_out "$ESPDEV" "/$BOOTMGR_REL" "$CHECK" || {
     echo "  $BOOTMGR_REL: cannot read back from the ESP" >&2
@@ -197,6 +206,13 @@ if sudo -n mtype -i "$ESPDEV" ::/EFI/ubuntu/grubaa64.efi >/dev/null 2>&1; then
         echo "  GRUB menu has no Ubuntu entry" >&2
         exit 1
     }
+    for rel in /EFI/ubuntu/grub.cfg /EFI/BOOT/grub.cfg; do
+        s=$(fat_start "$ESPDEV" "::$rel") || s=999999
+        if [ "$s" -ge 65536 ]; then
+            echo "  $rel starts at cluster $s (>= 65536); GRUB cannot read it" >&2
+            exit 1
+        fi
+    done
     echo "  GRUB menu has Windows 11 and Ubuntu (recovery)"
 else
     # Windows-only build: EFI/Boot/BOOTAA64.EFI is a second copy of

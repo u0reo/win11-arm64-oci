@@ -94,16 +94,17 @@ if [ -f "$ESP/EFI/ubuntu/grubaa64.efi" ]; then
         echo "EFI/BOOT/BOOTAA64.EFI = unknown (sha256 ${SHA_BOOT:-missing})"
     fi
     if command -v mshowfat >/dev/null 2>&1; then
-        START=$(sudo -n mshowfat -i "$ESPDEV" \
-            ::/EFI/Microsoft/Boot/bootmgfw.efi 2>/dev/null |
-            sed -n 's/.*<\([0-9][0-9]*\)-[0-9][0-9]*>.*/\1/p' | tail -1)
-        if [ -n "$START" ]; then
+        for rel in /EFI/Microsoft/Boot/bootmgfw.efi \
+                   /EFI/ubuntu/grub.cfg /EFI/BOOT/grub.cfg; do
+            START=$(sudo -n mshowfat -i "$ESPDEV" "::$rel" 2>/dev/null |
+                sed -n 's/^[^<]*<\([0-9][0-9]*\)-[0-9][0-9]*>.*/\1/p' | head -1)
+            [ -n "$START" ] || continue
             if [ "$START" -lt 65536 ]; then
-                echo "bootmgfw FAT start cluster: $START (OK, < 65536)"
+                echo "$rel FAT start cluster: $START (OK, < 65536)"
             else
-                echo "bootmgfw FAT start cluster: $START (TOO HIGH for GRUB)"
+                echo "$rel FAT start cluster: $START (TOO HIGH for GRUB)"
             fi
-        fi
+        done
     fi
     echo "--- EFI/ubuntu/grub.cfg ---"
     sed -n '1,40p' "$ESP/EFI/ubuntu/grub.cfg" 2>/dev/null || true

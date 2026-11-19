@@ -164,9 +164,13 @@ Down + Enter を送れば Ubuntu が起動することを確認済みです。
 `search --file --set=root /EFI/Microsoft/Boot/bootmgfw.efi` を先に実行します。
 
 GRUB の FAT ドライバは、先頭クラスタが 65536 以上のファイルを
-`not a regular file` として開けません。`bootmgfw.efi` は
-`pipeline/finish_disk.sh` が mtools で低クラスタに置き、開始クラスタを
-検査します。
+`not a regular file` として開けません。対象は chainload する
+`bootmgfw.efi` と、GRUB 自身が読む `grub.cfg`（`\EFI\ubuntu` と
+`\EFI\BOOT` の 2 つ）です。`pipeline/finish_disk.sh` は書き込み後の
+開始クラスタを検査し、65536 以上なら `pipeline/esp_compact.sh` で ESP を
+作り直します。このスクリプトは新しい FAT を一時イメージに構築し、
+`grub.cfg`・`bootmgfw.efi`・`BCD` を先頭にコピーして検証してから
+パーティションへ書き戻します。
 
 Windows Boot Manager の BCD には Ubuntu の bootapp エントリを残しません
 （ARM64 の BootMgr では bootapp を起動できないため）。GRUB が Ubuntu を
