@@ -12,10 +12,16 @@
 # --virtio accepts virtio-win.iso or virtio-win-*.noarch.rpm.  The RPM is about
 # a third of the size and is read without mounting (rpm2cpio + cpio).
 #
-# Add --keep-ubuntu to keep a small Ubuntu recovery system on the same disk
-# (ESP shim/GRUB boots first, and its menu chainloads Windows).  The old
-# Ubuntu root is replaced by a fresh minimal install; its netplan and SSH
-# settings are copied over.
+# Add --fresh-ubuntu to build a small Ubuntu recovery system on an empty (or
+# disposable) disk: p1=ESP (100 MiB), p2=Ubuntu (RECOVERY_SIZE, default 4G)
+# and p3=Windows (the rest).  Nothing from the old disk is reused, not even
+# the ESP.  When a saved netplan/SSH configuration exists in the staging
+# directory it is reused; otherwise the recovery system starts with defaults.
+#
+# Add --keep-ubuntu to keep the existing ESP on a disk that already has an
+# Ubuntu install (ESP shim/GRUB boots first, and its menu chainloads
+# Windows).  The old Ubuntu root is replaced by a fresh minimal install; its
+# netplan and SSH settings are copied over.
 # The ESP is found by GPT type, so the OCI ARM64 layout (p1=root, p13=BOOT,
 # p15=ESP) works as well as the older p1=ESP, p2=ubuntu layout.
 #
@@ -28,14 +34,17 @@
 # writes nothing.  Use RDP or WinRM for Windows recovery.
 #
 # Add --boot-menu SECONDS to show the boot menu (serial and VNC) for that
-# many seconds.  With Ubuntu kept this is the GRUB menu; otherwise it is the
-# Windows Boot Manager menu.  The default is 1; any key press stops the
-# countdown.  --boot-menu 0 turns the menu off (rejected when Ubuntu is kept).
+# many seconds.  With a recovery Ubuntu this is the GRUB menu; otherwise it
+# is the Windows Boot Manager menu.  The default is 1; any key press stops
+# the countdown.  --boot-menu 0 turns the menu off (rejected when a recovery
+# Ubuntu is included).
 #
 # If a build stopped after the disk was repartitioned, set FROM_STEP=7 (or 6
 # for just the recovery Ubuntu) to resume without running host_apply.sh:
 #
-#   sudo env FROM_STEP=7 ./scripts/build.sh --keep-ubuntu ... --yes
+#   sudo env FROM_STEP=7 ./scripts/build.sh ... --yes
+#
+# Pass the same --fresh-ubuntu / --keep-ubuntu flags you started with.
 #
 # The target must not be the running root (except with --reuse-ubuntu).  Boot
 # the Ubuntu live ISO with `toram` first (scripts/prepare.sh).  Media that
@@ -71,6 +80,8 @@ MEM=${MEM:-6144}
 SMP=${SMP:-4}
 KEEP_UBUNTU=0
 REUSE_UBUNTU=${REUSE_UBUNTU:-0}
+FRESH_UBUNTU=${FRESH_UBUNTU:-0}
+UBUNTU_SIZE_SET=0
 RECOVERY_SIZE=${RECOVERY_SIZE:-4G}
 BOOT_MENU=${BOOT_MENU_TIMEOUT:-}
 FROM_STEP=${FROM_STEP:-0}
@@ -100,7 +111,8 @@ while [ $# -gt 0 ]; do
         --min-free-gb) MIN_FREE_GB=$2; shift 2 ;;
         --shm-size) SHM_SIZE=$2; shift 2 ;;
         --keep-ubuntu) KEEP_UBUNTU=1; shift ;;
-        --ubuntu-size) RECOVERY_SIZE=$2; KEEP_UBUNTU=1; shift 2 ;;
+        --fresh-ubuntu) FRESH_UBUNTU=1; shift ;;
+        --ubuntu-size) RECOVERY_SIZE=$2; UBUNTU_SIZE_SET=1; shift 2 ;;
         --reuse-ubuntu) REUSE_UBUNTU=1; shift ;;
         --boot-menu) BOOT_MENU=$2; shift 2 ;;
         --to-ram)
@@ -113,6 +125,17 @@ while [ $# -gt 0 ]; do
         *) echo "build: unknown argument: $1" >&2; usage 1 ;;
     esac
 done
+
+# --ubuntu-size alone keeps the old meaning: resize the kept recovery system.
+# With --fresh-ubuntu it only changes the new partition's size.
+if [ "$UBUNTU_SIZE_SET" = 1 ] &&
+   [ "$KEEP_UBUNTU" != 1 ] && [ "$FRESH_UBUNTU" != 1 ]; then
+    KEEP_UBUNTU=1
+fi
+if [ "$FRESH_UBUNTU" = 1 ] && [ "$KEEP_UBUNTU" = 1 ]; then
+    echo "build: --fresh-ubuntu and --keep-ubuntu are mutually exclusive" >&2
+    exit 1
+fi
 
 valid_shm_size "$SHM_SIZE" || {
     echo "build: --shm-size must be 100%, 16G, 1024, ..." >&2
@@ -137,9 +160,9 @@ if [ "$BOOT_MENU" -gt 999 ]; then
     echo "build: --boot-menu must be 999 seconds or less" >&2
     exit 1
 fi
-if [ "$BOOT_MENU" -eq 0 ] && { [ "$KEEP_UBUNTU" = 1 ] || [ "$REUSE_UBUNTU" = 1 ]; }; then
+if [ "$BOOT_MENU" -eq 0 ] && { [ "$KEEP_UBUNTU" = 1 ] || [ "$REUSE_UBUNTU" = 1 ] || [ "$FRESH_UBUNTU" = 1 ]; }; then
     echo "build: --boot-menu 0 would hide the Ubuntu recovery entry." >&2
-    echo "  Use --boot-menu 1 (or more) with --keep-ubuntu / --reuse-ubuntu." >&2
+    echo "  Use --boot-menu 1 (or more) with --fresh-ubuntu / --keep-ubuntu / --reuse-ubuntu." >&2
     exit 1
 fi
 case "$FROM_STEP" in
@@ -168,8 +191,8 @@ fi
 if [ "$FILE_TARGET" = 0 ]; then
     [ -b "$DISK" ] || { echo "build: $DISK is not a block device" >&2; exit 1; }
 fi
-if [ "$FILE_TARGET" = 1 ] && { [ "$KEEP_UBUNTU" = 1 ] || [ "$REUSE_UBUNTU" = 1 ]; }; then
-    echo "build: --keep-ubuntu and --reuse-ubuntu need a block device (--disk)" >&2
+if [ "$FILE_TARGET" = 1 ] && { [ "$KEEP_UBUNTU" = 1 ] || [ "$REUSE_UBUNTU" = 1 ] || [ "$FRESH_UBUNTU" = 1 ]; }; then
+    echo "build: --fresh-ubuntu, --keep-ubuntu and --reuse-ubuntu need a block device (--disk)" >&2
     exit 1
 fi
 
@@ -282,6 +305,15 @@ if [ "$VIRTIO_KIND" = rpm ]; then
     VIRTIO_NOTE=" (rpm)"
 fi
 
+UBUNTU_MODE="no (whole disk Windows)"
+if [ "$REUSE_UBUNTU" = 1 ]; then
+    UBUNTU_MODE="reuse the installed p2"
+elif [ "$KEEP_UBUNTU" = 1 ]; then
+    UBUNTU_MODE="keep ${RECOVERY_SIZE} recovery system"
+elif [ "$FRESH_UBUNTU" = 1 ]; then
+    UBUNTU_MODE="create ${RECOVERY_SIZE} recovery system (fresh disk)"
+fi
+
 cat <<EOF
 
   target   $DISK
@@ -294,10 +326,9 @@ cat <<EOF
   index    $IMAGE_INDEX
   memory   ${MEM} MiB
   cpus     $SMP
-  serial   EMS/SAC on COM1 (always on)
+  serial   ttyAMA0 (GRUB/Ubuntu; Windows has no EMS/SAC)
   bootmenu $([ "$BOOT_MENU" = 0 ] && echo 'off' || echo "${BOOT_MENU}s (serial + VNC)")
-  ubuntu   $([ "$REUSE_UBUNTU" = 1 ] && echo 'reuse the installed p2' || \
-              { [ "$KEEP_UBUNTU" = 1 ] && echo "keep ${RECOVERY_SIZE} recovery system" || echo 'no (whole disk Windows)'; })
+  ubuntu   $UBUNTU_MODE
 
 EOF
 
@@ -323,6 +354,15 @@ elif [ "$KEEP_UBUNTU" = 1 ]; then
   partitions use the next free numbers.  Its netplan and SSH settings are
   copied from the current Ubuntu before it is erased.
   EVERYTHING ELSE ON $DISK WILL BE DESTROYED.
+EOF
+elif [ "$FRESH_UBUNTU" = 1 ]; then
+    cat <<EOF
+  The disk is repartitioned from scratch, including a new 100 MiB ESP:
+  p1=ESP, p2=${RECOVERY_SIZE} ext4 recovery Ubuntu, p3=Windows (the rest).
+  The old partition table is erased.  If a saved netplan/SSH configuration
+  already exists in the staging directory it is reused; otherwise the
+  recovery Ubuntu starts with defaults.
+  ALL DATA ON $DISK WILL BE DESTROYED.
 EOF
 elif [ "$FILE_TARGET" = 1 ]; then
     cat <<EOF
@@ -430,7 +470,7 @@ fi
 export DISK
 export ISO
 export IMAGE_INDEX MEM SMP SIZE
-export KEEP_UBUNTU RECOVERY_SIZE REUSE_UBUNTU
+export KEEP_UBUNTU RECOVERY_SIZE REUSE_UBUNTU FRESH_UBUNTU
 export BOOT_MENU_TIMEOUT="$BOOT_MENU"
 export FROM_STEP
 export SHM_SIZE
@@ -457,6 +497,12 @@ if [ "$KEEP_UBUNTU" = 1 ]; then
 The ${RECOVERY_SIZE} recovery Ubuntu is installed on the same disk.  The
 GRUB menu shows "Ubuntu (recovery)" next to "Windows 11" (${BOOT_MENU}
 second timeout, Windows 11 is the default).
+EOF
+elif [ "$FRESH_UBUNTU" = 1 ]; then
+    cat <<EOF
+A new ESP (p1) and a ${RECOVERY_SIZE} recovery Ubuntu (p2) are installed on
+the same disk; Windows is p3.  The GRUB menu shows "Ubuntu (recovery)" next
+to "Windows 11" (${BOOT_MENU} second timeout, Windows 11 is the default).
 EOF
 elif [ "$REUSE_UBUNTU" = 1 ]; then
     cat <<EOF
@@ -492,6 +538,7 @@ cat <<EOF
 The Windows account and password are the ones rendered into the image
 (from WIN_USERNAME / WIN_PASSWORD / COMPUTER_NAME / TIMEZONE).
 
-Serial console: EMS/SAC is enabled on COM1.  On OCI, open the instance's
-serial console (Cloud Shell) and wait for "SAC>", then type "cmd".
+Serial console: ARM64 Windows does not support EMS/SAC.  Use RDP (3389) or
+WinRM (5985) for Windows recovery.  With a recovery Ubuntu the OCI serial
+console shows the GRUB menu and the Ubuntu login prompt.
 EOF

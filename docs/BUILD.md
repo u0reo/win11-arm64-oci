@@ -14,9 +14,9 @@
 | 1 | 設定の解決と XML 生成 | `internal/render.py` |
 | 2 | virtio-win ARM64 ドライバ展開 | `internal/stage-drivers.sh` |
 | 3 | OEMDRV ISO 作成 | `pipeline/make_oemdrv.sh` |
-| 4 | Ubuntu の netplan / SSH 設定を退避（`KEEP_UBUNTU=1`） | `pipeline/save_ubuntu_config.sh` |
+| 4 | Ubuntu の netplan / SSH 設定を退避（`KEEP_UBUNTU=1`。`FRESH_UBUNTU=1` は保存済み設定があれば再利用） | `pipeline/save_ubuntu_config.sh` |
 | 5 | ディスク作成 + `install.wim` 適用 | `pipeline/host_apply.sh` |
-| 6 | 復旧用 Ubuntu を構築（`KEEP_UBUNTU=1`） | `pipeline/make_recovery_ubuntu.sh` |
+| 6 | 復旧用 Ubuntu を構築（`KEEP_UBUNTU=1` / `FRESH_UBUNTU=1`） | `pipeline/make_recovery_ubuntu.sh` |
 | 7 | `boot.wim` に自動実行コマンドを埋込 | `pipeline/make_manual_bootwim.sh` |
 | 8 | 起動用 FAT イメージ作成 | `pipeline/make_bootfat.sh` |
 | 9 | WinPE でドライバ + `bcdboot`、ESP を shim/GRUB に仕上げ（自動） | QEMU phase A + `pipeline/finish_winpe.sh` |
@@ -32,6 +32,12 @@
 live (`toram`) で `BUILD_DIR` を省略すると、staging は `/dev/shm/build`
 になります。`/dev/shm` は 100%（`SHM_SIZE`）まで再マウントされ、
 Windows ISO と virtio-win は `/dev/shm/iso` に置くのが既定です。
+
+`FRESH_UBUNTU=1`（`scripts/build.sh --fresh-ubuntu`）は、空のディスクを
+丸ごと作り直します。ESP も再利用せず、`p1=ESP (100 MiB)`、
+`p2=Ubuntu`（`RECOVERY_SIZE`、既定 4 GiB）、`p3=Windows`（残り）を
+新規作成します。ステップ4はターゲットを読まず、staging に完全な
+`ubuntu-config` があれば再利用し、無ければ空の設定で進みます。
 
 `KEEP_UBUNTU=1`（`scripts/build.sh --keep-ubuntu`）では、ESP を残したまま
 古い Ubuntu root と BOOT を `RECOVERY_SIZE`（既定 4 GiB）の Ubuntu Server
@@ -177,7 +183,7 @@ qcow2 パスを `/dev/sdb` に置き換え、最後に
 
 ## シリアルとブートメニュー
 
-`--keep-ubuntu` / `--reuse-ubuntu` 構成では、`finish_winpe.sh` が ESP を
+`--fresh-ubuntu` / `--keep-ubuntu` / `--reuse-ubuntu` 構成では、`finish_winpe.sh` が ESP を
 GRUB 先頭ローダーに整えます。`\EFI\BOOT\BOOTAA64.EFI` に shim、
 `\EFI\BOOT\grubaa64.efi` に GRUB を置き、`\EFI\ubuntu\grub.cfg` に
 メニューを書きます。Windows のみの構成では `\EFI\BOOT\BOOTAA64.EFI` は

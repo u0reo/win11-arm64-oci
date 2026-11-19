@@ -85,11 +85,13 @@ A はビルド中に一度も起動し直さないので、失敗しても A の
 Windows Update の余裕を考えるなら A だけ 64 GB にしても構いません
 （50 + 64 = 114 GB で無料枠内）。
 
-Ubuntu を 4 GiB の復旧環境として残す場合は `--keep-ubuntu` を付けます。
-ESP を保持したまま古い Ubuntu root と BOOT を作り直し、ESP の shim/GRUB を
-先頭ローダーにして Windows 11 と Ubuntu (recovery) を選べるようにします。
-ESP は GPT の種別から探すため、`p1=root, p13=BOOT, p15=ESP` の OCI 標準
-レイアウトでも動きます。詳細は [DUALBOOT.md](DUALBOOT.md)。
+Ubuntu を 4 GiB の復旧環境として残す場合は、空のボリュームなら
+`--fresh-ubuntu`、既存 Ubuntu の ESP を残すなら `--keep-ubuntu` を付けます。
+どちらも ESP の shim/GRUB を先頭ローダーにして、Windows 11 と
+Ubuntu (recovery) を選べるようにします。`--keep-ubuntu` は古い Ubuntu
+root と BOOT を作り直し、ESP は GPT の種別から探すため、
+`p1=root, p13=BOOT, p15=ESP` の OCI 標準レイアウトでも動きます。
+詳細は [DUALBOOT.md](DUALBOOT.md)。
 
 ## ステージ2-B live を toram で起動する
 
@@ -123,14 +125,15 @@ virtio-win（0.7 GB、RPM なら 0.3 GB）を `/dev/shm/iso`（RAM）に置い�
 
 合計 23 GB 前後。`--mem 6144` なら入ります。`--mem 8192` や 16 GB に
 すると足りなくなります（Windows 11 のインストールは 6 GiB で通ります）。
-`--keep-ubuntu` の 4 GiB はディスク上の復旧パーティションなので、メモリは増えません。
+`--fresh-ubuntu` / `--keep-ubuntu` の 4 GiB はディスク上の復旧パーティションなので、メモリは増えません。
 
 `/dev/shm` の上限が 24 GB でも、QEMU の 6 GiB を除いた分しか実際には
 使えません。`df -h /dev/shm` の空きだけで判断せず、ビルド中の
 `MemAvailable` も見てください。
 
 以前の「Ubuntu パーティションを 8 GiB にする」案は不要です。live の RAM で
-賄うので、ディスク上の Ubuntu は `--keep-ubuntu` の 4 GiB だけです。
+賄うので、ディスク上の Ubuntu は `--fresh-ubuntu` / `--keep-ubuntu` の
+4 GiB だけです。
 
 staging（`boot.wim` や OEMDRV など）は `BUILD_DIR` を省略すると
 `/dev/shm/build` になります。ISO を `$HOME` や overlay の `/` に置くと
@@ -317,7 +320,8 @@ sudo mount -t davfs https://webdav.pcloud.com /mnt/iso
 | 仕上がり | 追加フラグ | Ubuntu の扱い |
 |---|---|---|
 | Windows のみ | なし | 消える（Windows が全体を使う） |
-| Windows + 4 GiB Ubuntu | `--keep-ubuntu` | 古い root/BOOT を置き換えて 4 GiB で作り直す |
+| Windows + 4 GiB Ubuntu（空のディスク） | `--fresh-ubuntu` | ESP ごと新規作成し、4 GiB で作り直す |
+| Windows + 4 GiB Ubuntu（既存 Ubuntu） | `--keep-ubuntu` | ESP を残し、古い root/BOOT を置き換えて 4 GiB で作り直す |
 | 既存の 4 GiB Ubuntu を残す | `--reuse-ubuntu` | p2 のまま（上級者向け） |
 
 `--reuse-ubuntu` は、すでに p2 に 4 GiB 程度の Ubuntu を入れて起動して
@@ -333,7 +337,7 @@ sudo mount -t davfs https://webdav.pcloud.com /mnt/iso
 
 ## シリアルコンソールとブートメニュー
 
-`--keep-ubuntu` / `--reuse-ubuntu` 構成では、OCI のシリアルコンソールに
+`--fresh-ubuntu` / `--keep-ubuntu` / `--reuse-ubuntu` 構成では、OCI のシリアルコンソールに
 GRUB のメニューが出ます。既定は **Windows 11** で、矢印キーで
 `Ubuntu (recovery)` を選べます。メニューの表示時間は `--boot-menu 秒数`
 （既定 1 秒）で、表示中に何かキーを押すとカウントダウンが止まります。

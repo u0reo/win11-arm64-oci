@@ -5,10 +5,13 @@
 #   sudo ./pipeline/make_recovery_ubuntu.sh /dev/sdb build/ubuntu-config
 #
 # The recovery partition must already exist and be formatted ext4
-# (host_apply.sh does that in KEEP_UBUNTU mode).  Both it and the ESP are
-# found by their GPT type, so the stock OCI layout (p15=ESP, p13=BOOT,
-# p1=root) and the older p1=ESP, p2=root layout both work.  The ESP is left
-# untouched apart from the GRUB files, which land in \EFI\ubuntu.
+# (host_apply.sh does that in FRESH_UBUNTU/KEEP_UBUNTU mode).  Both it and
+# the ESP are found by their GPT type, so the stock OCI layout (p15=ESP,
+# p13=BOOT, p1=root), the fresh p1=ESP/p2=Ubuntu/p3=Windows layout and the
+# older p1=ESP, p2=root layout all work.  The ESP is left untouched apart
+# from the GRUB files, which land in \EFI\ubuntu.  In the offline path the
+# signed shim (shimaa64.efi) is installed there too, so finish_winpe.sh can
+# make \EFI\Boot\BOOTAA64.EFI a shim that starts signed GRUB.
 #
 # The point is a login you can fall back to when Windows misbehaves, so the
 # network install is deliberately minimal: no snapd, no cloud-init, no
@@ -46,6 +49,7 @@ SQUASHFS=${SQUASHFS:-}
 ISO_POOL=${ISO_POOL:-/cdrom/pool}
 GRUB_SIGNED_DEB=${GRUB_SIGNED_DEB:-}
 GRUB_MODULES_DEB=${GRUB_MODULES_DEB:-}
+SHIM_SIGNED_DEB=${SHIM_SIGNED_DEB:-}
 
 [ -b "$DISK" ] || { echo "recovery: $DISK is not a block device" >&2; exit 1; }
 [ -d "$CONFIG" ] || { echo "recovery: missing config dir $CONFIG" >&2; exit 1; }
@@ -90,6 +94,8 @@ if [ "$OFFLINE" = 1 ]; then
         -name 'grub-efi-arm64-signed_*.deb' -print -quit)
     [ -n "$GRUB_MODULES_DEB" ] || GRUB_MODULES_DEB=$(find "$ISO_POOL" \
         -name 'grub-efi-arm64-bin_*.deb' -print -quit)
+    [ -n "$SHIM_SIGNED_DEB" ] || SHIM_SIGNED_DEB=$(find "$ISO_POOL" \
+        -name 'shim-signed_*.deb' -print -quit)
     [ -f "$GRUB_SIGNED_DEB" ] || {
         echo "recovery: grub-efi-arm64-signed .deb not found in $ISO_POOL" >&2
         exit 1
@@ -98,6 +104,10 @@ if [ "$OFFLINE" = 1 ]; then
         echo "recovery: grub-efi-arm64-bin .deb not found in $ISO_POOL" >&2
         exit 1
     }
+    if [ -z "$SHIM_SIGNED_DEB" ] || [ ! -f "$SHIM_SIGNED_DEB" ]; then
+        echo "recovery: WARN: shim-signed .deb not found in $ISO_POOL" >&2
+        echo "  EFI/ubuntu/shimaa64.efi will be missing; Secure Boot must be off" >&2
+    fi
 else
     command -v debootstrap >/dev/null || {
         echo "recovery: debootstrap is not installed (run scripts/setup.sh)" >&2
@@ -267,15 +277,25 @@ echo "[3/6] GRUB (EFI)"
 mountpoint -q "$MNT/boot/efi" || "${SUDO[@]}" mount "$ESPDEV" "$MNT/boot/efi"
 
 if [ "$OFFLINE" = 1 ]; then
-    # Use the signed image from the ISO pool and point it at the modules on
-    # the recovery filesystem.  No grub-install (and no NVRAM write) is
-    # needed; finish_winpe.sh installs the shim/GRUB pair in EFI/BOOT and
-    # GRUB reads the menu from EFI/ubuntu/grub.cfg.
+    # Use the signed image from the ISO pool and put the signed shim next to
+    # it.  No grub-install (and no NVRAM write) is needed; finish_winpe.sh
+    # installs the shim/GRUB pair in EFI/BOOT and GRUB reads the menu from
+    # EFI/ubuntu/grub.cfg.
     "${SUDO[@]}" dpkg-deb -x "$GRUB_SIGNED_DEB" "$TMP/grub-signed"
     "${SUDO[@]}" dpkg-deb -x "$GRUB_MODULES_DEB" "$TMP/grub-bin"
     "${SUDO[@]}" install -D -m 644 \
         "$TMP/grub-signed/usr/lib/grub/arm64-efi-signed/grubaa64.efi.signed" \
         "$MNT/boot/efi/EFI/ubuntu/grubaa64.efi"
+    if [ -n "$SHIM_SIGNED_DEB" ] && [ -f "$SHIM_SIGNED_DEB" ]; then
+        "${SUDO[@]}" dpkg-deb -x "$SHIM_SIGNED_DEB" "$TMP/shim-signed"
+        if [ -f "$TMP/shim-signed/usr/lib/shim/shimaa64.efi" ]; then
+            "${SUDO[@]}" install -D -m 644 \
+                "$TMP/shim-signed/usr/lib/shim/shimaa64.efi" \
+                "$MNT/boot/efi/EFI/ubuntu/shimaa64.efi"
+        else
+            echo "  WARN: shimaa64.efi is not in $SHIM_SIGNED_DEB" >&2
+        fi
+    fi
     "${SUDO[@]}" mkdir -p "$MNT/boot/grub"
     "${SUDO[@]}" cp -a "$TMP/grub-bin/usr/lib/grub/arm64-efi" "$MNT/boot/grub/"
 
@@ -434,6 +454,8 @@ fi
 "${SUDO[@]}" df -h "$MNT" | sed -n '1,2p'
 "${SUDO[@]}" test -f "$MNT/boot/efi/EFI/ubuntu/grubaa64.efi" || \
     echo "  WARN: \\EFI\\ubuntu\\grubaa64.efi is missing on the ESP" >&2
+"${SUDO[@]}" test -f "$MNT/boot/efi/EFI/ubuntu/shimaa64.efi" || \
+    echo "  WARN: \\EFI\\ubuntu\\shimaa64.efi is missing on the ESP" >&2
 if [ "$OFFLINE" = 1 ]; then
     "${SUDO[@]}" test -f "$MNT/boot/grub/grub.cfg" || \
         echo "  WARN: /boot/grub/grub.cfg is missing" >&2
@@ -445,4 +467,4 @@ echo
 echo "OK: recovery Ubuntu installed on $ROOTDEV"
 echo "    accounts:$CREATED"
 [ -n "$RECOVERY_PASSWORD" ] && echo "    password for ubuntu: $RECOVERY_PASSWORD"
-echo "    Windows Boot Manager will chainload \\EFI\\ubuntu\\grubaa64.efi"
+echo "    GRUB is the first loader; Windows 11 is chainloaded from it"

@@ -6,13 +6,18 @@
 #
 # The target can be a qcow2 file (created from scratch) or a raw block
 # device such as /dev/sdb.  A block device is wiped completely, unless
-# KEEP_UBUNTU=1 is set: then the ESP is kept (found by its GPT type, not by
-# a fixed partition number) and the old Ubuntu root - plus the separate BOOT
-# partition used by the stock OCI ARM64 image - is replaced by a small ext4
-# recovery system (RECOVERY_SIZE, default 4G) and a new Windows partition.
-# pipeline/make_recovery_ubuntu.sh fills the recovery partition afterwards.
+# KEEP_UBUNTU=1 or REUSE_UBUNTU=1 is set.
 #
-# KEEP_UBUNTU=1 accepts both layouts:
+# FRESH_UBUNTU=1 builds the dual-boot layout from an empty disk.  It does not
+# reuse the old ESP: p1 is a new 100 MiB ESP, p2 is the RECOVERY_SIZE ext4
+# recovery system and p3 is Windows (the rest).  pipeline/make_recovery_ubuntu.sh
+# fills the recovery partition afterwards.
+#
+# KEEP_UBUNTU=1 keeps the existing ESP (found by its GPT type, not by a
+# fixed partition number) and replaces the old Ubuntu root - plus the
+# separate BOOT partition used by the stock OCI ARM64 image - with a small
+# ext4 recovery system (RECOVERY_SIZE, default 4G) and a new Windows
+# partition.  It accepts both layouts:
 #   p1=ESP, p2=Ubuntu                        (older, pre-shrunk)
 #   p15=ESP, p13=BOOT, p1=Ubuntu root        (stock OCI ARM64)
 #
@@ -39,7 +44,13 @@ SIZE=${SIZE:-50G}
 SDB=${SDB:-/dev/nbd0}
 KEEP_UBUNTU=${KEEP_UBUNTU:-0}
 REUSE_UBUNTU=${REUSE_UBUNTU:-0}
+FRESH_UBUNTU=${FRESH_UBUNTU:-0}
 RECOVERY_SIZE=${RECOVERY_SIZE:-4G}
+
+if [ "$FRESH_UBUNTU" = 1 ] && { [ "$KEEP_UBUNTU" = 1 ] || [ "$REUSE_UBUNTU" = 1 ]; }; then
+    echo "FRESH_UBUNTU cannot be combined with KEEP_UBUNTU or REUSE_UBUNTU" >&2
+    exit 1
+fi
 
 RAW=0
 if [ -b "$IMG" ]; then
@@ -387,6 +398,41 @@ elif [ "$KEEP_UBUNTU" = 1 ]; then
     sudo -n mkntfs -f -F -L Windows -p "$WIN_START" -H 255 -S 63 "$WINPART" >/dev/null
     echo "  formatted ($RECPART $RECOVERY_SIZE ext4, $WINPART NTFS from sector $WIN_START)"
     echo "  ESP kept as $ESPDEV (partition $ESP_N)"
+elif [ "$FRESH_UBUNTU" = 1 ]; then
+    echo "[3/6] erase the disk and create ESP + $RECOVERY_SIZE Ubuntu + Windows"
+    [ "$RAW" = 1 ] || { echo "FRESH_UBUNTU needs a block device" >&2; exit 1; }
+    TOTAL_BYTES=$(sudo -n blockdev --getsize64 "$DEV")
+    SECTOR_SIZE=$(sudo -n blockdev --getss "$DEV")
+    NEED_BYTES=$(( $(size_bytes "$RECOVERY_SIZE") + 40 * 1024 * 1024 * 1024 ))
+    if [ "$TOTAL_BYTES" -lt "$NEED_BYTES" ]; then
+        echo "not enough space: Windows needs 40 GiB plus $RECOVERY_SIZE" >&2
+        echo "  $DEV has $((TOTAL_BYTES / 1024 / 1024 / 1024)) GiB" >&2
+        exit 1
+    fi
+    sudo -n sgdisk --zap-all "$DEV" >/dev/null
+    sudo -n sgdisk \
+        -n 1:2048:+100M -t 1:ef00 -c 1:"System" \
+        -n 2:0:+"$RECOVERY_SIZE" -t 2:8300 -c 2:"Ubuntu" \
+        -n 3:0:0 -t 3:0700 -c 3:"Windows" \
+        "$DEV" >/dev/null
+    sudo -n partprobe "$DEV" 2>/dev/null || true
+    sleep 2
+    ESP_N=1
+    ESPDEV=$(partition_dev "$DEV" 1) || { echo "ESP partition did not appear" >&2; exit 1; }
+    RECPART=$(partition_dev "$DEV" 2) || { echo "Ubuntu partition did not appear" >&2; exit 1; }
+    WINPART=$(partition_dev "$DEV" 3) || { echo "Windows partition did not appear" >&2; exit 1; }
+    WIN_START=$(gpt_part_start "$DEV" 3)
+    [ -n "$WIN_START" ] || { echo "cannot determine the Windows start sector" >&2; exit 1; }
+    echo "  GPT:"
+    sudo -n sgdisk -p "$DEV" | sed -n '/^Number/,$p'
+    sudo -n wipefs -a "$ESPDEV" >/dev/null 2>&1 || true
+    sudo -n wipefs -a "$RECPART" >/dev/null 2>&1 || true
+    sudo -n wipefs -a "$WINPART" >/dev/null 2>&1 || true
+    sudo -n mkfs.vfat -F32 -n SYSTEM "$ESPDEV" >/dev/null
+    sudo -n mkfs.ext4 -F -L Ubuntu "$RECPART" >/dev/null
+    sudo -n mkntfs -f -F -L Windows -p "$WIN_START" -H 255 -S 63 "$WINPART" >/dev/null
+    echo "  formatted ($ESPDEV FAT32, $RECPART $RECOVERY_SIZE ext4,"
+    echo "             $WINPART NTFS from sector $WIN_START)"
 else
     echo "[3/6] partition and format"
     sudo -n sgdisk --zap-all "$DEV" >/dev/null

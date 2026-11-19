@@ -21,8 +21,9 @@
 # build.sh copies the Windows ISO and virtio-win into /dev/shm/iso if they
 # are still on /dev/sda.  The live ISO itself must already be in RAM (toram).
 #
-# Add --keep-ubuntu to that command for a 4 GiB recovery Ubuntu, or leave it
-# out for Windows only.
+# Add --fresh-ubuntu to that command for a 4 GiB recovery Ubuntu with a new
+# ESP, --keep-ubuntu to keep the existing ESP, or leave it out for Windows
+# only.
 #
 # --ssh        write a cloud-init seed (user-data + meta-data) to the ESP and
 #             label the ESP `CIDATA`.  The live session then creates the user
@@ -425,11 +426,13 @@ Then build.  Windows only:
     --iso /dev/shm/iso/Win11_ARM64_26H2.iso \
     --virtio /dev/shm/iso/virtio-win.iso --mem 6144 --yes
 
-Windows plus a 4 GiB recovery Ubuntu:
+Windows plus a 4 GiB recovery Ubuntu (new ESP):
 
-  sudo ./scripts/build.sh --keep-ubuntu --disk /dev/sda \
+  sudo ./scripts/build.sh --fresh-ubuntu --disk /dev/sda \
     --iso /dev/shm/iso/Win11_ARM64_26H2.iso \
     --virtio /dev/shm/iso/virtio-win.iso --mem 6144 --yes
+
+Use --keep-ubuntu instead of --fresh-ubuntu to preserve the existing ESP.
 
 The staging directory defaults to /dev/shm/build.
 --virtio also accepts virtio-win-*.noarch.rpm (283 MiB instead of 837 MiB).

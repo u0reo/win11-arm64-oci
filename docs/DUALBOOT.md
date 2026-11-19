@@ -7,14 +7,28 @@ Windows 11 を同じブートボリュームに入れつつ、**4 GiB の小さ�
 復旧用に残す**構成です。ESP の shim/GRUB を先頭ローダーにし、GRUB の
 メニューから **Windows 11（既定）** と **Ubuntu (recovery)** を選びます。
 
+ディスクの状態によって作り方が 2 つあります。
+
+| ディスク | フラグ | レイアウト |
+|---|---|---|
+| 空、または中身を全部捨ててよい | `--fresh-ubuntu` | p1=ESP (100 MiB), p2=Ubuntu, p3=Windows |
+| 既存 Ubuntu の ESP を残す | `--keep-ubuntu` | ESP はそのまま、空き番号で Ubuntu と Windows |
+| p2 の Ubuntu をそのまま使う | `--reuse-ubuntu` | p1=ESP, p2=Ubuntu, p3=Windows（上級者向け） |
+
+`--fresh-ubuntu` は **ESP も含めて新規作成**するので、元のディスクに何も
+依存しません。`--keep-ubuntu` は GPT の種別（EFI System）で既存 ESP を探す
+ため、番号が p1 でも p15 でも動きます。
+
 ```text
-ESP (FAT32)                  既存を保持。Windows と Ubuntu の両方の EFI を置く
-Ubuntu recovery (ext4, 4 GiB) Ubuntu Server minimal を新規インストール
-Windows (NTFS, 残り)          wimlib-imagex で適用
+fresh の最終レイアウト:
+  p1  ESP (FAT32, 100 MiB)      shim/GRUB、Windows Boot Manager、BCD
+  p2  Ubuntu recovery (ext4)    Ubuntu Server minimal（--ubuntu-size、既定 4 GiB）
+  p3  Windows (NTFS, 残り)      wimlib-imagex で適用
 ```
 
-パーティション番号はディスクによって変わります。スクリプトは番号ではなく
-GPT のパーティション種別（EFI System）で ESP を探します。
+`--keep-ubuntu` の場合はパーティション番号がディスクによって変わります。
+スクリプトは番号ではなく GPT のパーティション種別（EFI System）で ESP を
+探します。
 
 ```text
 OCI ARM64 の標準:  p1=Ubuntu root (49 GiB), p13=BOOT (923 MiB), p15=ESP
@@ -24,6 +38,13 @@ OCI ARM64 の標準:  p1=Ubuntu root (49 GiB), p13=BOOT (923 MiB), p15=ESP
 ```
 
 ## 何を残して何を捨てるか
+
+- **fresh**: 元のディスクの内容は使いません。ESP もフォーマットします。
+  ただし staging に完全な `ubuntu-config`（`MANIFEST.txt` あり）が残って
+  いれば、netplan と SSH 設定だけは再利用します
+- **keep**: 既存 root から次の設定を退避してから作り直します
+
+`--keep-ubuntu` が残すもの:
 
 - **捨てる**: OCI が入れた Ubuntu の中身（cloud-init、snap、OCI エージェント等）
 - **残す**: `/etc/netplan`、`/etc/ssh`（`sshd_config` と**ホスト鍵**）、
@@ -48,33 +69,59 @@ root を作り直します。live への切り替えは README の
 
 ## 使い方
 
-README の [ステージ4](../README.md#ステージ4-ビルド) のコマンドに
-`--keep-ubuntu` を足します。`--ubuntu-size` を省略すると 4 GiB です。
-Ubuntu を 6 GiB にしたければ `--ubuntu-size 6G`。Windows は残り全部
-（100 GB のボリュームなら約 88 GiB）を使います。
+空のディスク（例: 何も入っていない `/dev/sdb`）から作る場合は
+`--fresh-ubuntu` を使います。`--ubuntu-size` を省略すると 4 GiB です。
 
-`--keep-ubuntu` は古い Ubuntu root（と OCI の BOOT パーティション）を
-4 GiB（`--ubuntu-size` で変更可）の復旧環境として作り直して minimal Ubuntu を
-debootstrap するので、Windows と Ubuntu が 1 回のビルドでできます。
+```bash
+sudo ./scripts/build.sh --fresh-ubuntu --ubuntu-size 4G \
+  --disk /dev/sdb --iso /path/to/win11.iso \
+  --virtio /path/to/virtio-win.iso --yes
+```
+
+`p1=ESP (100 MiB)`、`p2=Ubuntu (4 GiB)`、`p3=Windows (残り)` を新規作成し、
+既存の ESP は使いません。退避済みの `ubuntu-config` があれば
+netplan / SSH 設定だけを再利用し、無ければ既定の netplan（DHCP）と
+`ubuntu` ユーザーで復旧環境を作ります。ランダムなパスワードはビルドログの
+ステップ6に表示されます。
+
+既存 Ubuntu の ESP を残し、その root（と OCI の BOOT パーティション）を
+4 GiB の復旧環境として作り直す場合は `--keep-ubuntu` を足します。
+
+```bash
+sudo ./scripts/build.sh --keep-ubuntu --ubuntu-size 4G \
+  --disk /dev/sdb --iso /path/to/win11.iso \
+  --virtio /path/to/virtio-win.iso --yes
+```
+
+Windows は残り全部を使います（50 GB のボリュームなら約 45 GiB）。
 
 RAM の内訳と、データボリュームを使う場合の注意は
 [OCI.md の「24 GB で足りるか」](OCI.md#24-gb-で足りるか) にあります。
 
 ## 中で起きること
 
-1. `save_ubuntu_config.sh` が既存 root（最大の ext4）をマウントし、設定を退避
-2. `host_apply.sh` が GPT 種別から ESP を探し、古い root と BOOT を削除。
-   空いた領域に復旧 Ubuntu と Windows を、空いている番号で作成
-   （ESP はフォーマットしない。空き 40 MiB 未満なら中止）
+1. 設定の扱い（ステップ4）
+   - `--keep-ubuntu`: `save_ubuntu_config.sh` が既存 root（最大の ext4）を
+     マウントし、netplan / SSH / アカウント設定を退避
+   - `--fresh-ubuntu`: ターゲットは読まない。完全な `ubuntu-config` が
+     staging にあれば再利用し、無ければ空の設定ディレクトリで進む
+2. `host_apply.sh` がパーティションを作る（ステップ5）
+   - fresh: `sgdisk --zap-all` の後、p1=ESP 100 MiB、p2=Ubuntu
+     （`RECOVERY_SIZE`）、p3=Windows（残り）を作成し、3 つともフォーマット
+   - keep: GPT 種別から ESP を探し、古い root と BOOT を削除。空いた領域に
+     復旧 Ubuntu と Windows を、空いている番号で作成（ESP はフォーマット
+     しない。空き 40 MiB 未満なら中止）
 3. `make_recovery_ubuntu.sh` が復旧パーティションに minimal Ubuntu を構築
+   （ステップ6）
    - live ISO が見えている場合は、ISO 内の minimal rootfs
      (`/cdrom/casper/*.squashfs`) を展開する。ネットワークは使わない
    - live ISO が無い場合だけ debootstrap（`ports.ubuntu.com`）を使う
-   - netplan と SSH 設定をコピー
+   - netplan と SSH 設定をコピー（fresh で空設定なら既定の DHCP netplan）
    - 同じ SSH ホスト鍵を使うので、既存の `known_hosts` がそのまま通る
    - `/etc/fstab` は新しい UUID で生成
    - GRUB は signed バイナリ (`grubaa64.efi.signed`) を `\EFI\ubuntu` に
-     置く。`\EFI\ubuntu\grub.cfg` は `pipeline/write_grub_menu.py` が
+     置き、ISO の `shim-signed` から `shimaa64.efi` も置く
+   - `\EFI\ubuntu\grub.cfg` は `pipeline/write_grub_menu.py` が
      カーネル・initrd・UUID を検出して生成する
 4. Windows を新しい NTFS パーティションに適用
 5. WinPE で `OEM\esp-part.txt` に記録した ESP 番号を選び、`bcdboot` を実行。
@@ -93,6 +140,11 @@ RAM の内訳と、データボリュームを使う場合の注意は
 ```bash
 # 復旧 Ubuntu の構築（ステップ6）から
 sudo env FROM_STEP=6 ./scripts/build.sh --keep-ubuntu --ubuntu-size 4G \
+  --disk /dev/sdb --iso /path/to/win11.iso --virtio /path/to/virtio-win.rpm --yes
+
+# 空ディスク用の fresh 構成で、ステップ6だけ再実行する場合
+# （パーティションは作成済み）
+sudo env FROM_STEP=6 ./scripts/build.sh --fresh-ubuntu --ubuntu-size 4G \
   --disk /dev/sdb --iso /path/to/win11.iso --virtio /path/to/virtio-win.rpm --yes
 
 # WinPE の仕上げ（ステップ7）から
@@ -161,8 +213,10 @@ bootapp を削除します。`finish_disk.sh` は `bootmgfw.efi` だけに OCI A
 
 ## 確認しておくこと
 
-- **ESP の空き容量**: `bcdboot` が約 30 MiB、GRUB が約 15 MiB 使います。
-  40 MiB を切ると `host_apply.sh` が中止します
+- **ESP の空き容量**: `--keep-ubuntu` は既存 ESP を使うため、`bcdboot` の
+  約 30 MiB と GRUB の約 15 MiB を空けておく必要があります。40 MiB を
+  切ると `host_apply.sh` が中止します。`--fresh-ubuntu` は 100 MiB の ESP を
+  新規作成するので、この確認は不要です
 - **Secure Boot**: パッチ済み `bootmgfw.efi` は署名が無効になるため、
   Secure Boot は**無効**にしてください。shim/GRUB 自体は署名済みですが、
   chainload する Windows のパッチで Secure Boot が失敗します
@@ -179,13 +233,15 @@ bootapp を削除します。`finish_disk.sh` は `bootmgfw.efi` だけに OCI A
 
 `--reuse-ubuntu` は `p1=ESP, p2=Ubuntu` のレイアウト専用です（OCI の
 標準 ARM64 レイアウトには対応しません。その場合は `--keep-ubuntu` を
-使ってください）。
+使ってください）。空のディスクから作り直す場合は `--fresh-ubuntu` が
+使えます。
 
 p2 に 4 GiB 程度の Ubuntu を**自分で入れて起動してある**なら、
 `--reuse-ubuntu` で p2 を残したまま Windows を足せます。`prepare.sh` は
 live 起動しか登録しないので、この Ubuntu は別のインストーラや
 [ステージ2-A](../README.md#ステージ2-a-ボリュームを付け替える) で
-用意しておく必要があります。通常は `--keep-ubuntu` を使ってください。
+用意しておく必要があります。通常は `--fresh-ubuntu` または
+`--keep-ubuntu` を使ってください。
 
 ```text
 1. p2 に Ubuntu を入れる（p1 ESP は既存のまま）
@@ -213,8 +269,10 @@ live 起動しか登録しないので、この Ubuntu は別のインストー�
 
 Windows が起動しなくなったら、GRUB のメニューで `Ubuntu (recovery)` を
 選びます。シリアルコンソールでも VNC でも同じメニューを操作できます。
-ログインは元のユーザー名・パスワード、または退避した `authorized_keys` に
-よる SSH です。ネットワークは元の netplan（OCI の DHCP）をそのまま使うので、
+ログインは、`--keep-ubuntu` なら元のユーザー名・パスワード、または退避した
+`authorized_keys` による SSH です。`--fresh-ubuntu` で既存設定が無い場合は
+`ubuntu` ユーザー（パスワードはビルドログのステップ6に表示）を使います。
+ネットワークは既存 netplan（OCI の DHCP）または既定の DHCP なので、
 IP は同じサブネットで DHCP から取ります。Ubuntu のコンソールは
 `serial-getty@ttyAMA0` で `login:` を出します。
 
