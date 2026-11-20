@@ -37,6 +37,9 @@
 #   BOOT_MENU_TIMEOUT=1  seconds to show the boot menu (0 = off).  GRUB when
 #                        a recovery Ubuntu is included, otherwise Windows
 #                        Boot Manager
+#   TEST_RECOVERY_BOOT=1 boot the finished recovery Ubuntu in QEMU and fail
+#                        if systemd enters emergency mode.  TCG needs up to
+#                        1800s (BOOT_TIMEOUT); set to 0 to skip.
 #   PACKAGE=1            compress the qcow2 when the build finishes
 #   FROM_STEP=0          resume at step N, reusing the staging directory.
 #                        FROM_STEP=6 continues after host_apply.sh has
@@ -375,6 +378,12 @@ if [ "$FROM_STEP" -le 12 ]; then
     step "12/13 patch ESP and inspect"
     "$PIPE/finish_disk.sh" "$DISK"
     "$PIPE/inspect_image.sh" "$DISK" | tee "$BUILD/logs/inspect.log"
+    # finish_disk.sh can rebuild the ESP after the recovery fstab was
+    # written.  inspect_image.sh checks the identifiers; this boots the
+    # final image so a regression in the boot path is caught too.
+    if [ "${TEST_RECOVERY_BOOT:-1}" = 1 ]; then
+        "$PIPE/test_recovery_boot.sh" "$DISK"
+    fi
 fi
 
 if [ "$FROM_STEP" -le 13 ]; then

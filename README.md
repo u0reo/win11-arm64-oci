@@ -11,8 +11,8 @@ RDP / WinRM で操作できる状態まで自動構築するためのスクリ�
 
 OCI の Ubuntu を一時的なビルド機にし、ブートボリュームの中身を Windows に
 置き換えます。`build.sh` が `install.wim` の適用、WinPE でのドライバ追加と
-`bcdboot`、OOBE、RDP / WinRM の有効化、AnyPages パッチまでを自動で行います
-（内部の流れは [docs/BUILD.md](docs/BUILD.md)）。
+`bcdboot`、OOBE、RDP / WinRM の有効化、署名済み `bootmgfw.efi` の検証までを
+自動で行います（内部の流れは [docs/BUILD.md](docs/BUILD.md)）。
 
 ## 全体の流れ
 

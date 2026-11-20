@@ -22,7 +22,7 @@
 | 9 | WinPE でドライバ + `bcdboot`、ESP を shim/GRUB に仕上げ（自動） | QEMU phase A + `pipeline/finish_winpe.sh` |
 | 10 | Windows 初回起動 + 準備完了待ち | QEMU phase B |
 | 11 | ACPI シャットダウン | `internal/qmp-powerdown.py` |
-| 12 | ESP パッチ + 検査 | `pipeline/finish_disk.sh` / `pipeline/inspect_image.sh` |
+| 12 | ESP ブートマネージャー検査 | `pipeline/finish_disk.sh` / `pipeline/inspect_image.sh` |
 | 13 | 圧縮（`PACKAGE=1`） | `internal/package-image.sh` |
 
 `DISK` を省略すると `build/win11-arm64.qcow2` に書き、`PACKAGE=1` のときだけ
@@ -92,22 +92,26 @@ vioscsi / netkvm / viogpudo を取り出せます。`rpm2cpio` と `cpio` は
 そのため VNC 操作は不要です。WinPE の ARM64 PL011 には Windows の
 シリアルドライバーが無いため、COM1 ではなくファイルで成否を判定します。
 
-### ESP パッチの検証
+### ESP ブートマネージャーの検証
 
 Ubuntu を残す構成では、`finish_winpe.sh` が `bcdboot` の後で
-`\EFI\BOOT\BOOTAA64.EFI` を shim に置き換えます。このファイルは OCI A1 用
-パッチの対象外です。GRUB が chainload する
-`\EFI\Microsoft\Boot\bootmgfw.efi` だけに `pipeline/finish_disk.sh` が
-`AllocatePages` → `EfiAllocateAnyPages` のパッチを当てます。
+`\EFI\BOOT\BOOTAA64.EFI` を shim に置き換えます。GRUB が chainload する
+`\EFI\Microsoft\Boot\bootmgfw.efi` は **Microsoft の署名済みイメージのまま**
+にします。`pipeline/finish_disk.sh` はコピーを読み直し、`AllocatePages` の
+サイトが stock（`mov w0, #2`）であることを確認します。`PATCH_BOOTMGFW=1`
+を明示した場合だけ、従来の `#2 -> #1` パッチを当てます。
 
-パッチ後のファイルを読み直して `mov w0, #1` を確認し、サイトが無い・
-書き込み後に値が変わらない場合は**ビルドを失敗**させます。以前のように
-「パッチできなかったのに `OK` と表示する」ことはありません。GRUB の FAT
-ドライバは開始クラスタ 65536 以上のファイルを開けないため、書き込み後の
-開始クラスタも検査します。`bootmgfw.efi` か GRUB メニューが 65536 以上に
-なった場合は、`pipeline/esp_compact.sh` が ESP を作り直し、GRUB が読む
-ファイルを先頭クラスタに置きます（新しい FAT を一時イメージで作って
-検証してから書き戻すので、途中で失敗しても ESP は壊れません）。
+`ConvertPages: failed to find range 102000-102FFF` は OCI ファームウェアの
+`DEBUG()` 出力で、`bootmgfw` は `AllocatePages` の戻り値を見ずに続行します。
+一方、パッチでイメージを変更すると `boot.stl` / `CIPolicies` の完全性検査と
+一致しなくなり、QEMU では bootmgr がメニュー前に終了します（stock 26089 は
+同じ BCD でロック画面まで到達）。そのため stock を既定にしています。
+
+GRUB の FAT ドライバは開始クラスタ 65536 以上のファイルを開けないため、
+書き込み後の開始クラスタも検査します。`bootmgfw.efi` か GRUB メニューが
+65536 以上になった場合は、`pipeline/esp_compact.sh` が ESP を作り直し、
+GRUB が読むファイルを先頭クラスタに置きます（新しい FAT を一時イメージで
+作って検証してから書き戻すので、途中で失敗しても ESP は壊れません）。
 
 ### なぜ 2 回 QEMU を起動するのか
 
@@ -212,10 +216,14 @@ GRUB のメニューは EFI コンソールに出るので、OCI のシリアル
 VNC からも操作できます。QEMU の AAVMF では `timeout=1` でも、メニュー
 表示直後に Down + Enter を送れば Ubuntu が起動することを確認済みです。
 
-`specialize.ps1` と `boot.ps1` は後方互換のため `bcdedit /ems` を呼びますが、
-ARM64 の Windows は EMS/SAC に対応しておらず、この呼び出しは何も設定
-しません。Windows のシリアル復旧はできないため、RDP / WinRM を使って
-ください。
+ARM64 の Windows は EMS/SAC に対応しておらず、`bcdedit /ems` や
+`bcdedit /emssettings` は**エラーを返さずに BCD へ要素を書き込みます**。
+OCI A1 では明示的な `EMSPORT:1`（x86 COM1 の I/O ポート 0x3F8、実機の
+シリアルは PL011 MMIO @0x09000000）が bootmgr/winload の無音ハングを
+引き起こすため、`boot.ps1` は EMS を設定しません。万一古いイメージから
+引き継いだ場合でも `pipeline/finish_disk.sh` が
+`pipeline/bcd_disable_ems.py` で BCD の EMS 要素を削除します。
+Windows の復旧は RDP / WinRM を使ってください。
 
 GRUB が Windows を chainload する前に `search --file --set=root
 /EFI/Microsoft/Boot/bootmgfw.efi` を実行する理由と、`bootmgfw.efi` の

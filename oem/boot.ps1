@@ -43,17 +43,13 @@ try {
     & netsh.exe advfirewall set allprofiles state off 2>&1 | Out-File -Append -Encoding ascii $Log
     Log "services-configured"
 
-    # Serial recovery: bcdedit /ems is a no-op on ARM64 Windows (EMS/SAC is
-    # not implemented).  Keep the calls for x64 compatibility; repair
-    # Windows through RDP or WinRM.  bcdedit is idempotent, so this is safe
-    # on every boot.
-    & bcdedit.exe /ems '{current}' on 2>&1 | Out-File -Append -Encoding ascii $Log
-    $emsRc = $LASTEXITCODE
-    & bcdedit.exe /emssettings EMSPORT:1 EMSBAUDRATE:115200 2>&1 | Out-File -Append -Encoding ascii $Log
-    $emsSettingsRc = $LASTEXITCODE
-    & bcdedit.exe /set '{bootmgr}' bootems yes 2>&1 | Out-File -Append -Encoding ascii $Log
-    $bootEmsRc = $LASTEXITCODE
-    Log ("ems-attempted ems=" + $emsRc + " settings=" + $emsSettingsRc + " bootmgr=" + $bootEmsRc + " (ARM64: expected no-op)")
+    # Do NOT enable EMS here.  ARM64 Windows does not implement EMS/SAC, but
+    # bcdedit still writes the BCD and returns 0.  On OCI A1 an explicit
+    # EMSPORT:1 means the x86 COM1 I/O port 0x3F8, while the platform serial
+    # port is a PL011 at MMIO 0x09000000; bootmgr/winload then hang silently
+    # with no video output (WORKLOG 22.21-22.22).  pipeline/finish_disk.sh
+    # removes any EMS elements from the final BCD; use RDP or WinRM for
+    # Windows recovery.
 
     # Wait for both listeners.  netstat is used because Get-NetAdapter and
     # Get-NetTCPConnection can hang while the network stack is initializing.

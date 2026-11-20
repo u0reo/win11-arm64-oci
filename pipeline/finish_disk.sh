@@ -1,20 +1,27 @@
 #!/usr/bin/env bash
-# Patch the installed ESP's Windows boot manager for OCI A1 and verify the
-# GRUB first-loader layout.  QEMU must be stopped first.
+# Keep the installed ESP's Windows boot manager stock and verify the GRUB
+# first-loader layout.  QEMU must be stopped first.
 #
 # GRUB is the first loader in dual-boot builds: \EFI\Boot\BOOTAA64.EFI is
 # the signed Ubuntu shim and \EFI\Boot\grubaa64.efi is GRUB.  GRUB chainloads
-# \EFI\Microsoft\Boot\bootmgfw.efi, so only that copy needs the OCI A1 patch
-# there.  A Windows-only build keeps a second bootmgfw copy at
-# \EFI\Boot\BOOTAA64.EFI; it gets the same patch so the firmware fallback also
-# works on OCI.  The shim must never be patched.
+# \EFI\Microsoft\Boot\bootmgfw.efi.  A Windows-only build keeps a second
+# bootmgfw copy at \EFI\Boot\BOOTAA64.EFI; it is left stock as well.  The
+# shim must never be patched.
+#
+# Do not patch bootmgfw.efi by default.  The 0x102000 AllocatePages failure is
+# only a firmware DEBUG() message: bootmgfw ignores the return status and
+# continues.  A modified boot manager is a different image than the one named
+# in boot.stl/CIPolicies, so a later integrity check can terminate the boot
+# chain silently.  Local QEMU tests show the patched 26089 boot manager exits
+# before the boot menu while the stock copy reaches the Windows lock screen.
+# PATCH_BOOTMGFW=1 keeps the old #2 -> #1 patch available for experiments.
+# STOCK_BOOTMGFW=/path/to/bootmgfw.efi forces a specific stock copy.
 #
 # GRUB's FAT driver cannot open a file whose first cluster is 65536 or above
 # ("not a regular file").  That applies to the chainloaded bootmgfw.efi and
-# to the GRUB menu itself.  The patched loader is written through mtools and
-# its start cluster is checked; if it (or a menu file) lands too high, the
-# ESP is rebuilt with esp_compact.sh so those files sit in the first
-# clusters.
+# to the GRUB menu itself.  The loader is written through mtools and its
+# start cluster is checked; if it (or a menu file) lands too high, the ESP is
+# rebuilt with esp_compact.sh so those files sit in the first clusters.
 #
 # The target can be a qcow2 file or a raw block device.
 # Usage: ./finish_disk.sh /path/to/disk.qcow2 | /dev/sdX
@@ -24,6 +31,8 @@ HERE=$(cd "$(dirname "$0")" && pwd)
 # shellcheck source=partitions.sh
 . "$HERE/partitions.sh"
 IMG=${1:?usage: $0 <disk.qcow2|/dev/sdX>}
+PATCH_BOOTMGFW=${PATCH_BOOTMGFW:-0}
+STOCK_BOOTMGFW=${STOCK_BOOTMGFW:-}
 
 RAW=0
 if [ -b "$IMG" ]; then
@@ -102,20 +111,37 @@ mtools_copy_out() {
     sudo -n mcopy -o -i "$dev" "::$path" "$dst" 2>/dev/null
 }
 
-echo "[3/4] patch and verify the ESP"
+echo "[3/4] verify and write the ESP boot manager"
 BOOTMGR_REL=EFI/Microsoft/Boot/bootmgfw.efi
 SRC="$WORK/bootmgfw.orig"
-PATCHED="$WORK/bootmgfw.patched"
+PATCHED="$WORK/bootmgfw.new"
 CHECK="$WORK/bootmgfw.check"
 mtools_copy_out "$ESPDEV" "/$BOOTMGR_REL" "$SRC" || {
     echo "  $BOOTMGR_REL: cannot read from the ESP" >&2
     exit 1
 }
-python3 "$HERE/patch_bootmgfw.py" "$SRC" "$PATCHED" >"$PATCH_LOG" 2>&1 || {
-    echo "  $BOOTMGR_REL: patch failed" >&2
-    sed -n '1,12p' "$PATCH_LOG" | sed 's/^/    /' >&2
-    exit 1
-}
+if [ "$PATCH_BOOTMGFW" = 1 ]; then
+    python3 "$HERE/patch_bootmgfw.py" "$SRC" "$PATCHED" >"$PATCH_LOG" 2>&1 || {
+        echo "  $BOOTMGR_REL: patch failed" >&2
+        sed -n '1,12p' "$PATCH_LOG" | sed 's/^/    /' >&2
+        exit 1
+    }
+    echo "  PATCH_BOOTMGFW=1: writing the experimental patched boot manager"
+else
+    # Keep a signed Microsoft image.  The patch is only a diagnostic
+    # workaround; a modified boot manager may fail boot.stl/CIPolicies
+    # integrity checks later in the chain.
+    if [ -n "$STOCK_BOOTMGFW" ]; then
+        cp "$STOCK_BOOTMGFW" "$PATCHED"
+    elif python3 "$HERE/patch_bootmgfw.py" --dry-run --require-patched \
+            "$SRC" >/dev/null 2>&1; then
+        echo "  $BOOTMGR_REL on the ESP is patched; set STOCK_BOOTMGFW=<stock.efi>" >&2
+        exit 1
+    else
+        cp "$SRC" "$PATCHED"
+    fi
+    echo "  keeping the stock bootmgfw.efi"
+fi
 
 # Write under a temporary name so the original is still intact if the FAT
 # allocation lands too high.
@@ -157,18 +183,36 @@ mtools_copy_out "$ESPDEV" "/$BOOTMGR_REL" "$CHECK" || {
     echo "  $BOOTMGR_REL: cannot read back from the ESP" >&2
     exit 1
 }
-if ! python3 "$HERE/patch_bootmgfw.py" --dry-run --require-patched \
-        "$CHECK" >"$PATCH_LOG" 2>&1; then
-    echo "  $BOOTMGR_REL: verification failed after writing" >&2
-    sed -n '1,12p' "$PATCH_LOG" | sed 's/^/    /' >&2
-    exit 1
+if [ "$PATCH_BOOTMGFW" = 1 ]; then
+    if ! python3 "$HERE/patch_bootmgfw.py" --dry-run --require-patched \
+            "$CHECK" >"$PATCH_LOG" 2>&1; then
+        echo "  $BOOTMGR_REL: verification failed after writing" >&2
+        sed -n '1,12p' "$PATCH_LOG" | sed 's/^/    /' >&2
+        exit 1
+    fi
+else
+    if ! python3 "$HERE/patch_bootmgfw.py" --dry-run \
+            "$CHECK" >"$PATCH_LOG" 2>&1; then
+        echo "  $BOOTMGR_REL: cannot read back the stock boot manager" >&2
+        sed -n '1,12p' "$PATCH_LOG" | sed 's/^/    /' >&2
+        exit 1
+    fi
+    if grep -q '^state=patched' "$PATCH_LOG"; then
+        echo "  $BOOTMGR_REL: expected stock but found the patched copy" >&2
+        exit 1
+    fi
+    sed -n '1,8p' "$PATCH_LOG" | sed 's/^/    /'
 fi
 START=$(fat_start "$ESPDEV" "::/$BOOTMGR_REL") || START=999999
 if [ "$START" -ge 65536 ]; then
     echo "  $BOOTMGR_REL starts at cluster $START after the rename" >&2
     exit 1
 fi
-echo "  $BOOTMGR_REL: patched, verified, FAT start cluster $START (< 65536)"
+if [ "$PATCH_BOOTMGFW" = 1 ]; then
+    echo "  $BOOTMGR_REL: patched, verified, FAT start cluster $START (< 65536)"
+else
+    echo "  $BOOTMGR_REL: stock, verified, FAT start cluster $START (< 65536)"
+fi
 sed -n '1,8p' "$PATCH_LOG" | sed 's/^/    /'
 
 # The firmware fallback must start GRUB, not a second copy of bootmgfw.efi.
@@ -219,9 +263,10 @@ if sudo -n mtype -i "$ESPDEV" ::/EFI/ubuntu/grubaa64.efi >/dev/null 2>&1; then
     done
     echo "  GRUB menu has Windows 11 and Ubuntu (recovery)"
 else
-    # Windows-only build: EFI/Boot/BOOTAA64.EFI is a second copy of
-    # bootmgfw.efi and needs the same patch.  GRUB is not involved here, so
-    # the start-cluster limit does not apply to this copy.
+    # Windows-only build: EFI/Boot/BOOTAA64.EFI is a second bootmgfw copy.
+    # Keep it stock; the firmware fallback must not carry the diagnostic
+    # patch.  GRUB is not involved here, so the start-cluster limit does not
+    # apply to this copy.
     echo "  no EFI/ubuntu/grubaa64.efi; Windows-only ESP"
     BOOTAA64_REL=EFI/BOOT/BOOTAA64.EFI
     BOOTAA64="$WORK/BOOTAA64.EFI"
@@ -232,7 +277,17 @@ else
     BOOT_SHA=$(sha256sum "$BOOTAA64" | awk '{print $1}')
     ORIG_SHA=$(sha256sum "$SRC" | awk '{print $1}')
     PATCHED_SHA=$(sha256sum "$PATCHED" | awk '{print $1}')
-    if [ "$BOOT_SHA" = "$ORIG_SHA" ]; then
+    if [ "$PATCH_BOOTMGFW" = 0 ]; then
+        if python3 "$HERE/patch_bootmgfw.py" --dry-run --require-patched \
+                "$BOOTAA64" >/dev/null 2>&1; then
+            sudo -n mdel -i "$ESPDEV" "::/$BOOTAA64_REL" >/dev/null 2>&1 || true
+            sudo -n mcopy -o -i "$ESPDEV" "$SRC" "::/$BOOTAA64_REL"
+            sync
+            echo "  $BOOTAA64_REL: patched copy replaced with stock bootmgfw"
+        else
+            echo "  $BOOTAA64_REL: stock (left as-is)"
+        fi
+    elif [ "$BOOT_SHA" = "$ORIG_SHA" ]; then
         sudo -n mdel -i "$ESPDEV" "::/$BOOTAA64_REL" >/dev/null 2>&1 || true
         sudo -n mcopy -o -i "$ESPDEV" "$PATCHED" "::/$BOOTAA64_REL"
         sync
@@ -245,11 +300,15 @@ else
     fi
 fi
 
-# Remove the old Windows Boot Manager bootapp entry for Ubuntu.  The BCD is
-# small, so a mount/write/unmount cycle is simpler than moving it through
-# mtools.
+# Remove the old Windows Boot Manager bootapp entry for Ubuntu and any
+# explicit EMS settings left by boot.ps1.  The BCD is small, so a
+# mount/write/unmount cycle is simpler than moving it through mtools.
 sudo -n mount -t vfat "$ESPDEV" "$ESP"
 sudo -n python3 "$HERE/bcd_remove_ubuntu.py" "$ESP/EFI/Microsoft/Boot/BCD" \
+    | sed 's/^/  /'
+# boot.ps1 may have written explicit EMS port/baud into the BCD during OOBE.
+# On OCI ARM64 those point at x86 COM1 and make bootmgr hang silently.
+sudo -n python3 "$HERE/bcd_disable_ems.py" "$ESP/EFI/Microsoft/Boot/BCD" \
     | sed 's/^/  /'
 sudo -n rm -f "$ESP/EFI/Microsoft/Boot/BCD.LOG" \
               "$ESP/EFI/Microsoft/Boot/BCD.LOG1" \

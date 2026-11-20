@@ -349,9 +349,13 @@ Ubuntu (recovery)
 `Ubuntu (recovery)` を選ぶと、Ubuntu の `login:` がシリアルに出ます。
 ログイン後は `ip a` でアドレスを確認するか、SSH で入ってください。
 
-ARM64 の Windows は EMS/SAC に対応していません。`bcdedit /ems` はエラーを
-返さずに何も設定しないため、**Windows が起動した後のシリアル復旧は
-できません**。Windows の復旧は RDP / WinRM を使ってください。
+ARM64 の Windows は EMS/SAC に対応していませんが、`bcdedit /ems` や
+`bcdedit /emssettings` はエラーを返さずに BCD へ要素を書き込みます。
+**OCI A1 で明示的な `EMSPORT:1` を設定すると bootmgr/winload が無音で
+ハングし、画面にもイベントログにも何も出ません**（WORKLOG 22.21-22.22）。
+ビルドは `boot.ps1` で EMS を設定せず、`pipeline/finish_disk.sh` が
+`bcd_disable_ems.py` で EMS 要素を削除します。Windows のシリアル復旧は
+できません。RDP / WinRM を使ってください。
 
 Windows のみの構成では GRUB は入らず、`--boot-menu` は Windows Boot
 Manager のメニュー表示時間になります。メニューを消すには:
@@ -395,11 +399,12 @@ oci bv boot-volume-backup create \
 | `/dev/shm` が小さい（50% のまま） | `sudo ./scripts/setup.sh` で RAM の 100% に再マウントされる。手動なら `sudo mount -o remount,size=100% /dev/shm`。`SHM_SIZE=80%` や `--shm-size 16G` でもよい |
 | live (toram) で `/` と `/dev/shm` の空きが偏る | `/`(overlay=/cow)・`/dev/shm`・`/tmp` は別 tmpfs だが RAM を共有する。ISO を `$HOME` に置くと `/cow` を圧迫しやすい。staging は `/dev/shm/build`、ISO は `/dev/shm/iso` が既定（明示するなら `--build-dir /dev/shm/build`） |
 | シリアルに `SAC>` が出ない | ARM64 Windows は EMS/SAC 非対応です（仕様）。シリアルで操作できるのは GRUB メニューと Ubuntu 復旧環境だけです。Windows は RDP / WinRM で復旧してください |
+| Windows を選ぶと無音/黒画面で止まる（VNC にもエラーが出ない） | BCD に EMS（`EMSPORT:1` など）や `graphicsmodedisabled` / `bootuxdisabled` が残っていないか確認。`pipeline/bcd_disable_ems.py` がまとめて削除する（WORKLOG 22.21-22.22）。イメージを作り直す場合は `finish_disk.sh` が自動実行する |
 | ビルド中にディスク不足になる | ブートボリュームを 64 GB 以上に |
 | `--virtio *.rpm` で `cannot read an RPM` になる | `rpm2cpio` と `cpio` が要る。`scripts/setup.sh` か `apt-get install rpm2cpio cpio` |
 | `qemu-system-aarch64: not found` | `scripts/setup.sh` |
 | AAVMF が無い | `qemu-efi-aarch64` パッケージ |
 | ビルドが異常に遅い | `/dev/kvm` の有無。無ければ TCG |
 | `scripts/build.sh` が「ルートデバイス」で止まる | ステージ2-A に切り替える |
-| 起動しない | ESP に `BOOTAA64.EFI` があるか、AnyPages パッチが当たっているか |
+| 起動しない | ESP に `BOOTAA64.EFI` があるか、`bootmgfw.efi` が stock か（`PATCH_BOOTMGFW=1` でないか）、GRUB が読むファイルの開始クラスタが 65536 未満か |
 | RDP が繋がらない | セキュリティリスト/NSG で 3389 を許可 |

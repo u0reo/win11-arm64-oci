@@ -12,8 +12,9 @@
 # This script formats the same partition again and copies the files back in
 # a fixed order, so the files GRUB opens land in the first clusters.  The
 # new filesystem is built in a temporary image and verified before it is
-# written to the partition; a failure leaves the ESP untouched.  The label
-# and hidden-sector count are kept, the volume serial number changes.
+# written to the partition; a failure leaves the ESP untouched.  The label,
+# hidden-sector count and volume serial are kept: the serial is blkid's UUID,
+# and changing it would invalidate /etc/fstab entries that still use UUID=.
 set -euo pipefail
 
 ESPDEV=${1:?usage: $0 <esp-partition> <patched-bootmgfw>}
@@ -66,6 +67,19 @@ umount "$MNT"
 LABEL=$(LC_ALL=C mlabel -s -i "$ESPDEV" :: 2>/dev/null |
     sed -n 's/^Volume label is //p' | tr -d '\r')
 LABEL=${LABEL:-SYSTEM}
+# Preserve the FAT volume serial.  mkfs.vfat generates a new one otherwise,
+# which silently breaks any /etc/fstab that still mounts the ESP by UUID=.
+VOLID=$(blkid -s UUID -o value "$ESPDEV" 2>/dev/null | tr -d '-' | tr 'a-f' 'A-F')
+case "$VOLID" in
+    [0-9A-F][0-9A-F][0-9A-F][0-9A-F][0-9A-F][0-9A-F][0-9A-F][0-9A-F]) ;;
+    '')
+        echo "esp-compact: no volume serial on $ESPDEV; mkfs will assign one" >&2
+        ;;
+    *)
+        echo "esp-compact: unexpected volume serial '$VOLID'; not preserving it" >&2
+        VOLID=""
+        ;;
+esac
 SIZE=$(if [ -b "$ESPDEV" ]; then blockdev --getsize64 "$ESPDEV";
        else stat -c %s "$ESPDEV"; fi)
 # The BPB hidden-sector field is informational for UEFI; keep it when the
@@ -95,7 +109,8 @@ for want in "${PRIORITY_WANT[@]}"; do
     fi
     PRIORITY+=("$rel")
 done
-# The Windows loader is already patched; put the patched copy in its place.
+# The Windows loader is already patched (or stock for a local test); put the
+# chosen copy in its place.
 for rel in "${PRIORITY[@]}"; do
     case "${rel,,}" in
         */bootmgfw.efi) cp -f "$PATCHED" "$PRIO/$rel" ;;
@@ -104,7 +119,12 @@ done
 
 echo "[2/5] build a new filesystem in $IMG ($SIZE bytes)"
 truncate -s "$SIZE" "$IMG"
-mkfs.vfat -F32 -n "$LABEL" -h "$HIDDEN" "$IMG" >/dev/null
+MKFS_ARGS=(-F32 -n "$LABEL" -h "$HIDDEN")
+if [ -n "$VOLID" ]; then
+    MKFS_ARGS+=(-i "$VOLID")
+    echo "  preserving volume serial $VOLID"
+fi
+mkfs.vfat "${MKFS_ARGS[@]}" "$IMG" >/dev/null
 mount -o loop -t vfat "$IMG" "$IMG_MNT"
 
 echo "[3/5] copy the GRUB-visible files first"

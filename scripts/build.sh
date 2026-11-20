@@ -33,8 +33,10 @@
 # space is used for Windows.  This is the only mode that tolerates the
 # target disk being the running root, because nothing on p2 is written.
 #
-# ARM64 Windows does not implement EMS/SAC: bcdedit accepts the commands but
-# writes nothing.  Use RDP or WinRM for Windows recovery.
+# ARM64 Windows does not implement EMS/SAC, but bcdedit still writes the BCD
+# and returns 0.  On OCI A1 an explicit EMSPORT:1 hangs bootmgr silently, so
+# the build removes EMS elements from the final BCD.  Use RDP or WinRM for
+# Windows recovery.
 #
 # Add --boot-menu SECONDS to show the boot menu (serial and VNC) for that
 # many seconds.  With a recovery Ubuntu this is the GRUB menu; otherwise it

@@ -216,6 +216,16 @@ GRUB の FAT ドライバは、先頭クラスタが 65536 以上のファイル
 `grub.cfg`・`bootmgfw.efi`・`BCD` を先頭にコピーして検証してから
 パーティションへ書き戻します。
 
+**ESP を再フォーマットすると FAT の volume serial（`blkid` の `UUID`）が
+変わります。** 復旧 Ubuntu の `/etc/fstab` が古い UUID を指したままだと、
+起動時に `/boot/efi` の device unit が 90 秒間見つからず emergency mode に
+入ります。`make_recovery_ubuntu.sh` は `/boot/efi` を **PARTUUID** で
+（`nofail,x-systemd.device-timeout=10s` 付き）書き、`esp_compact.sh` は
+再フォーマット時に volume serial を保持します。さらに `inspect_image.sh`
+が最終イメージの fstab と実際の ESP を照合し、不一致ならビルドを失敗させ、
+`test_recovery_boot.sh` が QEMU で Ubuntu が emergency mode に入らないことを
+確認します（TCG では 15 分程度かかります）。
+
 Windows Boot Manager の BCD には Ubuntu の bootapp エントリを残しません
 （ARM64 の BootMgr では bootapp を起動できないため）。GRUB が Ubuntu を
 直接起動します。Windows Boot Manager 自身のメニューは Windows のエントリ
@@ -230,13 +240,13 @@ Windows Boot Manager の BCD には Ubuntu の bootapp エントリを残しま�
 \EFI\ubuntu\grubaa64.efi          GRUB（signed、prefix は /EFI/ubuntu）
 \EFI\ubuntu\grub.cfg              GRUB メニュー（実際に読まれる設定）
 \EFI\BOOT\grub.cfg                同じ内容のコピー
-\EFI\Microsoft\Boot\bootmgfw.efi  Windows Boot Manager（OCI A1 用パッチ済み）
+\EFI\Microsoft\Boot\bootmgfw.efi  Windows Boot Manager（署名済み stock）
 \EFI\Microsoft\Boot\BCD           Windows のみ
 ```
 
 `finish_winpe.sh` は shim/GRUB と GRUB メニューを配置し、BCD から Ubuntu
-bootapp を削除します。`finish_disk.sh` は `bootmgfw.efi` だけに OCI A1 用
-パッチを当て、FAT の開始クラスタと GRUB メニューを検証します。
+bootapp を削除します。`finish_disk.sh` は `bootmgfw.efi` が stock のまま
+であること、FAT の開始クラスタ、GRUB メニューを検証します。
 `inspect_image.sh` は最終状態（shim/GRUB、メニュー、BCD、開始クラスタ）を
 読み取り専用で表示します。
 
@@ -244,9 +254,15 @@ bootapp を削除します。`finish_disk.sh` は `bootmgfw.efi` だけに OCI A
 
 - **ESP**: `--fresh-ubuntu` は 100 MiB の ESP を新規作成するので、既存 ESP の
   空き容量を確認する必要はありません
-- **Secure Boot**: パッチ済み `bootmgfw.efi` は署名が無効になるため、
-  Secure Boot は**無効**にしてください。shim/GRUB 自体は署名済みですが、
-  chainload する Windows のパッチで Secure Boot が失敗します
+- **Secure Boot**: 最終イメージの `bootmgfw.efi` は署名済み stock なので
+  Secure Boot を有効にできます。`PATCH_BOOTMGFW=1` を使った場合だけ署名が
+  無効になるため、Secure Boot は**無効**にしてください
+- **bootmgfw は stock のまま**: `ConvertPages: failed to find range
+  102000-102FFF` はファームウェアの DEBUG 出力で、bootmgfw は戻り値を見ずに
+  続行します。パッチでイメージを変えると `boot.stl` / `CIPolicies` の完全性
+  検査と一致せず、QEMU では bootmgr がメニュー前に終了しました。stock 26089
+  は同じ BCD でロック画面まで到達しています。診断目的で旧パッチを試す場合
+  だけ `PATCH_BOOTMGFW=1 ./pipeline/finish_disk.sh <disk>` を使ってください
 - **BCD**: `finish_winpe.sh` / `finish_disk.sh` が Ubuntu bootapp と、
   削除したオブジェクトへの参照を除去します。Windows の displayorder は
   Windows のみになります
@@ -307,4 +323,9 @@ Windows が起動しなくなったら、GRUB のメニューで `Ubuntu (recove
 `serial-getty@ttyAMA0` で `login:` を出します。
 
 Windows 側のシリアル復旧は期待できません。ARM64 の Windows は EMS/SAC を
-サポートしておらず、`bcdedit /ems` はエラーを出さずに何もしません。
+サポートしていませんが、`bcdedit /ems` / `/emssettings` はエラーを出さずに
+BCD へ要素を書き込みます。**OCI A1 で明示的な `EMSPORT:1` を設定すると
+bootmgr/winload が無音でハングします**（WORKLOG 22.21-22.22）。ビルドは
+`boot.ps1` で EMS を設定せず、`finish_disk.sh` が
+`bcd_disable_ems.py` で BCD の EMS 要素（15000022/15000023/16000020/
+260000b0 など）を削除します。Windows の復旧は RDP / WinRM で行ってください。

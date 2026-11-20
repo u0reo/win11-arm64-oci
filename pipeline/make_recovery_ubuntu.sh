@@ -171,8 +171,17 @@ TMPDIRS+=("$TMP")
 "${SUDO[@]}" mount "$ROOTDEV" "$MNT"
 ROOT_UUID=$("${SUDO[@]}" blkid -s UUID -o value "$ROOTDEV")
 ESP_UUID=$("${SUDO[@]}" blkid -s UUID -o value "$ESPDEV")
+# finish_disk.sh can rebuild the ESP with esp_compact.sh later in the build.
+# mkfs.vfat assigns a new volume serial (= blkid's UUID) every time, so an
+# fstab that references the ESP by UUID breaks after compaction and drops the
+# system into emergency mode.  The GPT PARTUUID survives a reformat.
+ESP_PARTUUID=$("${SUDO[@]}" blkid -s PARTUUID -o value "$ESPDEV" 2>/dev/null || true)
 [ -n "$ROOT_UUID" ] || { echo "recovery: $ROOTDEV has no UUID" >&2; exit 1; }
 [ -n "$ESP_UUID" ] || { echo "recovery: $ESPDEV has no UUID" >&2; exit 1; }
+[ -n "$ESP_PARTUUID" ] || {
+    echo "recovery: $ESPDEV has no PARTUUID; cannot write a stable fstab" >&2
+    exit 1
+}
 
 if [ "$OFFLINE" = 1 ]; then
     echo "[1/6] unpack the live ISO rootfs"
@@ -241,10 +250,14 @@ done
 run() { "${SUDO[@]}" chroot "$MNT" env DEBIAN_FRONTEND=noninteractive "$@"; }
 
 # Write the fstab before building the initramfs: mkinitramfs and its resume
-# hook read /etc/fstab, and the live rootfs ships without one.
+# hook read /etc/fstab, and the live rootfs ships without one.  Use the ESP's
+# PARTUUID, not its FAT UUID: esp_compact.sh may reformat the ESP after this
+# step, and a stale UUID makes systemd wait 90s for /boot/efi and then enter
+# emergency mode.  nofail + a short device timeout keep a missing ESP from
+# blocking SSH on a recovery boot.
 "${SUDO[@]}" tee "$MNT/etc/fstab" >/dev/null <<EOF
 UUID=$ROOT_UUID  /          ext4  errors=remount-ro  0 1
-UUID=$ESP_UUID   /boot/efi  vfat  umask=0077         0 1
+PARTUUID=$ESP_PARTUUID  /boot/efi  vfat  umask=0077,nofail,x-systemd.device-timeout=10s  0 1
 EOF
 
 if [ "$OFFLINE" = 1 ]; then

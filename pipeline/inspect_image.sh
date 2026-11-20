@@ -12,17 +12,20 @@ IMG=${1:?usage: $0 <disk.qcow2|disk.raw|/dev/sdX>}
 ESP=$(mktemp -d /tmp/win-esp.XXXXXX)
 WIN=$(mktemp -d /tmp/win-ntfs.XXXXXX)
 WRE=$(mktemp -d /tmp/win-winre.XXXXXX)
+ROOT=$(mktemp -d /tmp/win-root.XXXXXX)
 NBD=0
 LOOP=""
+ROOT_MOUNTED=0
 cleanup() {
     set +e
+    [ "$ROOT_MOUNTED" = 1 ] && sudo -n umount "$ROOT" 2>/dev/null
     sudo -n umount "$ESP" 2>/dev/null
     sudo -n umount "$WIN" 2>/dev/null
     sudo -n umount "$WRE" 2>/dev/null
     [ "$NBD" = 1 ] && sudo -n qemu-nbd --disconnect /dev/nbd0 >/dev/null 2>&1
     [ -n "$LOOP" ] && sudo -n losetup -d "$LOOP" >/dev/null 2>&1
     cleanup_part_loops
-    rmdir "$ESP" "$WIN" "$WRE" 2>/dev/null
+    rmdir "$ESP" "$WIN" "$WRE" "$ROOT" 2>/dev/null
 }
 trap cleanup EXIT
 
@@ -69,8 +72,70 @@ else
     echo "Windows RE: no dedicated partition"
 fi
 
-sudo -n mount -t vfat -o ro "$ESPDEV" "$ESP"
+# umask=000 so the non-root caller can read grub.cfg and BCD; the mount is
+# read-only, and mtools/blkid below still use the raw device.
+sudo -n mount -t vfat -o ro,umask=000 "$ESPDEV" "$ESP"
 sudo -n mount -t ntfs-3g -o ro "$WINPART" "$WIN"
+
+# esp_compact.sh rebuilds the FAT filesystem after the recovery fstab has
+# been written.  mkfs.vfat changes the volume serial (= blkid's UUID), so an
+# fstab that still uses the old UUID makes systemd wait 90s for /boot/efi and
+# fall into emergency mode.  Check the final image before it ships.
+echo "=== recovery fstab vs ESP ==="
+FSTAB_OK=1
+ROOTPART=$(find_ubuntu_root "$DEV")
+if [ -n "$ROOTPART" ] && sudo -n mount -t ext4 -o ro "$ROOTPART" "$ROOT"; then
+    ROOT_MOUNTED=1
+    FSTAB="$ROOT/etc/fstab"
+    if [ -f "$FSTAB" ]; then
+        ESP_FSTAB=$(awk '$2 ~ /^\/boot\/efi\/?$/ { print $1; exit }' "$FSTAB")
+        ESP_UUID=$(sudo -n blkid -s UUID -o value "$ESPDEV" 2>/dev/null || true)
+        ESP_PARTUUID=$(sudo -n blkid -s PARTUUID -o value "$ESPDEV" 2>/dev/null || true)
+        if [ -z "$ESP_FSTAB" ]; then
+            echo "  no /boot/efi line in /etc/fstab (ESP will not be mounted)"
+        else
+            kind=""
+            case "$ESP_FSTAB" in
+                PARTUUID=*)
+                    kind=PARTUUID
+                    want=${ESP_FSTAB#PARTUUID=}
+                    have=$ESP_PARTUUID
+                    ;;
+                UUID=*)
+                    kind=UUID
+                    want=${ESP_FSTAB#UUID=}
+                    have=$ESP_UUID
+                    ;;
+                *)
+                    echo "  unknown fstab device '$ESP_FSTAB' for /boot/efi" >&2
+                    FSTAB_OK=0
+                    ;;
+            esac
+            if [ -n "$kind" ]; then
+                # blkid adds dashes to FAT serials; fstab may use either form.
+                want_n=$(printf '%s' "$want" | tr -d '-' | tr 'A-F' 'a-f')
+                have_n=$(printf '%s' "$have" | tr -d '-' | tr 'A-F' 'a-f')
+                if [ -n "$have_n" ] && [ "$want_n" = "$have_n" ]; then
+                    echo "  /boot/efi: $kind=$want matches the final ESP"
+                else
+                    echo "  /boot/efi: $kind=$want does NOT match the ESP ($kind=$have)" >&2
+                    echo "  systemd will wait for the stale device and enter emergency mode" >&2
+                    FSTAB_OK=0
+                fi
+            fi
+            if ! grep -qE '^[^#[:space:]]+[[:space:]]+/boot/efi/?[[:space:]].*\bnofail\b' "$FSTAB"; then
+                echo "  warning: /boot/efi is missing the nofail option" >&2
+            fi
+        fi
+        sudo -n umount "$ROOT"
+        ROOT_MOUNTED=0
+    else
+        echo "  $ROOTPART has no /etc/fstab; skipping the fstab check"
+    fi
+else
+    echo "  no mountable Ubuntu recovery root found; skipping the fstab check"
+fi
+[ "$FSTAB_OK" = 1 ] || { echo "recovery fstab does not match the ESP" >&2; exit 1; }
 
 echo "=== ESP files ==="
 find "$ESP/EFI" -maxdepth 3 -type f -printf '%10s %p\n' 2>/dev/null | sort -k2 | head -40 || true

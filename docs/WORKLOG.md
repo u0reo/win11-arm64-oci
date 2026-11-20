@@ -5344,3 +5344,187 @@ winload(1742) が別世代 (≒8036) の ntoskrnl.exe を拒否している。
   （stock は起動する）。OCI A1 実機での最終起動確認は未実施。ESP の FAT
   backup 差分 `offset 65: original 00 / backup 01` も残存（`fsck.fat -a` は
   mostly harmless と表示）。
+
+### Ubuntu emergency mode の修正と fstab の恒久対策（2026-11-20）
+
+- 実機（hostname `oci-win-vnic`, aarch64）は `--fresh-ubuntu` のレイアウト:
+  sda1=ESP(100M, vfat, PARTUUID `5933fc32-...`), sda2=Ubuntu(4G, ext4, UUID
+  `28f50ee3-...`), sda3=Windows(45.9G, ntfs, PARTUUID `dc51ffec-...`)。
+- 緊急モードの原因は、step 6 が書き込んだ fstab の ESP UUID が step 12 の
+  `esp_compact.sh` による再フォーマットで古くなり、`/boot/efi` の device unit
+  を 90 秒待つこと。BCD は sda3/sda1 の PARTUUID を正しく参照しており、
+  SecureBoot 変数は存在しなかった（有効ではない）。
+- 恒久修正:
+  - `make_recovery_ubuntu.sh`: `/boot/efi` を PARTUUID +
+    `nofail,x-systemd.device-timeout=10s` で書く（FAT volume serial に依存しない）
+  - `esp_compact.sh`: 再フォーマット時に FAT volume serial を `-i` で保持
+  - `inspect_image.sh`: 復旧 ext4 を ro マウントし、fstab の ESP 指定子と
+    最終 ESP の UUID/PARTUUID を比較。不一致または nofail 欠落で警告/失敗
+  - `test_recovery_boot.sh`（新規）: 最終イメージから QEMU でカーネルを直接
+    起動し、`login:` 到達と emergency mode 非突入を検証。
+    `internal/build-image.sh` の step 12 後に実行（TCG は 15 分程度）
+  - `finish_disk.sh`: `PATCH_BOOTMGFW=0`（+ `STOCK_BOOTMGFW=<stock.efi>`）で
+    stock の `bootmgfw.efi` のまま ESP を仕上げられるようにした。ローカル
+    QEMU 比較専用で、最終 OCI イメージには使わない
+- 実機の `/etc/fstab` も PARTUUID に更新済み。`daemon-reload` と `mount -a` は
+  成功し、`/boot/efi` は sda1 にマウントされたまま。failed unit は
+  `cloud-init-main.service` のみ（ビルドとは無関係）。
+- **Windows が起動しない原因（最有力）: BCD の明示的 EMS 設定の再発**。
+  - 証拠: Windows のイベントログは 2026-11-19 15:47 以降ゼロ（Kernel-Boot 12/27
+    は 11-19 の QEMU 2 回のみ、Event 41/1001/6008 ゼロ）。`C:\OEM\boot.log` は
+    11-19 15:25 UTC / QEMU の 10.0.2.15 で `READY rdp=1 winrm=1`。
+    一方 ESP の `BOOTSTAT.DAT` は 11-20 14:00 に更新 → **bootmgr は実機で
+    実行されたが Windows カーネルは一度も起動していない**。BSOD でも
+    GRUB 段階の失敗でもない。
+  - BCD を直接解析すると `{0ce4991b-...}` に
+    `15000022=1`(EMSPORT:1=COM1), `15000023=115200`(EmsBaudRate),
+    `16000020=0`、`{bootmgr}` に `16000020=1`(bootems)、Windows loader
+    `{58297ee1-...}` に `260000b0=1`(kernel EmsEnable) が存在。
+    これは commit `ec9f10d`（11-18）が `oem/boot.ps1` に
+    `bcdedit /ems {current} on` / `/emssettings EMSPORT:1 EMSBAUDRATE:115200`
+    / `/set {bootmgr} bootems yes` を追加した結果（rc=0 で成功、
+    QEMU の LoadOptions にも `REDIRECT` が残っている）。
+    commit `3468957` はコメントを「expected no-op」に変えただけだった。
+  - §22.21-22.22 の実測どおり、OCI ARM64 のシリアルは PL011 MMIO
+    @0x09000000 で、x86 COM1 の I/O ポート 0x3F8 を指す EMS 設定は
+    bootmgr/winload を無音ハングさせる。要素削除で初めてエラーページが出た。
+  - 対策: `pipeline/bcd_disable_ems.py`（新規、hivex 使用）で
+    15000022/15000023/16000020/25000006/26000000/26000001/26000002/260000b0
+    を全オブジェクトから削除。`finish_disk.sh` が bcd_remove_ubuntu.py の
+    直後に呼ぶ。`oem/boot.ps1` から EMS 設定コマンドを削除し、
+    BUILD/DUALBOOT/OCI の「bcdedit /ems は no-op」という誤記を修正。
+  - 実機の BCD もバックアップ取得後に編集済み（5 要素削除、
+    再オープンで EMS 要素ゼロを確認）。**再起動して Windows を選び、
+    VNC で画面を確認する必要がある**（このセッションは再起動で切れる）。
+  - その他切り分け結果: GRUB/chainloader は健全（shim/GRUB 一致、
+    bootmgfw/grub.cfg の開始クラスタは 14/9/5 で 65536 未満、SecureBoot
+    変数なし）。BCD の GUID は sda3/sda1 を正しく参照。CodeIntegrity は
+    実ファイルで WOF placeholder は無し。patch 済み bootmgfw の hash は
+    `37202f54...` で、`mov w0,#1` が 1 箇所だけ。
+  - EMS 削除後にユーザーが再起動しても Windows は起動せず（BOOTSTAT は
+    15:48 に更新、イベントログは 11-19 のまま、VNC は真っ黒）。
+    → EMS は真の原因ではなかった（初期の無音ハングの一因ではある）。
+  - **QEMU による stock/patched 比較（実ディスクは COW overlay で変更せず）**:
+    - QEMU は `/` にinstallせず deb を `/tmp/qemu-root` に展開して実行
+      （`-L /tmp/qemu-root/usr/share/qemu`, AAVMF no-secboot,
+       `-accel tcg,thread=multi -cpu neoverse-n1`, `/dev/sda` を
+       backing にした qcow2 overlay）。
+    - モニタの `screendump` で VNC 相当の画面を取得。
+    - **patch 済み `bootmgfw.efi`（sha `37202f54...`）**: GRUB が Windows を
+      選択した約 68 秒後にゲストが終了（画面は GRUB のまま）。WORKLOG
+      5343 の既知事象を再現。
+    - **stock `bootmgfw.efi`（sha `fae47d78...`）**: ゲストは終了せず、
+      約 2 分で Windows 11 のロック画面（1:09 / 11月21日）に到達。
+      WinRM は HTTP 405（= サービス応答）を返し、QMP の
+      `system_powerdown` でクリーン shutdown。
+    - → **patch 自体が OCI A1 で Windows を起動不能にしている最有力証拠**。
+  - 実機の ESP の `bootmgfw.efi` を stock に差し替え（patch 済みは
+    `bootmgfw.efi.oci-patched.bak` として保存、hash 確認済み）。BCD の
+    EMS 要素は削除したまま。ユーザーが再起動して実機確認する。
+  - stock で実機再起動 → **シリアルに `ConvertPages: failed to find range
+    102000 - 102FFF`**。つまり OCI A1 では stock もダメで、AnyPages 系
+    パッチは**必要**。 event log / OEM/boot.log は 11-19 のままで
+    カーネル未到達。
+  - QEMU で追加実験（すべて /dev/sda の COW overlay、モニタ screendump で
+    画面確認）:
+    - `mov w0,#1`（従来パッチ）: 約 68 秒で終了
+    - `mov w0,#3`: 約 68 秒で終了
+    - `mov w0,#0`（本当の AllocateAnyPages）: 約 68 秒で終了
+    - リテラル `0x102000` を `0x200000` に変更（AllocateType は stock のまま）: 約 68 秒で終了
+    - `bootmgr.efi`（ImageBase 0x140000000、0x102000 要求なし）:
+      QEMU は生存するが GRUB から先に進まず
+    - **stock のみロック画面 + WinRM HTTP 405 で完全起動**
+    - → QEMU は RAM が 0x40000000 起点なので低アドレス確保系の
+      パッチをことごとく拒否する模様。QEMU は native の判定に使えない
+      （WORKLOG の既知注意と一致）。
+  - **UEFI enum の訂正**: `EFI_ALLOCATE_TYPE` は 0=AnyPages,
+    1=MaxAddress, 2=Address, 3=Last。`patch_bootmgfw.py` の
+    「`mov w0,#1` = AnyPages」という説明は誤りで、実態は MaxAddress。
+    `patch_bootmgfw.py` に `--mode` を追加し、各 immediate を試せるようにした。
+  - 二段目の壁 as 仮説: §22.33 のとおり native の EDK2 は winload の
+    Subsystem=16 を LoadImage で拒否する。実機に適用済み:
+    - `C:\Windows\System32\winload.efi` の Subsystem 16→10
+      （bak: `winload.efi.orig16.bak`, sha `fc788408...` → `29a99161...`）
+    - BCD loader `{58297ee1-...}` に `16000048=1`（DisableIntegrityChecks）
+    - ESP の `bootmgfw.efi` は従来パッチ（`37202f54...`）に戻す
+    - EMS 要素は削除したまま
+  - NTFS は dirty フラグで rw マウントを拒否されたため `ntfsfix -d /dev/sda3`
+    で解消してから winload を書き換えた。`ntfs-3g` も導入済み。
+  - ユーザーが再起動して Windows を試す。**ConvertPages エラーは消えた**
+    が、シリアル・VNC とも無出力、WinRM/RDP も応答なし、C: のログも
+    11-19 のまま = カーネル未到達。
+  - SPCR 経由 EMS（`16000020` / `260000b0` のみ、port/baud は置かない）と
+    `graphicsmodedisabled`(16000046) / `bootuxdisabled`(1600006c) も
+    bootmgr と loader に設定したが、シリアルには GRUB 以降何も出ない。
+  - **自分で作った回帰に気づく**: 実機へ `cp` で bootmgfw を差し替えた
+    際、FAT の開始クラスタが **82040**（GRUB の上限 65536 超え）に
+    移動していた。ビルド本来の ESP レイアウトを復元するため、
+    `esp_compact.sh /dev/sda1 <patched>` を実行（`/boot/efi` は一旦 umount）。
+    結果: bootmgfw=クラスタ 14, BCD=6110, grub.cfg=5、
+    volume serial `2E8D-167D` を保持（Volume ID 保存の修正が効いた）。
+    BCD の全設定も保持。
+  - 再起動して再テストしたが、**やはり起動せず**（BOOTSTAT 17:42 更新、
+    イベントログ 11-19 のまま）。bootmgr までは動くが、
+    winload 以降でサイレントに停止している。
+  - winload を orig16 に戻し nointegritychecks も削除して再起動 → 変化なし。
+  - `BOOTSTAT.DAT` を解析すると patch 済み `bootmgfw.efi` に対して
+    **0xc0000428 (STATUS_INVALID_IMAGE_HASH)** が多数記録されていた。
+    ESP の `CIPolicies/Active/*.cip` と `winsipolicy.p7b` を一時退避して
+    ESP を再構築（bootmgfw cluster 14）しても起動せず → CI ポリシーだけ
+    が原因ではない。退避先は再起動で消えたため ESP の CI ファイルは
+    未復元（Windows は元から起動していないので実害はない）。
+  - **最終状態**: Ubuntu 側の修正（fstab PARTUUID / nofail、
+    esp_compact の volume serial 保持、inspect_image の照合、
+    test_recovery_boot、EMS 要素削除、BCD の EMS/GOP フラグ、
+    bootmgfw 低クラスタ）はすべて有効。Windows は native OCI A1 で
+    未解決のまま。stock は `ConvertPages: 102000-102FFF`、patch は
+    bootmgr がサイレントに停止、という板挟みで、QEMU では stock のみ
+    起動する。解決には OCI ファームウェア側の挙動確認か別 Windows
+    ビルドの bootmgfw が必要。
+  - `patch_bootmgfw.py` の enum 表記を訂正: 0=AnyPages, 1=MaxAddress,
+    2=Address, 3=Last。従来の「#1 = AnyPages」は誤記。既定の #1
+    （MaxAddress）パッチは従来と同じ sha `37202f54...` を生成することを
+    確認済み。`--mode {any,max,address,last}` で切替可能。
+
+## 22.41 QEMU 再検証: stock 26089 は起動、patch は早期終了 (2026-11-20)
+
+### QEMU の再現条件
+
+- overlay `/tmp/ov-base.qcow2`（backing `/dev/sda`）に実 ESP を複製。
+- BCD から EMS/`graphicsmodedisabled`/`bootuxdisabled` を削除
+  （`bcd_disable_ems.py` を拡張）。
+- ESP の `CIPolicies/Active/*.cip` と `winsipolicy.p7b` を
+  `C:\Windows\Boot\EFI` から復元。
+- QEMU 10.2.1 TCG (4 vCPU, 6 GiB, AAVMF no-secboot, ramfb, VNC)。
+
+### 結果
+
+| bootmgfw | 結果 |
+|---|---|
+| 26089.1001 stock | GRUB → Windows Boot Manager → **ロック画面、WinRM 405**（約 5 分） |
+| 26089.1001 patch (MaxAddress) | GRUB 直後、60 秒以内に QEMU 終了。BOOTSTAT 未更新 = bootmgr 未到達 |
+| 28000.367 stock | 以前の QEMU でロック画面到達済み |
+| 28000.367 patch | 以前の QEMU で約 68 秒で終了 |
+
+- stock 26089 は現在の 26100.9457 / 28000-era BCD と互換。WinRM も応答。
+- patch は署名済みイメージを変更するため、boot.stl/CIPolicies の
+  integrity チェックで silent shutdown すると考えられる。`ConvertPages`
+  の DEBUG 出力は戻り値を見ていないので無害。**patch を既定にしない**。
+
+### 実機へ投入した内容
+
+1. `EFI/Microsoft/Boot/bootmgfw.efi` を **stock 26089.1001**
+   (sha `6a5aa7f0...`) に戻した（esp_compact で cluster 14）。
+2. BCD から `16000020` / `16000046` / `1600006c` / `260000b0` を削除。
+3. CI ポリシー 3 個と `winsipolicy.p7b` を復元。
+4. GRUB の default を Ubuntu、timeout 5 に変更（失敗時の復帰用）。
+5. ファームウェア直接起動用の `Boot0005`
+   (`\EFI\Microsoft\Boot\bootmgfw.efi`) を作成し、`BootNext=0005` を設定。
+   GRUB を経由せず、stock bootmgfw を直接 LoadImage する検証。
+
+### 次の観測点
+
+- VNC に Windows ロック画面が出るか。
+- 出ない場合、power-cycle 後は GRUB default=Ubuntu に戻る。
+- 直接起動でも失敗するなら、bootmgfw の版（26089 vs 28000）か
+  OCI firmware の 0x102000 予約が残因。
