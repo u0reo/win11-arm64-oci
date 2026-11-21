@@ -376,7 +376,34 @@ fi
 
 if [ "$FROM_STEP" -le 12 ]; then
     step "12/13 patch ESP and inspect"
-    "$PIPE/finish_disk.sh" "$DISK"
+    # Prefer the boot manager from the installation media over the copy on
+    # the installed Windows volume.  A servicing update replaces
+    # C:\Windows\Boot\EFI\bootmgfw.efi (for example with the 28000.367 26H2
+    # build), and that version hangs on Oracle AAVMF before the boot menu.
+    # The ISO keeps the boot manager that matches the media generation.
+    MEDIA_BOOTMGFW=""
+    if [ -z "${STOCK_BOOTMGFW:-}" ] && [ -f "$ISO" ]; then
+        ISO_MNT=$(mktemp -d "$BUILD/iso-mnt.XXXXXX")
+        if mount -o loop,ro "$ISO" "$ISO_MNT" 2>/dev/null; then
+            if [ -f "$ISO_MNT/efi/boot/bootaa64.efi" ]; then
+                cp -f "$ISO_MNT/efi/boot/bootaa64.efi" \
+                    "$BUILD/bootmgfw-media.efi"
+                MEDIA_BOOTMGFW="$BUILD/bootmgfw-media.efi"
+                echo "  media boot manager: $(stat -c %s "$MEDIA_BOOTMGFW") bytes"
+            fi
+            umount "$ISO_MNT"
+        else
+            echo "  warning: cannot mount $ISO; using the installed boot manager" >&2
+        fi
+        rmdir "$ISO_MNT" 2>/dev/null || true
+    fi
+    if [ -n "${STOCK_BOOTMGFW:-}" ]; then
+        STOCK_BOOTMGFW="$STOCK_BOOTMGFW" "$PIPE/finish_disk.sh" "$DISK"
+    elif [ -n "$MEDIA_BOOTMGFW" ]; then
+        STOCK_BOOTMGFW="$MEDIA_BOOTMGFW" "$PIPE/finish_disk.sh" "$DISK"
+    else
+        "$PIPE/finish_disk.sh" "$DISK"
+    fi
     "$PIPE/inspect_image.sh" "$DISK" | tee "$BUILD/logs/inspect.log"
     # finish_disk.sh can rebuild the ESP after the recovery fstab was
     # written.  inspect_image.sh checks the identifiers; this boots the

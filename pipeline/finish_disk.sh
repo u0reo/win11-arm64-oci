@@ -169,6 +169,27 @@ else
     fi
 fi
 
+# Oracle AAVMF 20260902 stops before the Windows Boot Manager menu when the
+# ESP carries a 26H2-era (28000.x) boot manager.  The 26100.1041 boot manager
+# from 24H2/25H2 media boots the same 26100 Windows installation.  Keep this
+# visible: a build that silently takes C:\Windows\Boot\EFI after a servicing
+# update will reproduce the native hang.
+BM_VER=$(strings -el "$PATCHED" 2>/dev/null |
+    sed -n 's/^10\.0\.\([0-9][0-9]*\)\.[0-9].*/\1/p' | head -1)
+case "$BM_VER" in
+    ''|*[!0-9]*)
+        echo "  WARNING: cannot read the boot manager version" >&2
+        ;;
+    *)
+        echo "  boot manager build: 10.0.$BM_VER"
+        if [ "$BM_VER" -ge 28000 ]; then
+            echo "  WARNING: 28000-era bootmgfw hangs on OCI AAVMF 20260902." >&2
+            echo "  Use a stock 26100.1041 boot manager (24H2/25H2 media) via" >&2
+            echo "  STOCK_BOOTMGFW=<path> if the guest does not reach the menu." >&2
+        fi
+        ;;
+esac
+
 # Write under a temporary name so the original is still intact if the FAT
 # allocation lands too high.
 NEW_REL=EFI/Microsoft/Boot/bootmgfw.new

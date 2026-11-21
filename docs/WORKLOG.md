@@ -5663,3 +5663,70 @@ AAVMF はこの混成を許容するが、実機は許容しないと考えら�
      QEMU（virtio-gpu のみ）で再現する。
   3. OCI は RAM 24 GiB（0x40000000 起点）・GICv3。QEMU の 6 GiB /
      GICv2 との差を疑う。
+
+## 22.44 /dev/sdb 実績個体との差分と 26100.1041 boot manager (2026-11-21)
+
+### /dev/sdb の構成（実績個体）
+
+- p1 = ESP 100 MiB (PARTUUID `057542d2-1b5d-4682-b686-62cdaf9862bf`)、
+  p2 = MSR 16 MiB、p3 = NTFS 49.9 GiB (`26100.1742`)。
+- Windows は **10.0.26100.1742**（2024-10-05 era）。`C:\Windows\Boot\EFI` の
+  `bootmgfw.efi` は **10.0.26100.1041**（2,625,456 B、sha
+  `3e85158b...`）、`boot.stl` は 10,853 B（2024-04-01）。
+- ESP の `\EFI\Boot\bootaa64.efi` は同じ 26100.1041。開始クラスタは
+  **73466** で、65536 以上でもファームウェアから起動できる。22.40 の
+  「GRUB は 65536 以上のクラスタを読めない」という前提は、少なくとも
+  firmware の既定パスには当てはまらない（sdb は 73466 で起動）。
+- ESP の `\EFI\Microsoft\Boot\bootmgfw.efi` は 26089.1001（2,622,784 B、
+  sha `55f7377d...`）だが、stock 26089（sha `6a5aa7f0...`）と 2,314 箇所の
+  単バイト（主に `0x10`/`0x00` → `0x40`）が異なる実験残骸で、そのままでは
+  信頼できない。F2 → Block Volume 2 の既定経路は `EFI/Boot` 側と判断する。
+- sdb1 の BCD は `16000046`(graphicsmodedisabled)、`1600006c`
+  (bootuxdisabled)、`16000020`(bootems)、`260000b0`(kernel EmsEnable) が
+  すべて 1 でも起動する。EMS/画面系フラグはこの個体では致命ではない。
+- sdb3 の `SYSTEM` と `System.evtx` は 2026-11-21 05:17 UTC に更新されて
+  おり、直近のブート成功と整合する。
+
+### /dev/sda との差分
+
+- sda3 は 10.0.26100.9457。`winload.efi` は stock の 3,190,032 B
+  (Subsystem 16、sha `fc788408...`)。
+- ESP の `bootmgfw.efi` は 28000.367（sha `fae47d78...`）で実機停止。
+  stock 26089（`6a5aa7f0...`）も 22.42 で停止済み。
+- 残る未検証の stock は **26100.1041** だけ。24H2/25H2 の boot manager で、
+  9457 の winload を扱える見込み（22.41 の QEMU では 26089 + 9457 winload が
+  ロック画面まで到達）。
+
+### 実機へ投入した内容
+
+- ESP `\EFI\Microsoft\Boot\bootmgfw.efi` を 26100.1041
+  （sha `3e85158b...`、署名あり、6 sections）へ差し替え。`esp_compact.sh`
+  で cluster 14、volume serial `2E8D-167D` は保持。
+- BCD（sha `b99d0009...`）と GRUB（default Windows、timeout 10）は変更なし。
+- バックアップ:
+  `/root/sda1-bootmgfw-28000-fae47d78.efi`、
+  `/root/sda1-esp-before-26100.tar`、
+  `/root/bootmgfw-26100.1041.efi`。
+- 注意: `/dev/sdb3`（ntfs3, ro）から `cp` した bootmgfw は、`sha256sum`
+  では `3e85158b...` と読めるのに、コピー結果が全ゼロ相当の壊れたファイル
+  （sha `7077b329...`、`file` は data）になった。vfat の `/dev/sdb1` から
+  コピーし、SHA-256・PE・FileVersion を再検証してから配置した。ntfs3 の
+  読み出しは今後もコピー後に検証する。
+
+### リポジトリ側
+
+- `pipeline/finish_disk.sh`: 書き込む boot manager の FileVersion を表示し、
+  `10.0.28000` 以上なら OCI AAVMF 停止の警告と `STOCK_BOOTMGFW` の案内を
+  出す。
+- `internal/build-image.sh`: step 12 で ISO の `efi/boot/bootaa64.efi` を
+  取り出し、`STOCK_BOOTMGFW` として `finish_disk.sh` に渡す。サービス更新で
+  `C:\Windows\Boot\EFI` が 28000 に置き換わっても、メディア世代の boot
+  manager を優先できる。ISO が 28000 世代なら警告が出る。
+
+### 次の観測点
+
+- GRUB 10 秒 → 26100.1041 bootmgfw → Windows Boot Manager メニュー（30 秒）
+  → Windows ロック画面。
+- 失敗時: power-cycle → GRUB の 10 秒以内に Down + Enter → Ubuntu (recovery)。
+- 成功したら、`boot.stl` / `bootmgr.efi` も ISO 世代に揃えるか、9457 の
+  winload との組み合わせをどこまで固定するかを決める。
