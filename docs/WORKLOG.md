@@ -5730,3 +5730,66 @@ AAVMF はこの混成を許容するが、実機は許容しないと考えら�
 - 失敗時: power-cycle → GRUB の 10 秒以内に Down + Enter → Ubuntu (recovery)。
 - 成功したら、`boot.stl` / `bootmgr.efi` も ISO 世代に揃えるか、9457 の
   winload との組み合わせをどこまで固定するかを決める。
+
+## 22.45 26100.1041 実機テスト（無音）と GRUB ステージ診断 (2026-11-21)
+
+### 結果
+
+- ESP の `bootmgfw.efi` を 26100.1041（`3e85158b...`）へ差し替えた状態で
+  再起動した。VNC には GRUB 後の Windows Boot Manager メニューもロゴも
+  出ず、ユーザー報告は「何も出なかった」。シリアルコンソールは未確認。
+- 再起動は 14:32:35 UTC、Ubuntu recovery は 14:35:25 UTC に起動。
+  Ubuntu の cmdline は GRUB の `console=ttyAMA0,115200 console=tty1` を
+  含むため、GRUB 自体は動作している。
+- ESP の `BOOTSTAT.DAT` は 14:14:28 のまま更新されていない。28000.367 の
+  テストでは bootmgr が BOOTSTAT を更新していたので、今回は
+  **bootmgr が BOOTSTAT を書く地点まで到達していない**。
+  `C:\Windows\System32\config\SYSTEM` と `System.evtx` も 11-19 のまま。
+- したがって次のいずれか:
+  1. GRUB の `chainloader` が 26100.1041 を開始できていない
+     （画面には GRUB のエラーが出るはずだが未確認）。
+  2. `StartImage` は成功したが、bootmgr が BCD 読み込み前後で停止した。
+  3. VNC の表示だけが失われ、実際には別の場所で停止した。
+- シリアルを取れていないため、GRUB 側に **ステージ記録** を仕込んで
+  再テストする。
+
+### 診断用 GRUB メニュー
+
+- `pipeline/write_grub_menu.py --diagnostics` を追加。`EFI/ubuntu/grubenv`
+  に以下を保存する（`save_env`）。GRUB の prefix は `/EFI/ubuntu`。
+  - `grub_menu_seen=1`: grub.cfg を読めた。
+  - `win_entry=1`: Windows 11 エントリに入った。
+  - `win_chainload=1`: `chainloader` を実行した。
+  - `win_returned=1`: `chainloader` から戻った（起動失敗）。
+  - `dbg_*`: 同じ内容を `bootmgfw-dbg.efi` 経由で実行。
+  - `ubuntu_entry=1`: Ubuntu エントリに入った。
+- Windows エントリでは `search` 前後の `$root` と
+  `ls -l /EFI/Microsoft/Boot/bootmgfw.efi` を画面とシリアルへ出す。
+  `chainloader` が戻った場合は 10 秒待ってからメニューへ戻る。
+- `--diagnostics` は `EFI/Microsoft/Boot/bootmgfw-dbg.efi` が存在するときだけ
+  「Windows 11 (debug copy)」エントリを追加する。中身は同じ 26100.1041。
+- タイムアウトはテスト用に 30 秒。Ubuntu は 3 番目（Down 2 回 + Enter）。
+
+### ESP の再配置
+
+- 前回の `cp` で `grubenv` と debug copy がクラスタ 65536 以上に置かれ、
+  GRUB の FAT ドライバ（65536 以上を読めない）に抵触する。`esp_compact.sh`
+  の優先コピーに `EFI/ubuntu/grubenv` と
+  `EFI/Microsoft/Boot/bootmgfw-dbg.efi` を追加し、存在する場合だけ
+  低クラスタへ置くようにした。
+- 再構築後のクラスタ: grub.cfg 5、EFI/Boot/grub.cfg 11、bootmgfw 18、
+  BCD 5146、grubenv 5250、debug copy 5252。すべて 65536 未満。
+- `grubenv` は `grub-editenv create` で 1024 B の空ブロックにした。
+  `bootmgfw.efi` と debug copy はどちらも `3e85158b...`。
+
+### 次のテスト
+
+1. VNC とシリアルコンソールの両方を開いて再起動する。
+2. GRUB 30 秒メニューで既定の「Windows 11」を選ぶ。
+   - 画面/シリアルに `GRUB diag:` 行が出るか。
+   - `ls -l` がサイズ 2625456 を出せるか。
+   - Windows Boot Manager のメニュー/ロゴが出るか。
+3. 無音なら power-cycle し、GRUB で「Windows 11 (debug copy)」を選ぶ。
+4. それでも無音なら power-cycle し、「Ubuntu (recovery)」を選ぶ。
+5. Ubuntu 復帰後に `grub-editenv /boot/efi/EFI/ubuntu/grubenv list` を読み、
+   `win_chainload` / `win_returned` / `dbg_chainload` の有無で切り分ける。

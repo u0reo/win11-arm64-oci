@@ -32,6 +32,10 @@ PRIORITY_WANT=(
     EFI/Boot/grub.cfg
     EFI/Microsoft/Boot/bootmgfw.efi
     EFI/Microsoft/Boot/BCD
+    # Optional diagnostics: GRUB must be able to write grubenv and read the
+    # debug copy, so keep both below the 65536-cluster limit as well.
+    EFI/ubuntu/grubenv
+    EFI/Microsoft/Boot/bootmgfw-dbg.efi
 )
 PRIORITY=()
 
@@ -103,6 +107,10 @@ for want in "${PRIORITY_WANT[@]}"; do
         echo "esp-compact: $want is missing; using the patched copy" >&2
         rel=$want
         mkdir -p "$PRIO/$(dirname "$rel")"
+    elif [ "${want,,}" = efi/ubuntu/grubenv ] ||
+         [ "${want,,}" = efi/microsoft/boot/bootmgfw-dbg.efi ]; then
+        # Diagnostics are optional; a build without them must still work.
+        continue
     else
         echo "esp-compact: $want is missing from the ESP" >&2
         exit 1

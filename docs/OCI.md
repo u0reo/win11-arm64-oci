@@ -400,6 +400,7 @@ oci bv boot-volume-backup create \
 | live (toram) で `/` と `/dev/shm` の空きが偏る | `/`(overlay=/cow)・`/dev/shm`・`/tmp` は別 tmpfs だが RAM を共有する。ISO を `$HOME` に置くと `/cow` を圧迫しやすい。staging は `/dev/shm/build`、ISO は `/dev/shm/iso` が既定（明示するなら `--build-dir /dev/shm/build`） |
 | シリアルに `SAC>` が出ない | ARM64 Windows は EMS/SAC 非対応です（仕様）。シリアルで操作できるのは GRUB メニューと Ubuntu 復旧環境だけです。Windows は RDP / WinRM で復旧してください |
 | Windows を選ぶと Windows Boot Manager のメニューも出ず黒画面で止まる | ESP の `bootmgfw.efi` が 26H2 世代（`10.0.28000.x`）でないか確認。Oracle AAVMF 20260902 では 28000 系の boot manager がメニュー前に停止する（WORKLOG 22.42, 22.44）。24H2/25H2 の stock `10.0.26100.1041` を `STOCK_BOOTMGFW=/path/to/bootmgfw-26100.1041.efi` で指定する。`build-image.sh` は ISO の `efi/boot/bootaa64.efi` を優先する。EMS/`graphicsmodedisabled` は実績個体（/dev/sdb）でも 1 のまま起動しており、単独では説明できない |
+| 26100.1041 でも GRUB の後が無音 | VNC とシリアルの両方で `GRUB diag:` 行を確認。Ubuntu 復帰後に `grub-editenv /boot/efi/EFI/ubuntu/grubenv list` を実行し、`win_chainload` / `win_returned` / `dbg_chainload` / `dbg_returned` の有無で GRUB 側か bootmgr 側かを切り分ける（WORKLOG 22.45） |
 | Windows を選ぶと無音/黒画面で止まる（VNC にもエラーが出ない） | BCD に `EMSPORT:1` など明示的な x86 COM1 設定が残っていないか確認。`pipeline/bcd_disable_ems.py` がまとめて削除する（WORKLOG 22.21-22.22）。イメージを作り直す場合は `finish_disk.sh` が自動実行する |
 | ビルド中にディスク不足になる | ブートボリュームを 64 GB 以上に |
 | `--virtio *.rpm` で `cannot read an RPM` になる | `rpm2cpio` と `cpio` が要る。`scripts/setup.sh` か `apt-get install rpm2cpio cpio` |
