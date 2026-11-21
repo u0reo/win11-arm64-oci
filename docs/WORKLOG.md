@@ -5636,10 +5636,13 @@ AAVMF はこの混成を許容するが、実機は許容しないと考えら�
 - ESP の `boot.stl` は 12521 B で
   `C:\Windows\Boot\EFI\boot.pnd.stl` と同一。インストール済み
   Windows の active `boot.stl` は 12006 B。
+- ESP のファイル時刻は bcdboot 実行時（2026-09-14 03:15:52 JST =
+  2026-09-13 18:15:52 UTC）で、Windows 側の `boot.pnd.stl`
+  （18:15:51 UTC）の 1 秒後。bcdboot が pending policy を ESP の
+  `boot.stl` として置いたと判断できる。active 12006 B に差し替えると
+  逆に世代がずれる可能性があるため、12521 B のままにする。
 - Secure Boot は無効（`SecureBoot`/`PK`/`KEK`/`db` 変数なし）で、
-  QEMU は 12521 B のままロック画面まで到達している。28000 の実機
-  テストでは変更点を 1 つに絞るため 12521 B のままにする。失敗後の
-  比較候補として active 12006 B への差し替えを残す。
+  QEMU は 12521 B のままロック画面まで到達している。
 
 ### 28000 実機テスト（未実施）
 
