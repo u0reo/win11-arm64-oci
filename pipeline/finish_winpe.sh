@@ -60,6 +60,8 @@ fi
 ESP=$(mktemp -d /tmp/finish-winpe-esp.XXXXXX)
 WIN=$(mktemp -d /tmp/finish-winpe-ntfs.XXXXXX)
 UB=$(mktemp -d /tmp/finish-winpe-ubuntu.XXXXXX)
+WORK=$(mktemp -d /tmp/finish-winpe-work.XXXXXX)
+WIN_BOOTMGFW=""
 NBD=0
 cleanup() {
     set +e
@@ -68,6 +70,7 @@ cleanup() {
     sudo -n umount "$ESP" 2>/dev/null
     [ "$NBD" = 1 ] && sudo -n qemu-nbd --disconnect /dev/nbd0 >/dev/null 2>&1
     cleanup_part_loops
+    rm -rf "$WORK"
     rmdir "$UB" "$WIN" "$ESP" 2>/dev/null
 }
 trap cleanup EXIT
@@ -117,6 +120,15 @@ if [ "$CHECK_LOG" = 1 ]; then
     fi
     echo "  manual-finish.log reports success"
 fi
+# bcdboot copies the boot manager from the source Windows installation, but
+# an interrupted servicing update or an older repair can leave a different
+# stock bootmgfw.efi on the ESP.  Keep the installed Windows copy so
+# bootmgfw.efi, bootmgr.efi, boot.stl and CIPolicies stay in one generation.
+if [ -f "$WIN/Windows/Boot/EFI/bootmgfw.efi" ]; then
+    WIN_BOOTMGFW="$WORK/bootmgfw.windows"
+    sudo -n cp -f "$WIN/Windows/Boot/EFI/bootmgfw.efi" "$WIN_BOOTMGFW"
+    echo "  installed Windows boot manager: $(stat -c %s "$WIN_BOOTMGFW") bytes"
+fi
 sudo -n umount "$WIN"
 
 echo "[4/5] repair the ESP"
@@ -129,6 +141,10 @@ GRUB="$ESP/EFI/ubuntu/grubaa64.efi"
 SHIM="$ESP/EFI/ubuntu/shimaa64.efi"
 [ -f "$BCD" ] || { echo "missing $BCD" >&2; exit 1; }
 [ -f "$BOOTMGR" ] || { echo "missing $BOOTMGR" >&2; exit 1; }
+if [ -n "$WIN_BOOTMGFW" ]; then
+    sudo -n cp -f "$WIN_BOOTMGFW" "$BOOTMGR"
+    echo "  EFI/Microsoft/Boot/bootmgfw.efi = installed Windows copy"
+fi
 
 # The old Windows Boot Manager bootapp entry cannot work on ARM64.  Remove it
 # whether or not a recovery Ubuntu is included, so the Windows menu never

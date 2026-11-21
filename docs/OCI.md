@@ -406,5 +406,6 @@ oci bv boot-volume-backup create \
 | AAVMF が無い | `qemu-efi-aarch64` パッケージ |
 | ビルドが異常に遅い | `/dev/kvm` の有無。無ければ TCG |
 | `scripts/build.sh` が「ルートデバイス」で止まる | ステージ2-A に切り替える |
-| 起動しない | ESP に `BOOTAA64.EFI` があるか、`bootmgfw.efi` が stock か（`PATCH_BOOTMGFW=1` でないか）、GRUB が読むファイルの開始クラスタが 65536 未満か |
+| 起動しない | ESP に `BOOTAA64.EFI` があるか、`bootmgfw.efi` が stock か（`PATCH_BOOTMGFW=1` でないか）、GRUB が読むファイルの開始クラスタが 65536 未満か。ESP の `bootmgfw.efi` が `bootmgr.efi` / `boot.stl` / `CIPolicies` と同じ世代か（例: 26089 と 28000 の混成は実機で bootmgr 前に停止）も確認 |
+| 起動が 10 秒以上待たされる | `systemd-networkd-wait-online.service` が `network-online.target` を待っている。復旧 Ubuntu では `systemctl disable --now systemd-networkd-wait-online.service` と `systemctl mask systemd-networkd-wait-online.service` で無効化する（`make_recovery_ubuntu.sh` はビルド時に設定済み） |
 | RDP が繋がらない | セキュリティリスト/NSG で 3389 を許可 |

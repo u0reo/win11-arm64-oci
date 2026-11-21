@@ -260,9 +260,14 @@ bootapp を削除します。`finish_disk.sh` は `bootmgfw.efi` が stock の�
 - **bootmgfw は stock のまま**: `ConvertPages: failed to find range
   102000-102FFF` はファームウェアの DEBUG 出力で、bootmgfw は戻り値を見ずに
   続行します。パッチでイメージを変えると `boot.stl` / `CIPolicies` の完全性
-  検査と一致せず、QEMU では bootmgr がメニュー前に終了しました。stock 26089
-  は同じ BCD でロック画面まで到達しています。診断目的で旧パッチを試す場合
-  だけ `PATCH_BOOTMGFW=1 ./pipeline/finish_disk.sh <disk>` を使ってください
+  検査と一致せず、QEMU では bootmgr がメニュー前に終了しました。
+  `finish_disk.sh` は読み取れる場合、インストール済み Windows の
+  `\Windows\Boot\EFI\bootmgfw.efi` を ESP にコピーし、`bootmgr.efi` /
+  `boot.stl` / `CIPolicies` と同じ世代に揃えます。実機 OCI では 26089 の
+  bootmgfw と 28000 の boot chain の混成が bootmgr のメニュー前に停止した
+  ため、ESP に残った古い stock をそのまま使わないでください。診断目的で
+  旧パッチを試す場合だけ
+  `PATCH_BOOTMGFW=1 ./pipeline/finish_disk.sh <disk>` を使ってください
 - **BCD**: `finish_winpe.sh` / `finish_disk.sh` が Ubuntu bootapp と、
   削除したオブジェクトへの参照を除去します。Windows の displayorder は
   Windows のみになります

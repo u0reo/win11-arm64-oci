@@ -415,6 +415,11 @@ fi
 run ssh-keygen -A >/dev/null 2>&1 || echo "  WARN: ssh-keygen -A failed" >&2
 
 run systemctl enable systemd-networkd >/dev/null 2>&1 || true
+# Do not delay the recovery boot waiting for network-online.target.  DHCP can
+# take longer than the default 120 s timeout on OCI, and SSH becomes usable
+# as soon as the link is up without this service.
+run systemctl disable systemd-networkd-wait-online.service >/dev/null 2>&1 || true
+run systemctl mask systemd-networkd-wait-online.service >/dev/null 2>&1 || true
 run systemctl enable ssh >/dev/null 2>&1 || true
 run systemctl enable serial-getty@ttyAMA0 >/dev/null 2>&1 || true
 "${SUDO[@]}" rm -f "$MNT/etc/resolv.conf"

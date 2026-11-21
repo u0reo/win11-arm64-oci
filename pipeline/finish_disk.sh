@@ -14,6 +14,12 @@
 # in boot.stl/CIPolicies, so a later integrity check can terminate the boot
 # chain silently.  Local QEMU tests show the patched 26089 boot manager exits
 # before the boot menu while the stock copy reaches the Windows lock screen.
+#
+# The stock copy is taken from the installed Windows volume whenever it is
+# readable.  That keeps bootmgfw.efi consistent with the BCD, bootmgr.efi,
+# boot.stl and CIPolicies that bcdboot wrote.  Mixing a 26089 boot manager
+# with a 28000 boot chain is not supported and can fail before the boot menu
+# on real firmware even though QEMU tolerates it.
 # PATCH_BOOTMGFW=1 keeps the old #2 -> #1 patch available for experiments.
 # STOCK_BOOTMGFW=/path/to/bootmgfw.efi forces a specific stock copy.
 #
@@ -89,6 +95,22 @@ ESPDEV=$(find_esp "$DEV")
 }
 echo "  ESP: $ESPDEV"
 
+# The ESP's bootmgfw.efi must come from the same Windows installation as the
+# BCD, bootmgr.efi, boot.stl and CIPolicies.  bcdboot can leave an older
+# stock copy after a servicing update, and a manual repair can leave an even
+# older one.  Prefer the installed Windows copy so the signed boot chain is
+# version-consistent; fall back to the ESP copy only when it cannot be read.
+WINDOWS_BOOTMGFW=""
+WINDEV=$(find_windows "$DEV" || true)
+if [ -n "$WINDEV" ] && sudo -n mount -t ntfs-3g -o ro "$WINDEV" "$WIN" 2>/dev/null; then
+    if [ -f "$WIN/Windows/Boot/EFI/bootmgfw.efi" ]; then
+        WINDOWS_BOOTMGFW="$WORK/bootmgfw.windows"
+        sudo -n cp -f "$WIN/Windows/Boot/EFI/bootmgfw.efi" "$WINDOWS_BOOTMGFW"
+        echo "  installed Windows boot manager: $(stat -c %s "$WINDOWS_BOOTMGFW") bytes"
+    fi
+    sudo -n umount "$WIN"
+fi
+
 # Read the first cluster of a file in the ESP's FAT filesystem.  mshowfat
 # prints "::/path <start-end> <start-end> ..."; a fragmented file has more
 # than one range, and GRUB looks at the first one.
@@ -133,14 +155,18 @@ else
     # integrity checks later in the chain.
     if [ -n "$STOCK_BOOTMGFW" ]; then
         cp "$STOCK_BOOTMGFW" "$PATCHED"
+        echo "  using STOCK_BOOTMGFW"
+    elif [ -n "$WINDOWS_BOOTMGFW" ]; then
+        cp "$WINDOWS_BOOTMGFW" "$PATCHED"
+        echo "  using the installed Windows boot manager"
     elif python3 "$HERE/patch_bootmgfw.py" --dry-run --require-patched \
             "$SRC" >/dev/null 2>&1; then
         echo "  $BOOTMGR_REL on the ESP is patched; set STOCK_BOOTMGFW=<stock.efi>" >&2
         exit 1
     else
         cp "$SRC" "$PATCHED"
+        echo "  keeping the stock bootmgfw.efi from the ESP"
     fi
-    echo "  keeping the stock bootmgfw.efi"
 fi
 
 # Write under a temporary name so the original is still intact if the FAT

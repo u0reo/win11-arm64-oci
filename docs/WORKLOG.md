@@ -5528,3 +5528,69 @@ winload(1742) が別世代 (≒8036) の ntoskrnl.exe を拒否している。
 - 出ない場合、power-cycle 後は GRUB default=Ubuntu に戻る。
 - 直接起動でも失敗するなら、bootmgfw の版（26089 vs 28000）か
   OCI firmware の 0x102000 予約が残因。
+
+## 22.42 native 26089 停止と boot chain 世代統一 (2026-11-20)
+
+### 実機の観測
+
+- `Boot0005`（ESP の `\EFI\Microsoft\Boot\bootmgfw.efi` を直接）と
+  EFI Internal Shell からの直接実行の両方で、Windows は起動しなかった。
+- EFI Shell のログ:
+  - `ConvertPages: failed to find range 10000000 - 102C4FFF`
+  - `Image Loaded: bootmgfw.efi`
+  - `ConvertPages: failed to find range 102000 - 102FFF`
+  - その後、Windows Boot Manager の画面も Windows ロゴも出ない。
+- このログではファームウェアが `Boot0000 BootManagerMenuApp` を起動し、
+  `BootNext:` は空、Boot Options は `Boot0002` だけだった。Boot0005 は
+  BootOrder に入れていなかったため、メニューには出ていない。最初の再起動で
+  BootNext は消費済みと判断できる。
+- `ConvertPages` は EDK2 の DEBUG 出力で、bootmgfw は `AllocatePages` の
+  戻り値を見ずに続行する（22.40 の QEMU 解析と同じ）。今回の停止は
+  `ConvertPages` 自体が原因ではない。
+
+### 世代不一致の発見
+
+ESP の内容を Windows ボリュームと比較した。
+
+| ファイル | ESP | `C:\Windows\Boot\EFI` |
+|---|---|---|
+| `bootmgfw.efi` | 10.0.26089.1001 | 10.0.28000.367 |
+| `bootmgr.efi` | 10.0.28000.367 | 10.0.28000.367 |
+| `boot.stl` | 12521 B = `boot.pnd.stl` | `boot.stl` 12006 B / `boot.pnd.stl` 12521 B |
+| `CIPolicies` / `winsipolicy.p7b` | 28000 世代を復元済み | 28000 世代 |
+
+つまり ESP は **bootmgfw だけ 26089、BCD/bootmgr/boot.stl/CI は 28000** という
+混成だった。26089 は QEMU ではロック画面まで到達するが、実機ファームウェア
+（Oracle AAVMF 20260902）では bootmgr のメニュー前に停止する。QEMU の
+AAVMF はこの混成を許容するが、実機は許容しないと考えられる。
+
+### 実機へ入れた修正
+
+1. `C:\Windows\Boot\EFI\bootmgfw.efi`（stock 28000.367、sha
+   `fae47d78...`）を ESP の `\EFI\Microsoft\Boot\bootmgfw.efi` へコピー。
+   `esp_compact.sh` で cluster 14 に再配置。volume serial `2E8D-167D` は保持。
+2. GRUB の `default=0`（Windows 11）、`timeout=10` に変更。失敗時は
+   power-cycle 後に Down + Enter で Ubuntu (recovery) を選べる。
+3. `systemd-networkd-wait-online.service` を live で disable + mask。
+   ビルド側は `pipeline/make_recovery_ubuntu.sh` で同じ設定を行う。
+
+### リポジトリ側の修正
+
+- `pipeline/finish_disk.sh`: Windows ボリュームの
+  `\Windows\Boot\EFI\bootmgfw.efi` を読み、ESP の stock コピーとして使う。
+  ESP が patched でも、Windows の stock があれば置き換える。
+  `STOCK_BOOTMGFW=` は明示指定として残す。
+- `pipeline/finish_winpe.sh`: bcdboot 後の ESP に、インストール済み
+  Windows の `bootmgfw.efi` をコピーして世代を揃える。
+- `pipeline/make_recovery_ubuntu.sh`: `systemd-networkd-wait-online` を
+  disable + mask。OCI の DHCP 待ちで 11 秒以上（上限なし）止まらないようにする。
+
+### 次の観測点
+
+- VNC に Windows Boot Manager のメニュー（30 秒）が出るか。
+- 出れば Windows ロック画面まで進むか。
+- 出なければ bootmgfw 28000 でも同じ停止か。その場合は boot chain の
+  世代ではなく、OCI ファームウェアのメモリマップか virtio-scsi の
+  ブロック I/O を疑う。
+- 失敗時の復帰: power-cycle → GRUB の 10 秒以内に Down + Enter →
+  Ubuntu (recovery)。

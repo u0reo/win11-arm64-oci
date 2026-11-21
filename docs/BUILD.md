@@ -107,6 +107,14 @@ Ubuntu を残す構成では、`finish_winpe.sh` が `bcdboot` の後で
 一致しなくなり、QEMU では bootmgr がメニュー前に終了します（stock 26089 は
 同じ BCD でロック画面まで到達）。そのため stock を既定にしています。
 
+stock コピーは、読み取れる場合は **インストール済み Windows の
+`\Windows\Boot\EFI\bootmgfw.efi`** から取ります。ESP に古い stock
+（例: 26089）が残っていても、`bcdboot` が書いた `bootmgr.efi` /
+`boot.stl` / `CIPolicies`（例: 28000）と同じ世代に揃えるためです。
+実機 OCI では 26089 の bootmgfw と 28000 の boot chain の混成が
+bootmgr のメニュー前に停止しました。`STOCK_BOOTMGFW=<file>` を指定した
+場合だけ、そのコピーを優先します。
+
 GRUB の FAT ドライバは開始クラスタ 65536 以上のファイルを開けないため、
 書き込み後の開始クラスタも検査します。`bootmgfw.efi` か GRUB メニューが
 65536 以上になった場合は、`pipeline/esp_compact.sh` が ESP を作り直し、
