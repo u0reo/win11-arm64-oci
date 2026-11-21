@@ -5594,3 +5594,69 @@ AAVMF はこの混成を許容するが、実機は許容しないと考えら�
   ブロック I/O を疑う。
 - 失敗時の復帰: power-cycle → GRUB の 10 秒以内に Down + Enter →
   Ubuntu (recovery)。
+
+## 22.43 WinRE の boot chain と BOOTSTAT 0xc0000428 の照合 (2026-11-21)
+
+### WinRE.wim の boot ファイル
+
+- `/mnt/win/Recovery/WindowsRE/Winre.wim` は Build 26100.9444 だが、
+  `/Windows/Boot/EFI/bootmgfw.efi` は **28000.367**（sha
+  `fae47d78...`）、`bootmgr.efi` も 28000.367、`boot.stl` 12006 B、
+  `boot.pnd.stl` 12521 B。ESP の stock 28000 と完全一致する。
+- つまりこのインストールには 26100 世代の boot manager が存在しない。
+  以前の QEMU V10 経路で使った 26100.1041 は UUP 由来で、現在は
+  ローカルに残っていない。WinRE から 26100 の bootmgfw を取り出す
+  道はないため、世代統一は 28000 で揃えるのが正しい。
+- WIM の読み出しは Ubuntu archive の `wimtools` +
+  `libwim15t64` を `/tmp` に展開して行った（`wimlib-imagex`）。
+  再取得用に `/root/wimtools`、抽出した boot ファイルを
+  `/root/winre-boot`、stock 26089/28000 の bootmgfw と
+  `BOOTSTAT.DAT` のコピーを `/root` に保存した。
+
+### BOOTSTAT.DAT の 0xc0000428 は patched 画像の記録
+
+- `BOOTSTAT.DAT` の `0xC0000428` レコードの直後は
+  Authenticode(SHA256) ハッシュ（`0c 80 00 00` = CALG_SHA_256、
+  `20 00` = 32 B）。
+- ESP の `bootmgfw.efi.oci-patched.bak` の Authenticode ハッシュ
+  `fe8a30a1...` と一致するレコードが 16 件ある。
+- 一方、stock 26089 の Authenticode ハッシュ `28bfb2cd...` と
+  stock 28000 の `1eeecb67...` は **0 件**。したがって
+  `0xc0000428` は patched bootmgfw に対する記録であり、**stock 26089 の
+  native 停止は image hash 拒否ではない**。もう 1 つの
+  `85fcd757...` は現存しない patched コンポーネントで、winload とは
+  限らない（現存ファイルの Authenticode hash とは一致しない）。
+- 現在の `winload.efi` は orig16 に戻っており、Authenticode
+  `e31b0cdf...`、Subsystem 16。`winload.efi.orig16.bak` と同一。
+- `ConvertPages: failed to find range 102000 - 102FFF` は QEMU でも
+  出る（22.20）。今回の native 停止の直接原因ではない。
+
+### ESP の boot.stl
+
+- ESP の `boot.stl` は 12521 B で
+  `C:\Windows\Boot\EFI\boot.pnd.stl` と同一。インストール済み
+  Windows の active `boot.stl` は 12006 B。
+- Secure Boot は無効（`SecureBoot`/`PK`/`KEK`/`db` 変数なし）で、
+  QEMU は 12521 B のままロック画面まで到達している。28000 の実機
+  テストでは変更点を 1 つに絞るため 12521 B のままにする。失敗後の
+  比較候補として active 12006 B への差し替えを残す。
+
+### 28000 実機テスト（未実施）
+
+- ESP: stock 28000.367 `bootmgfw.efi`（sha `fae47d78...`、cluster 14）。
+- BCD: default `{58297ee1}` = Windows 11、displayorder も同じ、
+  timeout 30、displaybootmenu=1。EMS/debug 要素なし。
+  `winload.efi` は stock（Subsystem 16）。
+- GRUB: timeout 10、default 0 = Windows 11。Ubuntu は Down + Enter。
+- 期待: GRUB → Windows Boot Manager メニュー（30 秒）→ ロック画面。
+- 失敗時: power-cycle → GRUB の 10 秒以内に Down + Enter →
+  Ubuntu (recovery)。
+- 失敗後の切り分け候補:
+  1. `{bootmgr} bootems=1` と loader `260000b0=1`（port/baud なし）で
+     PL011 に winload 以降のエラーを出す。`kd_0C11.dll` は ESP にも
+     `C:\Windows\System32` にも無いため、serial KD debug は不可。
+  2. OCI の表示は virtio-gpu `1af4:1050`。QEMU 検証は ramfb 併用
+     なので、bootmgr の GOP 初期化が virtio-gpu で止まる可能性を
+     QEMU（virtio-gpu のみ）で再現する。
+  3. OCI は RAM 24 GiB（0x40000000 起点）・GICv3。QEMU の 6 GiB /
+     GICv2 との差を疑う。
