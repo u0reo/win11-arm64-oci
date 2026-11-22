@@ -202,6 +202,66 @@ Ubuntu (recovery)
 表示・選択できます**。QEMU の AAVMF では `timeout=1` でも、メニュー表示直後に
 Down + Enter を送れば Ubuntu が起動することを確認済みです。
 
+### ファームウェアのブート順（NVRAM）
+
+起動順はディスクではなくファームウェアの NVRAM に入っています。イメージを
+初めて起動した直後は、ファームウェアのフォールバック
+（`\EFI\BOOT\BOOTAA64.EFI`）が shim → GRUB を起動するため、メニューが
+出ます。しかし **Windows を一度起動すると、Windows が自分用の
+`Boot####`（Windows Boot Manager）を作り、Ubuntu のエントリが無い場合は
+それを先頭にします**。次の電源投入では GRUB を経由せず Windows が直接
+起動し、「Ubuntu が消えた」ように見えます（WORKLOG 22.47）。
+
+復旧 Ubuntu は `oci-ubuntu-boot-order.service` を有効にしてあり、起動の
+たびに `oci-ubuntu-boot-order` が以下を行います。
+
+1. `efibootmgr -v` から `\EFI\ubuntu\grubaa64.efi`（shim があれば
+   `\EFI\ubuntu\shimaa64.efi`）を指すエントリを探す
+2. 無ければ ESP のパーティション番号を使って `efibootmgr --create` で
+   追加する
+3. `efibootmgr --bootorder` でそのエントリだけを先頭へ移す
+   （他のエントリは削除せず相対順を保つ）
+
+`efibootmgr` が無い、`efivarfs` が読み取り専用、`/boot/efi` が未マウントの
+場合は説明を出して正常終了します。Ubuntu の起動を止めることはありません。
+手動で同じ処理をするには:
+
+```bash
+sudo /usr/local/sbin/oci-ubuntu-boot-order
+sudo efibootmgr -v
+```
+
+まだ GRUB に入れず、Ubuntu のエントリも無い場合は、ファームウェアの
+EFI シェル（OCI のシリアルで Esc → Boot Manager → EFI Internal Shell）から
+一度だけ登録します。
+
+```text
+Shell> fs0:
+FS0:\> bcfg boot add 9 FS0:\EFI\ubuntu\grubaa64.efi Ubuntu
+FS0:\> bcfg boot mv 9 0
+FS0:\> reset
+```
+
+`bcfg boot mv` の 2 番目の番号は登録後のエントリ番号です。`bcfg boot dump`
+で確認してください。Ubuntu が一度起動すれば、以降は上記の unit が順序を
+維持します。Windows はファームウェアのブートメニューからいつでも選べます。
+
+### Ubuntu カーネル（UKI と stubble）
+
+Ubuntu 24.04 以降の arm64 は `/boot/vmlinuz-<version>` を **UKI** として
+インストールします。UKI のエントリポイントは stubble で、GRUB の `linux`
+コマンドはカーネルの EFI スタブではなく stubble へジャンプします。GRUB を
+EFI シェルから起動した場合、stubble はシェルの引数をコマンドラインとして
+扱い、引数が無いと UKI 内の空の `.cmdline` を選びます。その結果
+`measure.c:246@tpm_log_ipl_event` の assert で停止します（WORKLOG 22.48）。
+
+`make_recovery_ubuntu.sh` はビルド時に `pipeline/extract_uki_kernel.py` で
+UKI の `.linux` セクションを取り出し、`/boot/vmlinuz-<version>.raw`
+（通常の arm64 `Image`）を置きます。GRUB メニューはこちらを `linux` で
+読みます。stubble を経由しないため、NVRAM・ファームウェアフォールバック・
+EFI シェルのどこから GRUB を起動しても同じ経路で Ubuntu が起動します。
+Secure Boot は無効なので、未測定のカーネルでも問題ありません。
+
 既定の Windows 11 を選ぶと、GRUB は ESP を root にしてから
 `\EFI\Microsoft\Boot\bootmgfw.efi` を chainload します。`$root` が Ubuntu の
 まま chainload すると BCD を読めず `0xc00000bb` で止まるため、
@@ -241,8 +301,17 @@ Windows Boot Manager の BCD には Ubuntu の bootapp エントリを残しま�
 \EFI\ubuntu\grub.cfg              GRUB メニュー（実際に読まれる設定）
 \EFI\BOOT\grub.cfg                同じ内容のコピー
 \EFI\Microsoft\Boot\bootmgfw.efi  Windows Boot Manager（署名済み stock）
+\EFI\Microsoft\Boot\bootmgr.efi   bootmgfw と同じ世代の BootMgr
+\EFI\Microsoft\Boot\boot.stl      bootmgfw と同じ世代の署名リスト
 \EFI\Microsoft\Boot\BCD           Windows のみ
 ```
+
+`bootmgfw.efi` だけを差し替えると `bootmgr.efi` / `boot.stl` と世代が
+食い違い（例: 26100 と 28000）、実機 OCI では bootmgr のメニュー前に停止
+します。`finish_disk.sh` は 3 つを同じ供給元から揃え、28000 系が混ざった
+場合は警告します。`STOCK_BOOTMGFW` / `STOCK_BOOTMGR` / `STOCK_BOOT_STL` で
+明示できます（`build-image.sh` は ISO の `efi/boot/bootaa64.efi` と
+`efi/microsoft/boot/bootmgr.efi`・`boot.stl` を優先します）。
 
 `finish_winpe.sh` は shim/GRUB と GRUB メニューを配置し、BCD から Ubuntu
 bootapp を削除します。`finish_disk.sh` は `bootmgfw.efi` が stock のまま
@@ -332,5 +401,18 @@ Windows 側のシリアル復旧は期待できません。ARM64 の Windows は
 BCD へ要素を書き込みます。**OCI A1 で明示的な `EMSPORT:1` を設定すると
 bootmgr/winload が無音でハングします**（WORKLOG 22.21-22.22）。ビルドは
 `boot.ps1` で EMS を設定せず、`finish_disk.sh` が
-`bcd_disable_ems.py` で BCD の EMS 要素（15000022/15000023/16000020/
-260000b0 など）を削除します。Windows の復旧は RDP / WinRM で行ってください。
+`bcd_normalize.py` で BCD を正規化します（旧名 `bcd_disable_ems.py` は
+互換エイリアス）。
+
+- `EmsPort`/`EmsBaudRate`（15000022/15000023 など x86 COM1 前提の要素）を
+  全オブジェクトから削除
+- `bootems`（16000020）と `EmsEnable`（260000b0）を **0** に設定。EMS と
+  通常の ConOut が同じ PL011 に書くと、シリアルで
+  `WWiinnddoowwss` のように 1 文字おきに二重表示されます（WORKLOG 22.46）
+- `nointegritychecks`（16000048）は **1 のまま維持**。削除すると
+  `0xc0000428` で停止します
+- `graphicsmodedisabled`（16000046）と `bootuxdisabled`（1600006c）は 1 の
+  まま（テキストコンソールで起動）
+- 診断用の `bootlog`（26000090）と `sos`（26000091）は削除
+
+Windows の復旧は RDP / WinRM で行ってください。

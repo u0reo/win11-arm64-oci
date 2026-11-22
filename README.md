@@ -279,9 +279,12 @@ sudo ./scripts/build.sh --disk /dev/sda \
 model / serial / size を表示し、ISO のコピーとマウント解除を行ってから
 書き込みを始めます。
 
-ARM64 の Windows は EMS/SAC に対応していません。`bcdedit /ems` は成功した
-ように見えて何も設定しないため、**Windows 側のシリアル復旧はできません**。
-Windows の復旧は RDP / WinRM を使ってください。
+ARM64 の Windows は EMS/SAC に対応していません。`bcdedit /ems` や
+`/emssettings` は成功したように見えますが、実際には BCD へ x86 COM1 前提の
+要素を書き込み、OCI では bootmgr の無音ハングやシリアルの二重表示を
+引き起こします。ビルドは EMS を設定せず、`finish_disk.sh` が BCD を正規化
+します。**Windows 側のシリアル復旧はできません**。Windows の復旧は
+RDP / WinRM を使ってください。
 
 `--boot-menu 秒数` は、Windows のみの構成では Windows Boot Manager の
 メニュー表示時間を、`--fresh-ubuntu` / `--reuse-ubuntu`

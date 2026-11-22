@@ -354,8 +354,10 @@ ARM64 の Windows は EMS/SAC に対応していませんが、`bcdedit /ems` �
 **OCI A1 で明示的な `EMSPORT:1` を設定すると bootmgr/winload が無音で
 ハングし、画面にもイベントログにも何も出ません**（WORKLOG 22.21-22.22）。
 ビルドは `boot.ps1` で EMS を設定せず、`pipeline/finish_disk.sh` が
-`bcd_disable_ems.py` で EMS 要素を削除します。Windows のシリアル復旧は
-できません。RDP / WinRM を使ってください。
+`bcd_normalize.py` で EMS のポート指定を削除し、`bootems`/`EmsEnable` を 0
+にします。EMS と ConOut が同じ PL011 に書く `WWiinnddooww` の二重表示も
+これで止まります。`16000048`（nointegritychecks）は 1 のまま維持します。
+Windows のシリアル復旧はできません。RDP / WinRM を使ってください。
 
 Windows のみの構成では GRUB は入らず、`--boot-menu` は Windows Boot
 Manager のメニュー表示時間になります。メニューを消すには:
@@ -401,13 +403,16 @@ oci bv boot-volume-backup create \
 | シリアルに `SAC>` が出ない | ARM64 Windows は EMS/SAC 非対応です（仕様）。シリアルで操作できるのは GRUB メニューと Ubuntu 復旧環境だけです。Windows は RDP / WinRM で復旧してください |
 | Windows を選ぶと Windows Boot Manager のメニューも出ず黒画面で止まる | ESP の `bootmgfw.efi` が 26H2 世代（`10.0.28000.x`）でないか確認。Oracle AAVMF 20260902 では 28000 系の boot manager がメニュー前に停止する（WORKLOG 22.42, 22.44）。24H2/25H2 の stock `10.0.26100.1041` を `STOCK_BOOTMGFW=/path/to/bootmgfw-26100.1041.efi` で指定する。`build-image.sh` は ISO の `efi/boot/bootaa64.efi` を優先する。EMS/`graphicsmodedisabled` は実績個体（/dev/sdb）でも 1 のまま起動しており、単独では説明できない |
 | 26100.1041 でも GRUB の後が無音 | VNC とシリアルの両方で `GRUB diag:` 行を確認。Ubuntu 復帰後に `grub-editenv /boot/efi/EFI/ubuntu/grubenv list` を実行し、`win_chainload` / `win_returned` / `dbg_chainload` / `dbg_returned` の有無で GRUB 側か bootmgr 側かを切り分ける（WORKLOG 22.45） |
-| Windows を選ぶと無音/黒画面で止まる（VNC にもエラーが出ない） | BCD に `EMSPORT:1` など明示的な x86 COM1 設定が残っていないか確認。`pipeline/bcd_disable_ems.py` がまとめて削除する（WORKLOG 22.21-22.22）。イメージを作り直す場合は `finish_disk.sh` が自動実行する |
+| Windows を選ぶと無音/黒画面で止まる（VNC にもエラーが出ない） | BCD に `EMSPORT:1` など明示的な x86 COM1 設定が残っていないか確認。`pipeline/bcd_normalize.py` がポート指定を削除し、`16000048` を 1 に戻す（WORKLOG 22.21-22.22, 22.46）。イメージを作り直す場合は `finish_disk.sh` が自動実行する |
+| シリアルで `WWiinnddooww` のように 1 文字おきに二重表示される | EMS と通常の ConOut が同じ PL011 に書いている。`16000020`（bootems）と `260000b0`（EmsEnable）を 0 にする。`finish_disk.sh` の `bcd_normalize.py` が自動で行う（WORKLOG 22.46） |
+| Windows を初めて起動した後、再起動すると GRUB が出ず Windows が直接起動する | NVRAM のブート順が Windows 優先になっている。Ubuntu は消えていない。Ubuntu を一度起動すると `oci-ubuntu-boot-order.service` が `efibootmgr` で Ubuntu を先頭へ戻す。GRUB にも入れない場合は EFI シェルで `bcfg boot add 9 FS0:\EFI\ubuntu\grubaa64.efi Ubuntu` → `bcfg boot mv 9 0` → `reset`（WORKLOG 22.47） |
+| GRUB から Ubuntu を選ぶと `measure.c:246@tpm_log_ipl_event` の assert で止まる | GRUB が UKI の stubble を起動し、空の `.cmdline` を測定しようとしている。`pipeline/extract_uki_kernel.py` で UKI の `.linux` を `/boot/vmlinuz-<version>.raw` に展開し、GRUB の `linux` 行をそちらへ向ける。再ビルドなら `make_recovery_ubuntu.sh` が自動で行う（WORKLOG 22.48） |
 | ビルド中にディスク不足になる | ブートボリュームを 64 GB 以上に |
 | `--virtio *.rpm` で `cannot read an RPM` になる | `rpm2cpio` と `cpio` が要る。`scripts/setup.sh` か `apt-get install rpm2cpio cpio` |
 | `qemu-system-aarch64: not found` | `scripts/setup.sh` |
 | AAVMF が無い | `qemu-efi-aarch64` パッケージ |
 | ビルドが異常に遅い | `/dev/kvm` の有無。無ければ TCG |
 | `scripts/build.sh` が「ルートデバイス」で止まる | ステージ2-A に切り替える |
-| 起動しない | ESP に `BOOTAA64.EFI` があるか、`bootmgfw.efi` が stock か（`PATCH_BOOTMGFW=1` でないか）、GRUB が読むファイルの開始クラスタが 65536 未満か。ESP の `bootmgfw.efi` が `bootmgr.efi` / `boot.stl` / `CIPolicies` と同じ世代か（例: 26089 と 28000 の混成は実機で bootmgr 前に停止）も確認 |
+| 起動しない | ESP に `BOOTAA64.EFI` があるか、`bootmgfw.efi` が stock か（`PATCH_BOOTMGFW=1` でないか）、GRUB が読むファイルの開始クラスタが 65536 未満か。ESP の `bootmgfw.efi` が `bootmgr.efi` / `boot.stl` / `CIPolicies` と同じ世代か（例: 26089 と 28000 の混成は実機で bootmgr 前に停止）も確認。`build-image.sh` は ISO の `bootmgr.efi` と `boot.stl` も `STOCK_BOOTMGR` / `STOCK_BOOT_STL` として渡す |
 | 起動が 10 秒以上待たされる | `systemd-networkd-wait-online.service` が `network-online.target` を待っている。復旧 Ubuntu では `systemctl disable --now systemd-networkd-wait-online.service` と `systemctl mask systemd-networkd-wait-online.service` で無効化する（`make_recovery_ubuntu.sh` はビルド時に設定済み） |
 | RDP が繋がらない | セキュリティリスト/NSG で 3389 を許可 |

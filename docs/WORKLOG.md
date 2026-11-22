@@ -5793,3 +5793,187 @@ AAVMF はこの混成を許容するが、実機は許容しないと考えら�
 4. それでも無音なら power-cycle し、「Ubuntu (recovery)」を選ぶ。
 5. Ubuntu 復帰後に `grub-editenv /boot/efi/EFI/ubuntu/grubenv list` を読み、
    `win_chainload` / `win_returned` / `dbg_chainload` の有無で切り分ける。
+
+## 22.46 Windows 11 実機起動成功と BCD 正規化 (2026-11-22)
+
+### 結果
+
+- `/dev/sda` の ESP で、Windows Boot Manager のメニューが **OCI のシリアル
+  コンソールに表示され、Windows 11 がデスクトップまで起動した**。
+- 22.45 の無音停止から変えた点は 2 つ。
+  1. `/dev/sdb1`（実績個体）から `bootmgr.efi` と `boot.stl` をコピー
+  2. BCD のフラグを実績個体に合わせて設定
+- シリアルでは `WWiinnddooww` のように 1 文字おきに二重表示された。
+
+### ESP の boot chain
+
+| ファイル | 版 | SHA-256 先頭 | サイズ |
+|---|---|---|---|
+| `bootmgfw.efi` | 10.0.26100.1041 | `3e85158b…` | 2,625,456 |
+| `bootmgr.efi` | 10.0.26089.1001 | `2fb07cf2…` | 2,608,560 |
+| `boot.stl` | — | `fb5146c8…` | 10,853 |
+
+- `bootmgfw.efi` は 22.45 から変更なし（26100.1041）。
+- `bootmgr.efi` / `boot.stl` は `/dev/sdb1` の
+  `EFI/Microsoft/Boot/` からコピーした。インストール済み Windows
+  （`/dev/sda3`）の同じファイルは 10.0.28000.367 で、26100 の bootmgfw と
+  混成になっていた。
+- バックアップ: `/root/sda1-bootmgr-28000-.efi`、
+  `/root/sda1-boot.stl-28000-.stl`、`/root/sda1-BCD-before-flags.bcd`。
+
+### BCD フラグ
+
+`/dev/sdb1` の BCD と同じ値を入れた。
+
+- `{bootmgr}` `{9dea862c-…}`:
+  `16000020=1`（bootems）、`16000046=1`（graphicsmodedisabled）、
+  `16000048=1`（nointegritychecks）、`1600006c=1`（bootuxdisabled）
+- 既定ローダー `{58297ee1-…}`:
+  `16000009=0`（recoveryenabled）、`16000046=1`、`16000048=1`、
+  `1600006c=1`、`26000090=1`（bootlog）、`26000091=1`（sos）、
+  `260000b0=1`（EmsEnable）
+
+`16000048=1` は必須だった。過去の `bcd_disable_ems.py` は「デバッグ用の
+残骸」としてこの要素を削除しており、その状態では `0xc0000428`
+（デジタル署名を検証できない）で停止する。
+
+### BCD 正規化（二重表示の解消）
+
+起動成功後、シリアルの二重表示を止めるために BCD を正規化した。
+
+- 明示的な EMS ポート/ボーレート（`15000022`/`15000023` など）を全削除。
+- `16000020`（bootems）と `260000b0`（EmsEnable）を **0** に設定。
+  Windows の EMS と通常の ConOut が同じ PL011 に書かなくなる。
+  実績個体 `/dev/sdb` は両方 1 でも起動するが、二重表示は出る。
+- `26000090`（bootlog）と `26000091`（sos）を削除。
+- `16000046`/`16000048`/`1600006c` は 1 のまま維持。
+- 正規化後の BCD SHA-256 は `827287fe…`。バックアップは
+  `/root/sda1-BCD-before-normalize.bcd`（起動に成功した状態）。
+
+## 22.47 Windows 初回起動後に Ubuntu が消えたように見える問題 (2026-11-22)
+
+### 症状
+
+- Windows の初回起動後、再起動すると GRUB が出ず Windows Boot Manager が
+  直接起動した。Ubuntu のパーティションと ESP の GRUB は残っていた。
+- ファームウェアの NVRAM は次の順序だった。
+
+```text
+BootOrder: 0003,0002,...
+Boot0003  Windows Boot Manager  \EFI\Microsoft\Boot\bootmgfw.efi
+Boot0002  UEFI ORACLE BlockVolume  （ファイル指定なし＝フォールバック）
+```
+
+Ubuntu の `Boot####` は存在しなかった。イメージはフォールバック
+（`\EFI\BOOT\BOOTAA64.EFI`）だけで GRUB に入る構成だったため、Windows が
+自分のエントリを先頭にすると GRUB に到達できない。
+
+### 復旧
+
+EFI シェル（シリアルで Esc → Boot Manager → EFI Internal Shell）から
+Ubuntu のエントリを追加し、先頭へ移動した。
+
+```text
+Shell> fs0:
+FS0:\> bcfg boot add 9 FS0:\EFI\ubuntu\grubaa64.efi Ubuntu
+FS0:\> bcfg boot mv 9 0
+FS0:\> reset
+```
+
+この操作後は GRUB が起動し、Ubuntu（Linux 7.0.0-30-generic）が起動した。
+現在の NVRAM は `Boot0007 Ubuntu` が先頭で、`Boot0003 Windows Boot Manager`
+は残っている。
+
+### 恒久対策
+
+- 復旧 Ubuntu に `oci-ubuntu-boot-order.service`（oneshot）を追加。
+  `efibootmgr` で Ubuntu のエントリを探し、無ければ
+  `--create`、あれば `--bootorder` で先頭へ移す。他のエントリは削除しない。
+- `make_recovery_ubuntu.sh` は online なら `efibootmgr` を apt で、
+  offline なら ISO の pool から `efibootmgr`/`libefivar`/`libefiboot` の
+  .deb を入れる。見つからない場合は警告のみでビルドを続ける。
+- 実機の Ubuntu にも unit をインストールして `systemctl start` し、
+  `Boot0007` が先頭のままであることを確認した。
+
+## 22.48 stubble の assert と UKI からの `.linux` 抽出 (2026-11-22)
+
+### 症状
+
+GRUB から Ubuntu を選ぶと、次の assert で停止する経路があった。
+
+```text
+efi-log.c:34@efi_assert: stubble: Assertion
+'description || pcrindex == UINT32_MAX' failed at
+measure.c:246@tpm_log_ipl_event, halting.
+```
+
+### 原因
+
+- Ubuntu 24.04 以降の arm64 は `/boot/vmlinuz-<version>` を UKI として
+  インストールする。エントリポイントは stubble。
+- stubble 9 の `stub.c` は、EFI シェルから起動された場合にシェルの引数を
+  コマンドラインとして使う。引数が無いと UKI 内の `.cmdline` を読むが、
+  Ubuntu の UKI は空なので `cmdline` が NULL になる。
+- その状態で `tpm_log_ipl_event` が説明文字列なしの PCR イベントを記録
+  しようとして `measure.c:246` で assert する。
+- BDS（NVRAM エントリ）から GRUB を起動した場合はシェル引数が無いため
+  この分岐に入らず、同じ UKI でも起動できる。経路によって成否が変わる。
+
+### 対策
+
+- `pipeline/extract_uki_kernel.py` を追加。PE/COFF のセクションヘッダを
+  読み、`.linux` セクションをそのまま `vmlinuz-<version>.raw` に書き出す。
+  入力が UKI でなければ何もせず 0 で終了する。
+- 実機の UKI から抽出した `.linux` は 17,486,336 B の
+  `pei-aarch64-little`（PE32+ EFI ARM64）で、通常の arm64 `Image` として
+  扱えることを確認した。
+- `make_recovery_ubuntu.sh` はビルド時に抽出し、
+  `/boot/grub/grub.cfg` と GRUB メニューの `linux` 行を `.raw` に向ける。
+- `write_grub_menu.py` は `<kernel>.raw` があればそちらを優先する。
+- raw カーネルは stubble を経由しないため、EFI シェル・フォールバック・
+  NVRAM のどの経路でも同じ boot protocol になる。Secure Boot は無効なので
+  未測定カーネルで問題ない。
+- 実機での GRUB → raw カーネルの起動確認は次の再起動で行う
+  （NVRAM 修正後の GRUB → Ubuntu 起動は確認済み）。
+
+## 22.49 リポジトリへの反映 (2026-11-22)
+
+### スクリプト
+
+- `pipeline/bcd_normalize.py`（新規）: BCD の正規化。
+  EMS ポート削除、`bootems`/`EmsEnable` を 0、`16000048` を 1、
+  `16000046`/`1600006c` を 1、`bootlog`/`sos` 削除。冪等。
+  `pipeline/bcd_disable_ems.py` は互換エイリアスに変更。
+- `oem/specialize.ps1.template`: `bcdedit /ems`、`/emssettings`、
+  `{bootmgr} bootems yes` を削除。ARM64 では「no-op」ではなく実際に BCD へ
+  書かれ、OCI の PL011 でハングと二重表示の原因になる。
+- `pipeline/finish_disk.sh`: BCD 正規化を `bcd_normalize.py` に変更。
+  インストール済み Windows から `bootmgr.efi`/`boot.stl` も取得し、
+  `bootmgfw.efi` と同じ世代に揃える。`STOCK_BOOTMGFW` を指定した場合は
+  隣接ファイルまたは `STOCK_BOOTMGR`/`STOCK_BOOT_STL` を使い、混成を避ける。
+  28000 系が残る場合は警告する。
+- `internal/build-image.sh`: ISO の `efi/boot/bootaa64.efi` に加えて
+  `efi/microsoft/boot/bootmgr.efi`（無ければ ISO ルートの `bootmgr.efi`）と
+  `boot.stl` を `STOCK_BOOTMGR`/`STOCK_BOOT_STL` として渡す。
+- `pipeline/make_recovery_ubuntu.sh`: `efibootmgr` の導入、
+  `oci-ubuntu-boot-order.service` の登録、UKI からの `.linux` 抽出、
+  フォールバック GRUB 設定の raw カーネル化。
+- `pipeline/oci-ubuntu-boot-order.sh` / `.service`（新規）:
+  Ubuntu の EFI エントリをブート順の先頭へ戻す。`efibootmgr` や
+  `efivarfs` が無い場合は何もせず正常終了する。
+- `pipeline/write_grub_menu.py`: `.raw` カーネルの優先。
+- `pipeline/inspect_image.sh`: `bootems`/`EmsEnable`/`nointegritychecks` を
+  表示し、`16000048` が 1 でなければ警告する。
+
+### ドキュメント
+
+- `docs/BUILD.md` / `docs/DUALBOOT.md` / `docs/OCI.md`:
+  BCD 正規化の内容、NVRAM のブート順と `bcfg` 復旧、UKI/stubble、
+  boot chain の世代統一を追記。
+
+### セッション消失の記録（イメージとは無関係）
+
+- 作業中、別セッションで OpenCode のデータディレクトリに対して
+  `find ... -type f -delete` を実行してしまい、セッション DB を失った。
+- 会話の復元は `prompt-history.jsonl`、`docs/WORKLOG.md`、git の履歴から
+  行った。この節以降の作業はその復元後の内容を含む。

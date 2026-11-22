@@ -224,14 +224,47 @@ GRUB のメニューは EFI コンソールに出るので、OCI のシリアル
 VNC からも操作できます。QEMU の AAVMF では `timeout=1` でも、メニュー
 表示直後に Down + Enter を送れば Ubuntu が起動することを確認済みです。
 
+Ubuntu arm64 の `/boot/vmlinuz-<version>` は UKI で、GRUB の `linux` が
+stubble にジャンプします。GRUB を EFI シェルから起動した場合は
+`measure.c:246@tpm_log_ipl_event` の assert で止まるため、
+`make_recovery_ubuntu.sh` は `pipeline/extract_uki_kernel.py` で `.linux`
+セクションを `/boot/vmlinuz-<version>.raw` に展開し、GRUB はそちらを
+読みます。理由と手動復旧は
+[DUALBOOT.md](DUALBOOT.md#ubuntu-カーネルuki-と-stubble) を参照してください。
+
 ARM64 の Windows は EMS/SAC に対応しておらず、`bcdedit /ems` や
 `bcdedit /emssettings` は**エラーを返さずに BCD へ要素を書き込みます**。
 OCI A1 では明示的な `EMSPORT:1`（x86 COM1 の I/O ポート 0x3F8、実機の
 シリアルは PL011 MMIO @0x09000000）が bootmgr/winload の無音ハングを
 引き起こすため、`boot.ps1` は EMS を設定しません。万一古いイメージから
 引き継いだ場合でも `pipeline/finish_disk.sh` が
-`pipeline/bcd_disable_ems.py` で BCD の EMS 要素を削除します。
+`pipeline/bcd_normalize.py` で BCD を正規化します。
+
+- `15000022`/`15000023` などの明示的な EMS ポート・ボーレートを削除
+- `16000020`（bootems）と `260000b0`（EmsEnable）を 0 に設定。EMS と
+  ConOut が同じ PL011 に書くと `WWiinnddooww` のように二重表示されます
+- `16000048`（nointegritychecks）は 1 に設定。削除すると `0xc0000428` で
+  停止します（旧 `bcd_disable_ems.py` は削除していたため回帰しました）
+- `16000046`/`1600006c` はテキストコンソール用に 1、`26000090`/`26000091`
+  は診断用なので削除
+
+`bcd_disable_ems.py` は互換エイリアスとして残しています。
+
 Windows の復旧は RDP / WinRM を使ってください。
+
+`build-image.sh` は ISO の `efi/boot/bootaa64.efi` を `bootmgfw.efi` として
+取り出すだけでなく、同じメディアの `bootmgr.efi`（`efi/microsoft/boot/`
+または ISO ルート）と `boot.stl` も `finish_disk.sh` に渡します。
+`bootmgfw` だけ 26100 で `bootmgr`/`boot.stl` がインストール済み Windows の
+28000、という混成を避けるためです。明示する場合は
+`STOCK_BOOTMGFW` / `STOCK_BOOTMGR` / `STOCK_BOOT_STL` を使います。
+
+復旧 Ubuntu には `efibootmgr` と `oci-ubuntu-boot-order.service` が入り、
+起動のたびに Ubuntu の EFI エントリをブート順の先頭へ戻します。Windows の
+初回起動が NVRAM の順序を変えても GRUB に戻れるようにするためです
+（詳細は [DUALBOOT.md](DUALBOOT.md#ファームウェアのブート順nvram)）。
+`efibootmgr` の .deb が ISO の pool に無い場合は警告だけ出して続行し、
+EFI シェルの `bcfg` で手動登録できます。
 
 GRUB が Windows を chainload する前に `search --file --set=root
 /EFI/Microsoft/Boot/bootmgfw.efi` を実行する理由と、`bootmgfw.efi` の
