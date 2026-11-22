@@ -228,8 +228,9 @@ Ubuntu arm64 の `/boot/vmlinuz-<version>` は UKI で、GRUB の `linux` が
 stubble にジャンプします。GRUB を EFI シェルから起動した場合は
 `measure.c:246@tpm_log_ipl_event` の assert で止まるため、
 `make_recovery_ubuntu.sh` は `pipeline/extract_uki_kernel.py` で `.linux`
-セクションを `/boot/vmlinuz-<version>.raw` に展開し、GRUB はそちらを
-読みます。理由と手動復旧は
+セクションを取り出します（Ubuntu の `.linux` は EFI zboot なので zstd で
+展開）。`/boot/vmlinuz-<version>.raw` の arm64 `Image` を GRUB が読みます。
+理由と手動復旧は
 [DUALBOOT.md](DUALBOOT.md#ubuntu-カーネルuki-と-stubble) を参照してください。
 
 ARM64 の Windows は EMS/SAC に対応しておらず、`bcdedit /ems` や

@@ -256,9 +256,10 @@ EFI シェルから起動した場合、stubble はシェルの引数をコマ�
 `measure.c:246@tpm_log_ipl_event` の assert で停止します（WORKLOG 22.48）。
 
 `make_recovery_ubuntu.sh` はビルド時に `pipeline/extract_uki_kernel.py` で
-UKI の `.linux` セクションを取り出し、`/boot/vmlinuz-<version>.raw`
-（通常の arm64 `Image`）を置きます。GRUB メニューはこちらを `linux` で
-読みます。stubble を経由しないため、NVRAM・ファームウェアフォールバック・
+UKI の `.linux` セクションを取り出します。Ubuntu の `.linux` は EFI zboot
+（zstd 圧縮）なので展開し、`/boot/vmlinuz-<version>.raw`（通常の arm64
+`Image`）を置きます。GRUB メニューはこちらを `linux` で読みます。
+stubble を経由しないため、NVRAM・ファームウェアフォールバック・
 EFI シェルのどこから GRUB を起動しても同じ経路で Ubuntu が起動します。
 Secure Boot は無効なので、未測定のカーネルでも問題ありません。
 

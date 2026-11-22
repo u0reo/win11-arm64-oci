@@ -5844,7 +5844,8 @@ AAVMF はこの混成を許容するが、実機は許容しないと考えら�
 - 明示的な EMS ポート/ボーレート（`15000022`/`15000023` など）を全削除。
 - `16000020`（bootems）と `260000b0`（EmsEnable）を **0** に設定。
   Windows の EMS と通常の ConOut が同じ PL011 に書かなくなる。
-  実績個体 `/dev/sdb` は両方 1 でも起動するが、二重表示は出る。
+  実績個体 `/dev/sdb` は両方 1 でも起動するが、起動可否と二重表示は別問題で、
+  `/dev/sda` では EMS 有効時に `WWiinnddooww` が出ていた。
 - `26000090`（bootlog）と `26000091`（sos）を削除。
 - `16000046`/`16000048`/`1600006c` は 1 のまま維持。
 - 正規化後の BCD SHA-256 は `827287fe…`。バックアップは
@@ -5922,11 +5923,16 @@ measure.c:246@tpm_log_ipl_event, halting.
 ### 対策
 
 - `pipeline/extract_uki_kernel.py` を追加。PE/COFF のセクションヘッダを
-  読み、`.linux` セクションをそのまま `vmlinuz-<version>.raw` に書き出す。
+  読み、`.linux` セクションを取り出す。Ubuntu の `.linux` は EFI zboot
+  （`MZ` + `zimg`）で、先頭のヘッダが payload の位置・サイズ・圧縮方式を
+  持つ。zstd なら libzstd（ctypes、無ければ `zstd` コマンド）で展開し、
+  gzip なら標準ライブラリで展開して `vmlinuz-<version>.raw` に書く。
   入力が UKI でなければ何もせず 0 で終了する。
-- 実機の UKI から抽出した `.linux` は 17,486,336 B の
-  `pei-aarch64-little`（PE32+ EFI ARM64）で、通常の arm64 `Image` として
-  扱えることを確認した。
+- 実機の UKI の `.linux` は 17,486,336 B の EFI zboot で、payload は
+  111,352 から 17,363,185 B の zstd。展開すると 72,613,888 B の
+  `Linux kernel ARM64 boot executable Image` になり、0x38 に `ARM\x64`
+  があることを確認した。zboot をそのまま GRUB の `linux` に渡すと
+  ブートヘッダが無いため起動できない。
 - `make_recovery_ubuntu.sh` はビルド時に抽出し、
   `/boot/grub/grub.cfg` と GRUB メニューの `linux` 行を `.raw` に向ける。
 - `write_grub_menu.py` は `<kernel>.raw` があればそちらを優先する。
