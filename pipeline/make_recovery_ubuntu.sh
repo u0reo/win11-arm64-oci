@@ -207,6 +207,22 @@ if [ "$OFFLINE" = 1 ]; then
         "${SUDO[@]}" cp "$deb" "$MNT/var/tmp/"
         DEBS+=("/var/tmp/$(basename "$deb")")
     done
+    # efibootmgr is optional: it lets the first Ubuntu boot put its own entry
+    # in front of the Windows entry that Windows creates.  The live rootfs
+    # does not ship it, so take it (and its libraries) from the ISO pool.  A
+    # missing package must not fail the build; the raw kernel still boots and
+    # the boot order can be fixed once with the EFI shell (bcfg).
+    OPT_DEBS=()
+    for name in libefivar1t64 libefiboot1t64 libefivar1 libefiboot1 efibootmgr; do
+        deb=$(find "$ISO_POOL" -name "${name}_*.deb" -print -quit)
+        [ -n "$deb" ] || continue
+        "${SUDO[@]}" cp "$deb" "$MNT/var/tmp/"
+        OPT_DEBS+=("/var/tmp/$(basename "$deb")")
+    done
+    if ! find "$ISO_POOL" -name 'efibootmgr_*.deb' -print -quit | grep -q .; then
+        echo "  WARN: efibootmgr .deb is not in $ISO_POOL" >&2
+        echo "        the EFI boot order will not be repaired automatically" >&2
+    fi
     printf '#!/bin/sh\nexit 101\n' > "$TMP/policy-rc.d"
     "${SUDO[@]}" install -m 755 "$TMP/policy-rc.d" "$MNT/usr/sbin/policy-rc.d"
 
@@ -263,6 +279,12 @@ EOF
 if [ "$OFFLINE" = 1 ]; then
     echo "[2/6] install the offline package set"
     run dpkg -i "${DEBS[@]}"
+    if [ ${#OPT_DEBS[@]} -gt 0 ]; then
+        run dpkg -i "${OPT_DEBS[@]}" || {
+            echo "  WARN: optional efibootmgr packages failed to install;" >&2
+            echo "        the EFI boot order will not be repaired automatically" >&2
+        }
+    fi
     "${SUDO[@]}" rm -f "$MNT/usr/sbin/policy-rc.d"
 
     KVER=$(find "$MNT/lib/modules" -mindepth 1 -maxdepth 1 -type d \
@@ -283,7 +305,35 @@ else
     run apt-get install -y --no-install-recommends \
         linux-image-generic initramfs-tools systemd-sysv \
         openssh-server netplan.io sudo ca-certificates \
-        iproute2 iputils-ping less vim-tiny e2fsprogs kmod
+        iproute2 iputils-ping less vim-tiny e2fsprogs kmod efibootmgr
+fi
+
+# Both installation paths end with /boot/vmlinuz-$KVER.  Ubuntu arm64 ships
+# that file as a Unified Kernel Image.  GRUB's linux command would jump to
+# stubble's entry point, and stubble asserts when GRUB itself was started from
+# the EFI shell because the built-in .cmdline is empty.  Extract the .linux
+# section so GRUB boots the plain arm64 Image instead; no stubble, no shell
+# dependency.  See pipeline/extract_uki_kernel.py and docs/DUALBOOT.md.
+KVER=${KVER:-$(find "$MNT/lib/modules" -mindepth 1 -maxdepth 1 -type d \
+    -printf '%f\n' 2>/dev/null | sort -V | tail -1)}
+[ -n "$KVER" ] || {
+    echo "recovery: cannot find the installed kernel version" >&2
+    exit 1
+}
+[ -e "$MNT/boot/vmlinuz-$KVER" ] || {
+    echo "recovery: no /boot/vmlinuz-$KVER in the target" >&2
+    exit 1
+}
+KERNEL=/boot/vmlinuz-$KVER
+if "${SUDO[@]}" python3 "$HERE/extract_uki_kernel.py" \
+        "$MNT/boot/vmlinuz-$KVER"; then
+    if "${SUDO[@]}" test -f "$MNT/boot/vmlinuz-$KVER.raw"; then
+        KERNEL=/boot/vmlinuz-$KVER.raw
+    fi
+else
+    echo "  WARN: cannot extract the plain kernel from the UKI" >&2
+    echo "        GRUB will load the UKI and stubble may assert when GRUB" >&2
+    echo "        was started from the EFI shell" >&2
 fi
 
 echo "[3/6] GRUB (EFI)"
@@ -330,7 +380,7 @@ menuentry "Ubuntu (recovery)" {
     insmod ext2
     insmod part_gpt
     search --no-floppy --fs-uuid --set=root $ROOT_UUID
-    linux /boot/vmlinuz-$KVER root=UUID=$ROOT_UUID ro console=ttyAMA0,115200 console=tty1
+    linux $KERNEL root=UUID=$ROOT_UUID ro console=ttyAMA0,115200 console=tty1
     initrd /boot/initrd.img-$KVER
 }
 EOF
@@ -422,6 +472,20 @@ run systemctl disable systemd-networkd-wait-online.service >/dev/null 2>&1 || tr
 run systemctl mask systemd-networkd-wait-online.service >/dev/null 2>&1 || true
 run systemctl enable ssh >/dev/null 2>&1 || true
 run systemctl enable serial-getty@ttyAMA0 >/dev/null 2>&1 || true
+
+# The firmware boot order is NVRAM, not part of the disk image.  Windows
+# creates its own Boot#### on first boot and can put it in front of the
+# firmware fallback, which hides GRUB completely.  This oneshot unit runs on
+# every Ubuntu boot and moves the Ubuntu entry back to the front without
+# deleting anything.  It is inert when efibootmgr is missing.
+echo "  installing the EFI boot-order unit"
+"${SUDO[@]}" install -D -m 755 "$HERE/oci-ubuntu-boot-order.sh" \
+    "$MNT/usr/local/sbin/oci-ubuntu-boot-order"
+"${SUDO[@]}" install -D -m 644 "$HERE/oci-ubuntu-boot-order.service" \
+    "$MNT/etc/systemd/system/oci-ubuntu-boot-order.service"
+"${SUDO[@]}" mkdir -p "$MNT/etc/systemd/system/multi-user.target.wants"
+"${SUDO[@]}" ln -sfn ../oci-ubuntu-boot-order.service \
+    "$MNT/etc/systemd/system/multi-user.target.wants/oci-ubuntu-boot-order.service"
 "${SUDO[@]}" rm -f "$MNT/etc/resolv.conf"
 "${SUDO[@]}" tee "$MNT/etc/resolv.conf" >/dev/null <<'EOF'
 nameserver 1.1.1.1

@@ -111,7 +111,18 @@ def find_boot_files(ubuntu_mnt: str) -> tuple[str, str]:
     if not kernel:
         die(f"no /boot/vmlinuz-* in {ubuntu_mnt}")
 
-    version = kernel[len("/boot/vmlinuz-"):]
+    # make_recovery_ubuntu.sh extracts .linux from a UKI to <kernel>.raw.
+    # Prefer that plain arm64 Image: GRUB's linux command then enters the
+    # kernel EFI stub instead of stubble, which asserts when GRUB itself was
+    # started from the EFI shell (see pipeline/extract_uki_kernel.py).
+    raw = kernel + ".raw"
+    if os.path.isfile(os.path.join(ubuntu_mnt, raw.lstrip("/"))):
+        kernel = raw
+
+    name = os.path.basename(kernel)
+    if name.endswith(".raw"):
+        name = name[:-4]
+    version = name[len("vmlinuz-"):]
     initrd = f"/boot/initrd.img-{version}"
     if not os.path.isfile(os.path.join(ubuntu_mnt, initrd.lstrip("/"))):
         initrd = symlink_target(ubuntu_mnt, "initrd.img", "initrd.img-")

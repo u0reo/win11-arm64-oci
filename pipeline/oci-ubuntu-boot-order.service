@@ -1,0 +1,17 @@
+[Unit]
+Description=Put the Ubuntu EFI boot entry first in the firmware boot order
+Documentation=https://github.com/u0reo/win11-arm64-oci/blob/main/docs/DUALBOOT.md
+ConditionPathExists=/sys/firmware/efi/efivars
+ConditionPathExists=/boot/efi/EFI/ubuntu/grubaa64.efi
+RequiresMountsFor=/boot/efi
+After=local-fs.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/oci-ubuntu-boot-order
+RemainAfterExit=yes
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
