@@ -39,6 +39,8 @@ HERE=$(cd "$(dirname "$0")" && pwd)
 IMG=${1:?usage: $0 <disk.qcow2|/dev/sdX>}
 PATCH_BOOTMGFW=${PATCH_BOOTMGFW:-0}
 STOCK_BOOTMGFW=${STOCK_BOOTMGFW:-}
+STOCK_BOOTMGR=${STOCK_BOOTMGR:-}
+STOCK_BOOT_STL=${STOCK_BOOT_STL:-}
 
 RAW=0
 if [ -b "$IMG" ]; then
@@ -101,13 +103,20 @@ echo "  ESP: $ESPDEV"
 # older one.  Prefer the installed Windows copy so the signed boot chain is
 # version-consistent; fall back to the ESP copy only when it cannot be read.
 WINDOWS_BOOTMGFW=""
+WINDOWS_BOOTMGR=""
+WINDOWS_BOOT_STL=""
 WINDEV=$(find_windows "$DEV" || true)
 if [ -n "$WINDEV" ] && sudo -n mount -t ntfs-3g -o ro "$WINDEV" "$WIN" 2>/dev/null; then
-    if [ -f "$WIN/Windows/Boot/EFI/bootmgfw.efi" ]; then
-        WINDOWS_BOOTMGFW="$WORK/bootmgfw.windows"
-        sudo -n cp -f "$WIN/Windows/Boot/EFI/bootmgfw.efi" "$WINDOWS_BOOTMGFW"
-        echo "  installed Windows boot manager: $(stat -c %s "$WINDOWS_BOOTMGFW") bytes"
-    fi
+    for pair in bootmgfw.efi:bootmgfw bootmgr.efi:bootmgr boot.stl:boot.stl; do
+        src=${pair%%:*}
+        dst=${pair#*:}
+        [ -f "$WIN/Windows/Boot/EFI/$src" ] || continue
+        sudo -n cp -f "$WIN/Windows/Boot/EFI/$src" "$WORK/$dst"
+        echo "  installed Windows $src: $(stat -c %s "$WORK/$dst") bytes"
+    done
+    [ -f "$WORK/bootmgfw" ] && WINDOWS_BOOTMGFW="$WORK/bootmgfw"
+    [ -f "$WORK/bootmgr" ] && WINDOWS_BOOTMGR="$WORK/bootmgr"
+    [ -f "$WORK/boot.stl" ] && WINDOWS_BOOT_STL="$WORK/boot.stl"
     sudo -n umount "$WIN"
 fi
 
@@ -262,6 +271,83 @@ else
 fi
 sed -n '1,8p' "$PATCH_LOG" | sed 's/^/    /'
 
+# Keep bootmgr.efi and boot.stl in the same generation as bootmgfw.efi.
+# bcdboot writes all three from the installed Windows, but replacing only
+# bootmgfw with a media copy leaves a mixed chain (for example 26100 bootmgfw
+# with 28000 bootmgr/boot.stl) that the OCI firmware can reject before the
+# boot menu.  Use files next to an explicit STOCK_BOOTMGFW/STOCK_BOOTMGR, or
+# the installed Windows copy, and verify that nothing is a 26H2 28000 image.
+copy_to_esp_if_changed() {
+    local dev=$1 rel=$2 src=$3 current=$WORK/esp-current
+    rm -f "$current"
+    if sudo -n mcopy -o -i "$dev" "::$rel" "$current" 2>/dev/null &&
+       cmp -s "$src" "$current"; then
+        echo "  $rel: already matches $(basename "$src")"
+        return 0
+    fi
+    sudo -n mdel -i "$dev" "::/$rel" >/dev/null 2>&1 || true
+    sudo -n mcopy -o -i "$dev" "$src" "::/$rel"
+    echo "  $rel: updated from $(basename "$src")"
+}
+
+SRC_BOOTMGR=""
+if [ -n "$STOCK_BOOTMGR" ]; then
+    SRC_BOOTMGR=$STOCK_BOOTMGR
+elif [ -n "$STOCK_BOOTMGFW" ] &&
+     [ -f "$(dirname "$STOCK_BOOTMGFW")/bootmgr.efi" ]; then
+    SRC_BOOTMGR=$(dirname "$STOCK_BOOTMGFW")/bootmgr.efi
+elif [ -z "$STOCK_BOOTMGFW" ] && [ -n "$WINDOWS_BOOTMGR" ]; then
+    # No pinned bootmgfw: the ESP is on the installed Windows generation, so
+    # its bootmgr.efi matches.  With STOCK_BOOTMGFW set, copying the installed
+    # Windows copy would reintroduce the 26100/28000 mix we are avoiding.
+    SRC_BOOTMGR=$WINDOWS_BOOTMGR
+fi
+SRC_BOOT_STL=""
+if [ -n "$STOCK_BOOT_STL" ]; then
+    SRC_BOOT_STL=$STOCK_BOOT_STL
+elif [ -n "$STOCK_BOOTMGFW" ] &&
+     [ -f "$(dirname "$STOCK_BOOTMGFW")/boot.stl" ]; then
+    SRC_BOOT_STL=$(dirname "$STOCK_BOOTMGFW")/boot.stl
+elif [ -z "$STOCK_BOOTMGFW" ] && [ -n "$WINDOWS_BOOT_STL" ]; then
+    SRC_BOOT_STL=$WINDOWS_BOOT_STL
+fi
+if [ -n "$SRC_BOOTMGR" ]; then
+    copy_to_esp_if_changed "$ESPDEV" EFI/Microsoft/Boot/bootmgr.efi "$SRC_BOOTMGR"
+elif [ -n "$STOCK_BOOTMGFW" ]; then
+    echo "  warning: no bootmgr.efi from the pinned bootmgfw generation" >&2
+    echo "  pass STOCK_BOOTMGR=<bootmgr.efi> to avoid a mixed boot chain" >&2
+else
+    echo "  warning: no bootmgr.efi source; leaving the ESP copy alone" >&2
+fi
+if [ -n "$SRC_BOOT_STL" ]; then
+    copy_to_esp_if_changed "$ESPDEV" EFI/Microsoft/Boot/boot.stl "$SRC_BOOT_STL"
+elif [ -n "$STOCK_BOOTMGFW" ]; then
+    echo "  warning: no boot.stl from the pinned bootmgfw generation" >&2
+    echo "  pass STOCK_BOOT_STL=<boot.stl> to avoid a mixed boot chain" >&2
+else
+    echo "  warning: no boot.stl source; leaving the ESP copy alone" >&2
+fi
+
+for pair in "bootmgfw:$PATCHED" "bootmgr:$SRC_BOOTMGR"; do
+    label=${pair%%:*}
+    file=${pair#*:}
+    [ -n "$file" ] && [ -f "$file" ] || continue
+    build=$(strings -el "$file" 2>/dev/null |
+        sed -n 's/^10\.0\.\([0-9][0-9]*\)\.[0-9].*/\1/p' | head -1)
+    case "$build" in
+        ''|*[!0-9]*) ;;
+        *)
+            echo "  $label build: 10.0.$build"
+            if [ "$build" -ge 28000 ]; then
+                echo "  WARNING: $label is a 26H2 (28000) image." >&2
+                echo "  Keep bootmgfw, bootmgr and boot.stl on 26100/26089 media" >&2
+                echo "  via STOCK_BOOTMGFW/STOCK_BOOTMGR/STOCK_BOOT_STL." >&2
+            fi
+            ;;
+    esac
+done
+sync
+
 # The firmware fallback must start GRUB, not a second copy of bootmgfw.efi.
 if sudo -n mtype -i "$ESPDEV" ::/EFI/ubuntu/grubaa64.efi >/dev/null 2>&1; then
     BOOTAA64="$WORK/BOOTAA64.EFI"
@@ -354,8 +440,11 @@ sudo -n mount -t vfat "$ESPDEV" "$ESP"
 sudo -n python3 "$HERE/bcd_remove_ubuntu.py" "$ESP/EFI/Microsoft/Boot/BCD" \
     | sed 's/^/  /'
 # boot.ps1 may have written explicit EMS port/baud into the BCD during OOBE.
-# On OCI ARM64 those point at x86 COM1 and make bootmgr hang silently.
-sudo -n python3 "$HERE/bcd_disable_ems.py" "$ESP/EFI/Microsoft/Boot/BCD" \
+# On OCI ARM64 those point at x86 COM1 and make bootmgr hang silently.  The
+# normaliser also disables the two EMS writers that duplicate every bootmgr
+# character on the PL011, and re-adds nointegritychecks, which this modified
+# installation needs (0xc0000428 otherwise).  See WORKLOG 22.46.
+sudo -n python3 "$HERE/bcd_normalize.py" "$ESP/EFI/Microsoft/Boot/BCD" \
     | sed 's/^/  /'
 sudo -n rm -f "$ESP/EFI/Microsoft/Boot/BCD.LOG" \
               "$ESP/EFI/Microsoft/Boot/BCD.LOG1" \

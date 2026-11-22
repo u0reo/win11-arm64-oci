@@ -381,7 +381,12 @@ if [ "$FROM_STEP" -le 12 ]; then
     # C:\Windows\Boot\EFI\bootmgfw.efi (for example with the 28000.367 26H2
     # build), and that version hangs on Oracle AAVMF before the boot menu.
     # The ISO keeps the boot manager that matches the media generation.
+    # Take bootmgr.efi and boot.stl from the same tree when they are present,
+    # so finish_disk.sh does not pair a 26100 bootmgfw with the installed
+    # Windows 28000 boot chain.
     MEDIA_BOOTMGFW=""
+    MEDIA_BOOTMGR=""
+    MEDIA_BOOT_STL=""
     if [ -z "${STOCK_BOOTMGFW:-}" ] && [ -f "$ISO" ]; then
         ISO_MNT=$(mktemp -d "$BUILD/iso-mnt.XXXXXX")
         if mount -o loop,ro "$ISO" "$ISO_MNT" 2>/dev/null; then
@@ -391,18 +396,42 @@ if [ "$FROM_STEP" -le 12 ]; then
                 MEDIA_BOOTMGFW="$BUILD/bootmgfw-media.efi"
                 echo "  media boot manager: $(stat -c %s "$MEDIA_BOOTMGFW") bytes"
             fi
+            if [ -f "$ISO_MNT/efi/microsoft/boot/bootmgr.efi" ]; then
+                cp -f "$ISO_MNT/efi/microsoft/boot/bootmgr.efi" \
+                    "$BUILD/bootmgr-media.efi"
+                MEDIA_BOOTMGR="$BUILD/bootmgr-media.efi"
+                echo "  media bootmgr: $(stat -c %s "$MEDIA_BOOTMGR") bytes"
+            elif [ -f "$ISO_MNT/bootmgr.efi" ]; then
+                # Windows ISO keeps the UEFI copy at the media root as well.
+                cp -f "$ISO_MNT/bootmgr.efi" "$BUILD/bootmgr-media.efi"
+                MEDIA_BOOTMGR="$BUILD/bootmgr-media.efi"
+                echo "  media bootmgr (root): $(stat -c %s "$MEDIA_BOOTMGR") bytes"
+            fi
+            if [ -f "$ISO_MNT/efi/microsoft/boot/boot.stl" ]; then
+                cp -f "$ISO_MNT/efi/microsoft/boot/boot.stl" \
+                    "$BUILD/boot.stl-media"
+                MEDIA_BOOT_STL="$BUILD/boot.stl-media"
+                echo "  media boot.stl: $(stat -c %s "$MEDIA_BOOT_STL") bytes"
+            fi
             umount "$ISO_MNT"
         else
             echo "  warning: cannot mount $ISO; using the installed boot manager" >&2
         fi
         rmdir "$ISO_MNT" 2>/dev/null || true
     fi
+    STOCK_BOOTMGR=${STOCK_BOOTMGR:-$MEDIA_BOOTMGR}
+    STOCK_BOOT_STL=${STOCK_BOOT_STL:-$MEDIA_BOOT_STL}
     if [ -n "${STOCK_BOOTMGFW:-}" ]; then
-        STOCK_BOOTMGFW="$STOCK_BOOTMGFW" "$PIPE/finish_disk.sh" "$DISK"
+        STOCK_BOOTMGFW="$STOCK_BOOTMGFW" STOCK_BOOTMGR="$STOCK_BOOTMGR" \
+            STOCK_BOOT_STL="$STOCK_BOOT_STL" \
+            "$PIPE/finish_disk.sh" "$DISK"
     elif [ -n "$MEDIA_BOOTMGFW" ]; then
-        STOCK_BOOTMGFW="$MEDIA_BOOTMGFW" "$PIPE/finish_disk.sh" "$DISK"
+        STOCK_BOOTMGFW="$MEDIA_BOOTMGFW" STOCK_BOOTMGR="$STOCK_BOOTMGR" \
+            STOCK_BOOT_STL="$STOCK_BOOT_STL" \
+            "$PIPE/finish_disk.sh" "$DISK"
     else
-        "$PIPE/finish_disk.sh" "$DISK"
+        STOCK_BOOTMGR="$STOCK_BOOTMGR" STOCK_BOOT_STL="$STOCK_BOOT_STL" \
+            "$PIPE/finish_disk.sh" "$DISK"
     fi
     "$PIPE/inspect_image.sh" "$DISK" | tee "$BUILD/logs/inspect.log"
     # finish_disk.sh can rebuild the ESP after the recovery fstab was
