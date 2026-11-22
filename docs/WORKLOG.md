@@ -5983,3 +5983,83 @@ measure.c:246@tpm_log_ipl_event, halting.
   `find ... -type f -delete` を実行してしまい、セッション DB を失った。
 - 会話の復元は `prompt-history.jsonl`、`docs/WORKLOG.md`、git の履歴から
   行った。この節以降の作業はその復元後の内容を含む。
+
+## 22.50 実機での最終確認と診断メッセージの修正 (2026-11-22)
+
+### 実機で確認できたこと
+
+OCI A1 の実機 `/dev/sda` で、次の一連の動作を確認した。
+
+1. 電源投入 → ファームウェア → GRUB のメニュー（Windows 11 が既定）
+2. `Windows 11` を選ぶ → `bootmgfw.efi` → Windows Boot Manager →
+   Windows 11 が起動
+3. Windows Boot Manager で **F8** を押す → 詳細オプション →
+   **ESC=Exit で GRUB に戻る**
+4. GRUB に戻った後、`Ubuntu (recovery)` を選ぶ →
+   `EFI ExitBootServices: Called.` の後に Linux が起動
+
+```text
+Linux version 7.0.0-30-generic ... #30-Ubuntu SMP PREEMPT_DYNAMIC
+...
+ubuntu@oci-win-vnic:~/win11-arm64-oci$ uname -r
+7.0.0-30-generic
+```
+
+- シリアルの Windows Boot Manager は 1 文字ずつ表示され、
+  `WWiinnddooww` の二重表示は解消した。
+- `efibootmgr` は `BootCurrent: 0007` / `BootOrder: 0007,0003,...` で、
+  `Boot0007 Ubuntu` が先頭、`Boot0003 Windows Boot Manager` は残っている。
+- `oci-ubuntu-boot-order.service` は `active (exited)` / `status=0/SUCCESS`。
+- Ubuntu の起動ログに `EFI ExitBootServices: Called.` が出ており、
+  GRUB が EFI アプリ（stubble）ではなく arm64 Image を直接起動したことと
+  整合する。UKI の `.linux` を zboot 展開した経路が実機で通った。
+- 復帰後の `grubenv` には次のマーカーが残っていた。
+
+```text
+grub_menu_seen=1
+win_entry=1
+win_chainload=1
+win_returned=1
+dbg_entry=1
+dbg_chainload=1
+dbg_returned=1
+ubuntu_entry=1
+```
+
+  `win_*` → `dbg_*` → `ubuntu_entry` の順で、Windows Boot Manager の
+  メニューから F8/Exit で GRUB に戻り、debug copy でも同じことを確認して
+  から Ubuntu を選んだ操作と一致する。
+
+### `... returned; Windows did not start` は誤解を招く
+
+GRUB の `chainloader` は、Windows が起動して `ExitBootServices` を呼べば
+戻らない。戻ってくるのは次のどちらか。
+
+- Windows Boot Manager のメニューで **ESC=Exit**（または F8 → Exit）を選び、
+  bootmgr が親イメージ（GRUB）へ正常に戻った
+- bootmgr が Windows を開始できず、エラー後に戻った
+
+22.45 の診断メッセージは前者も「Windows did not start」と表示していたため、
+正常な Exit を失敗と誤認させた。`write_grub_menu.py --diagnostics` の文言を
+次のように変更した。
+
+```text
+GRUB diag: bootmgfw.efi returned to GRUB (Exit/F8, or Windows failed to start)
+```
+
+`grubenv` の `win_returned` / `dbg_returned` も「戻ってきた」ことだけを示し、
+失敗の証明ではない。コメントにもその旨を書いた。
+
+### `grub-editenv` が無い復旧環境での読み方
+
+オフライン構築した復旧 Ubuntu には `grub-common` が入らないため、
+`grub-editenv` は存在しない。`grubenv` は 1024 B の
+`key=value` ブロックなので、coreutils だけで読める。
+
+```bash
+sudo cat /boot/efi/EFI/ubuntu/grubenv | tr '\0' '\n' |
+    grep -E '^(grub_|win_|dbg_|ubuntu_)'
+```
+
+OCI.md のトラブルシューティングにもこの方法を追記した。`grub-editenv` を
+使いたい場合は `apt-get install grub-common` で入る（復旧環境では任意）。

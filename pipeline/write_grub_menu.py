@@ -155,8 +155,10 @@ def menu_text(timeout: int, uuid: str, kernel: str, initrd: str,
     if diagnostics:
         diag_top = """
 # Boot diagnostics: each step is saved to EFI/ubuntu/grubenv before control
-# leaves GRUB.  After a failed boot, run:
+# leaves GRUB.  After a failed boot, read the block with:
 #   grub-editenv /boot/efi/EFI/ubuntu/grubenv list
+# The minimal recovery image has no grub-editenv; this needs only coreutils:
+#   sudo cat /boot/efi/EFI/ubuntu/grubenv | tr '\\0' '\\n' | grep -E '^(grub_|win_|dbg_|ubuntu_)'
 # A missing marker shows how far the boot got.  Use --diagnostics only while
 # investigating a native boot failure.
 set grub_menu_seen=1
@@ -175,9 +177,12 @@ save_env grub_menu_seen
     save_env win_chainload
     echo "GRUB diag: starting the Windows boot manager"
     chainloader /EFI/Microsoft/Boot/bootmgfw.efi
+    # Reaching this line is normal when the user presses ESC=Exit (or F8 and
+    # then exits) in the Windows menu.  It only means Windows did not take
+    # over this time; it is not proof that the loader is broken.
     set win_returned=1
     save_env win_returned
-    echo "GRUB diag: bootmgfw.efi returned; Windows did not start"
+    echo "GRUB diag: bootmgfw.efi returned to GRUB (Exit/F8, or Windows failed to start)"
     sleep 10
 """
         ubuntu_body = """    insmod part_gpt
@@ -207,7 +212,7 @@ menuentry "{WINDOWS_LABEL} (debug copy)" {{
     chainloader /EFI/Microsoft/Boot/bootmgfw-dbg.efi
     set dbg_returned=1
     save_env dbg_returned
-    echo "GRUB diag: debug copy returned; Windows did not start"
+    echo "GRUB diag: debug copy returned to GRUB (Exit/F8, or Windows failed to start)"
     sleep 10
 }}
 """

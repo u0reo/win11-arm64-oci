@@ -263,6 +263,11 @@ stubble を経由しないため、NVRAM・ファームウェアフォールバ�
 EFI シェルのどこから GRUB を起動しても同じ経路で Ubuntu が起動します。
 Secure Boot は無効なので、未測定のカーネルでも問題ありません。
 
+復旧 Ubuntu でカーネルを更新した場合は、新しい `/boot/vmlinuz-<version>` に
+対して `pipeline/extract_uki_kernel.py` を実行し、`write_grub_menu.py` で
+メニューを作り直してください。`.raw` が無いと GRUB は UKI を読み、
+EFI シェル経由の起動で stubble の assert に戻ります。
+
 既定の Windows 11 を選ぶと、GRUB は ESP を root にしてから
 `\EFI\Microsoft\Boot\bootmgfw.efi` を chainload します。`$root` が Ubuntu の
 まま chainload すると BCD を読めず `0xc00000bb` で止まるため、
