@@ -120,27 +120,28 @@ Log ("hibernation-off resume-rc=" + $LASTEXITCODE)
 & reg.exe add "HKLM\SYSTEM\CurrentControlSet\Control\TimeZoneInformation" /v RealTimeIsUniversal /t REG_DWORD /d 1 /f 2>&1 | Out-File -Append -Encoding ascii $Log
 Log ("rtc-utc rc=" + $LASTEXITCODE)
 
-# Serial recovery: ARM64 Windows does not implement EMS/SAC.  bcdedit
-# accepts these commands and exits 0 without writing the BCD elements, so
-# they are kept only as harmless no-ops for x64 compatibility.  Do not
-# treat them as a recovery path; repair Windows through RDP or WinRM.
-& bcdedit.exe /ems '{current}' on 2>&1 | Out-File -Append -Encoding ascii $Log
-$EmsRc = $LASTEXITCODE
-& bcdedit.exe /emssettings EMSPORT:1 EMSBAUDRATE:115200 2>&1 | Out-File -Append -Encoding ascii $Log
-Log ("ems-attempted ems=" + $EmsRc + " settings=" + $LASTEXITCODE + " (ARM64: expected no-op)")
+# Serial recovery: ARM64 Windows does not implement EMS/SAC.  On this build
+# bcdedit /ems and /emssettings do write BCD elements even though they report
+# success, and an explicit EMSPORT:1 (x86 COM1, I/O port 0x3F8) makes
+# bootmgr/winload hang silently on OCI's PL011.  Enabling bootems/EmsEnable
+# also duplicates every character on the serial console because EMS and ConOut
+# share the same UART.  Leave all of it out; repair Windows through RDP/WinRM.
+# finish_disk.sh normalises the BCD again after the Windows pass.
+#   & bcdedit.exe /ems '{current}' on
+#   & bcdedit.exe /emssettings EMSPORT:1 EMSBAUDRATE:115200
+#   & bcdedit.exe /set '{bootmgr}' bootems yes
+Log "ems-skipped (ARM64 has no EMS/SAC; explicit EMS breaks OCI serial boot)"
 
 # Optional boot menu over serial and VNC (--boot-menu SECONDS).  With Ubuntu
 # kept, GRUB is the first loader and gets its own timeout; this BCD menu
-# covers Windows-only builds.  bootems is x64-only and harmless here.
+# covers Windows-only builds.
 $BootMenu = {{BOOT_MENU_TIMEOUT}}
 if ($BootMenu -gt 0) {
     & bcdedit.exe /set '{bootmgr}' displaybootmenu yes 2>&1 | Out-File -Append -Encoding ascii $Log
     & bcdedit.exe /set '{bootmgr}' timeout $BootMenu 2>&1 | Out-File -Append -Encoding ascii $Log
-    & bcdedit.exe /set '{bootmgr}' bootems yes 2>&1 | Out-File -Append -Encoding ascii $Log
     Log ("boot-menu-configured timeout=" + $BootMenu)
 } else {
     & bcdedit.exe /set '{bootmgr}' displaybootmenu no 2>&1 | Out-File -Append -Encoding ascii $Log
-    & bcdedit.exe /set '{bootmgr}' bootems no 2>&1 | Out-File -Append -Encoding ascii $Log
     Log "boot-menu-off"
 }
 

@@ -466,18 +466,23 @@ if bootmgr:
     print('Windows Boot Manager: timeout=%ss displaybootmenu=%s' % (
         integer(bootmgr, '25000004'), boolean(bootmgr, '25000005')))
     bootems = boolean(bootmgr, '25000006')
+    bootems2 = element(bootmgr, '16000020')
     default = text(bootmgr, '23000003')
     loader = h.node_get_child(objects, default) if default.startswith('{') else None
 else:
     bootems = None
+    bootems2 = None
     loader = None
 
 if loader:
     ems = boolean(loader, '26000000')
     port = integer(loader, '26000001')
     baud = integer(loader, '26000002')
+    ems_enable = element(loader, '260000b0')
+    no_integrity = element(loader, '16000048')
 else:
     ems = port = baud = None
+    ems_enable = no_integrity = None
 
 if ems:
     print('EMS/SAC: enabled emsport=%s emsbaudrate=%s bootems=%s' % (
@@ -486,7 +491,19 @@ else:
     # bcdedit on this ARM64 image prints an error saying EMS is x64-only and
     # returns 0, so the absence of the elements is expected, not a failure.
     print('EMS/SAC: unavailable (ARM64 Windows does not support EMS; '
-          'no EMS elements in the BCD)')
+          'no explicit EMS port/baud in the BCD)')
+
+def flag(got):
+    if not got:
+        return 'missing'
+    return got[1].hex() if got[1] else 'empty'
+
+print('bootmgr bootems=16000020: %s; loader EmsEnable=260000b0: %s' % (
+    flag(bootems2), flag(ems_enable)))
+print('loader nointegritychecks=16000048: %s' % flag(no_integrity))
+if no_integrity != (3, b'\x01'):
+    print('WARNING: nointegritychecks is not 1; this image needs it on OCI '
+          '(0xc0000428 otherwise)')
 PY
 
 echo "=== disk usage ==="
