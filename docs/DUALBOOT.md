@@ -354,8 +354,22 @@ shutdown に回ってログインプロンプトまで到達しないためで�
 
 Windows Boot Manager の BCD には Ubuntu の bootapp エントリを残しません
 （ARM64 の BootMgr では bootapp を起動できないため）。GRUB が Ubuntu を
-直接起動します。Windows Boot Manager 自身のメニューは Windows のエントリ
-だけを 1 秒表示しますが、Ubuntu を選ぶメニューではありません。
+直接起動します。Ubuntu はあくまで `{fwbootmgr}`（ファームウェアの
+BootMenu）と NVRAM の `Boot#### Ubuntu` にだけ置き、`{bootmgr}` の
+displayorder には入れません。実験的に `{bootmgr}` へ入れると WBM の
+OS メニューに Windows 11 と並んで表示されますが、Ubuntu を選ぶと失敗
+します（WORKLOG 22.55）。
+
+Windows 側の `oem/boot.ps1` は毎回の起動で次を実行します。
+
+```cmd
+bcdedit /set {bootmgr} timeout 1
+bcdedit /set {bootmgr} displayorder <Ubuntu の GUID> /remove
+```
+
+したがって Windows Boot Manager 自身のメニューは Windows のエントリだけを
+1 秒表示し、Ubuntu を選ぶメニューではありません。GRUB のタイムアウトも
+既定で 1 秒です。
 
 ### ブートファイルの関係
 

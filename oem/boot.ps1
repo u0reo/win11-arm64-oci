@@ -154,6 +154,22 @@ try {
         }
     }
 
+    # The Windows Boot Manager OS chooser must stay Windows-only and brief.
+    # ARM64 BootMgr cannot start an EFI application through a bootapp entry,
+    # so an Ubuntu entry there only fails (WORKLOG 22.55).  Ubuntu stays in
+    # {fwbootmgr} (the firmware BootMenu), where it reaches shim -> GRUB.
+    try {
+        & bcdedit.exe /set '{bootmgr}' timeout 1 2>&1 | Out-File -Append -Encoding ascii $Log
+        Log ("wbm-timeout rc=" + $LASTEXITCODE)
+        if ($ubuntuId) {
+            & bcdedit.exe /set '{bootmgr}' displayorder $ubuntuId /remove 2>&1 |
+                Out-File -Append -Encoding ascii $Log
+            Log ("wbm-ubuntu-removed rc=" + $LASTEXITCODE)
+        }
+    } catch {
+        Log "wbm-menu-unavailable: $_"
+    }
+
     # Do NOT enable EMS here.  ARM64 Windows does not implement EMS/SAC, but
     # bcdedit still writes the BCD and returns 0.  On OCI A1 an explicit
     # EMSPORT:1 means the x86 COM1 I/O port 0x3F8, while the platform serial

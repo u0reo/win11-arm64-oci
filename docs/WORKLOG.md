@@ -6301,3 +6301,41 @@ EFI シェル → `startup.nsh`（`..V10-START` / `..V10-MAPPED` / `..V10-ESP-fs
 - Windows を起動して `oem/boot.ps1` の `bcdedit /create /application firmware`
   が ARM64 で実際に NVRAM entry を作れるかは未確認（失敗時は
   `{bootmgr} /addlast` にフォールバックする）。
+
+## 22.55 WBM メニューから Ubuntu を外し timeout を 1 秒にする (2026-11-23)
+
+### 実験結果
+
+- 22.54 の NVRAM 修正後、再起動すると GRUB が消えなくなった。
+  `BootOrder: 0007,0003,...`、`Boot0007 Ubuntu` は
+  `HD(1,GPT,f6ed2307-...)/\EFI\ubuntu\shimaa64.efi` を指す。
+  Windows 起動後の BCD では Ubuntu オブジェクト
+  `{382d1743-e754-11f1-8bc4-806e6f6e6963}` の path も
+  `\EFI\ubuntu\shimaa64.efi` に同期されていた。
+- 実験として `{382d1743-...}` を `{bootmgr}` の displayorder に追加して
+  再起動すると、WBM の OS メニューに **Windows 11 と Ubuntu が並んだ**。
+  Ubuntu を選ぶと失敗し、ARM64 の BootMgr が bootapp を起動できない
+  既知の制約を再確認した。
+
+### 原因の整理
+
+BCD には 2 つの displayorder がある。
+
+- `{fwbootmgr}` (a5a30fa2) の `24000001`: ファームウェアの BootMenu
+- `{bootmgr}` (9dea862c) の `24000001`: WBM の OS メニュー
+
+Ubuntu は前者にしか入っていなかったため、WBM には Windows 11 しか
+表示されなかった。`{bootmgr}` の timeout 要素 `25000004` も 30 秒
+（0x1e）のままだった。
+
+### 対処
+
+- 実 BCD: `{bootmgr}` の displayorder から Ubuntu を削除し、
+  `25000004` を 1 に設定。`{fwbootmgr}` の Ubuntu は維持。
+- `oem/boot.ps1`: 毎回の Windows 起動で
+  `bcdedit /set {bootmgr} timeout 1` と
+  `bcdedit /set {bootmgr} displayorder <Ubuntu GUID> /remove` を実行。
+- `docs/DUALBOOT.md` に WBM メニューの扱いを明記。
+
+実験用の BCD 編集・バックアップはリポジトリ外
+（`/home/ubuntu/wbm-test-backup/`）に置き、コミットしない。
