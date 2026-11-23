@@ -519,6 +519,7 @@ export WINRE_PARTITION WINRE_SIZE
 export BOOT_MENU_TIMEOUT="$BOOT_MENU"
 export FROM_STEP
 export SHM_SIZE
+[ -n "${FIRST_BOOT_UBUNTU:-}" ] && export FIRST_BOOT_UBUNTU
 [ -n "$BUILD_DIR" ] && export BUILD_DIR
 [ -n "$MIN_FREE_GB" ] && export MIN_FREE_GB
 if [ -n "$DRIVERS" ]; then
@@ -541,8 +542,17 @@ if [ "$FRESH_UBUNTU" = 1 ]; then
     cat <<EOF
 A new ESP (p1) and a ${RECOVERY_SIZE} recovery Ubuntu (p2) are installed on
 the same disk; Windows is p3.  The GRUB menu shows "Ubuntu (recovery)" next
-to "Windows 11" (${BOOT_MENU} second timeout, Windows 11 is the default).
+to "Windows 11" (${BOOT_MENU} second timeout, Windows 11 is the default
+after the first boot).
 EOF
+    if [ "${FIRST_BOOT_UBUNTU:-1}" != 0 ]; then
+        cat <<EOF
+On the first power-on, GRUB runs Ubuntu (recovery) once so that
+oci-ubuntu-boot-order.service can create the Ubuntu EFI boot entry.  Reboot
+after Ubuntu starts; from then on Windows 11 is the default.  Set
+FIRST_BOOT_UBUNTU=0 to skip this one-time Ubuntu boot.
+EOF
+    fi
     if [ "$WINRE_PARTITION" = 1 ]; then
         cat <<EOF
 A ${WINRE_SIZE} Windows RE partition is p4.  Check that the build moved

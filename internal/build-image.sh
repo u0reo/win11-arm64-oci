@@ -37,6 +37,13 @@
 #   BOOT_MENU_TIMEOUT=1  seconds to show the boot menu (0 = off).  GRUB when
 #                        a recovery Ubuntu is included, otherwise Windows
 #                        Boot Manager
+#   FIRST_BOOT_UBUNTU=1  write a one-time Ubuntu default into the GRUB
+#                        environment.  The recovery system then runs once
+#                        before Windows first boots, so it can create its own
+#                        firmware entry instead of being hidden by the
+#                        Windows Boot#### entry.  Default: 1 with
+#                        --fresh-ubuntu, 0 otherwise (a reused Ubuntu may not
+#                        have oci-ubuntu-boot-order.service).
 #   TEST_RECOVERY_BOOT=1 boot the finished recovery Ubuntu in QEMU and fail
 #                        if systemd enters emergency mode.  TCG needs up to
 #                        1800s (BOOT_TIMEOUT); set to 0 to skip.
@@ -73,6 +80,8 @@ WINRM_PORT=${WINRM_PORT:-15985}
 DISK=${DISK:-$ROOT/build/win11-arm64.qcow2}
 REUSE_UBUNTU=${REUSE_UBUNTU:-0}
 FRESH_UBUNTU=${FRESH_UBUNTU:-0}
+FIRST_BOOT_UBUNTU=${FIRST_BOOT_UBUNTU:-$FRESH_UBUNTU}
+export FIRST_BOOT_UBUNTU
 RECOVERY_SIZE=${RECOVERY_SIZE:-4G}
 WINRE_PARTITION=${WINRE_PARTITION:-0}
 WINRE_SIZE=${WINRE_SIZE:-1G}

@@ -22,7 +22,7 @@
 | 9 | WinPE でドライバ + `bcdboot`、ESP を shim/GRUB に仕上げ（自動） | QEMU phase A + `pipeline/finish_winpe.sh` |
 | 10 | Windows 初回起動 + 準備完了待ち | QEMU phase B |
 | 11 | ACPI シャットダウン | `internal/qmp-powerdown.py` |
-| 12 | ESP ブートマネージャー検査 | `pipeline/finish_disk.sh` / `pipeline/inspect_image.sh` |
+| 12 | ESP ブートマネージャー検査 + 初回 Ubuntu マーカー | `pipeline/finish_disk.sh` / `pipeline/inspect_image.sh` |
 | 13 | 圧縮（`PACKAGE=1`） | `internal/package-image.sh` |
 
 `DISK` を省略すると `build/win11-arm64.qcow2` に書き、`PACKAGE=1` のときだけ
@@ -261,11 +261,19 @@ Windows の復旧は RDP / WinRM を使ってください。
 `STOCK_BOOTMGFW` / `STOCK_BOOTMGR` / `STOCK_BOOT_STL` を使います。
 
 復旧 Ubuntu には `efibootmgr` と `oci-ubuntu-boot-order.service` が入り、
-起動のたびに Ubuntu の EFI エントリをブート順の先頭へ戻します。Windows の
-初回起動が NVRAM の順序を変えても GRUB に戻れるようにするためです
-（詳細は [DUALBOOT.md](DUALBOOT.md#ファームウェアのブート順nvram)）。
-`efibootmgr` の .deb が ISO の pool に無い場合は警告だけ出して続行し、
-EFI シェルの `bcfg` で手動登録できます。
+起動のたびに Ubuntu の EFI エントリをブート順の先頭へ戻します。ただし
+この unit は Ubuntu が起動できた後の修理なので、Windows に先に先頭を
+取られると動きません。そこで `internal/build-image.sh` は `--fresh-ubuntu`
+のとき、Windows の準備完了テスト（step 10）の後、`finish_disk.sh`
+（step 12）に `FIRST_BOOT_UBUNTU=1` を渡し、`EFI/ubuntu/grubenv` へ
+`next_entry=Ubuntu (recovery)` を書きます。最初の電源投入だけ Ubuntu が
+起動して `Boot#### Ubuntu` を作り、次の起動からは通常どおり Windows が
+既定になります（詳細は
+[DUALBOOT.md](DUALBOOT.md#ファームウェアのブート順nvram)）。
+`FIRST_BOOT_UBUNTU=0` で無効にできます。`efibootmgr` の .deb が ISO の
+pool に無い場合は警告だけ出して続行し、EFI シェルの `bcfg` で手動登録
+できます。`finish_winpe.sh` は step 10 の Windows 準備完了テストが Ubuntu
+で止まらないよう、古い `next_entry` を消してから終了します。
 
 GRUB が Windows を chainload する前に `search --file --set=root
 /EFI/Microsoft/Boot/bootmgfw.efi` を実行する理由と、`bootmgfw.efi` の

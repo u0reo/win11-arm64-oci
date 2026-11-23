@@ -176,7 +176,8 @@ if [ -f "$ESP/EFI/ubuntu/grubaa64.efi" ]; then
     fi
     if command -v mshowfat >/dev/null 2>&1; then
         for rel in /EFI/Microsoft/Boot/bootmgfw.efi \
-                   /EFI/ubuntu/grub.cfg /EFI/BOOT/grub.cfg; do
+                   /EFI/ubuntu/grub.cfg /EFI/BOOT/grub.cfg \
+                   /EFI/ubuntu/grubenv; do
             START=$(sudo -n mshowfat -i "$ESPDEV" "::$rel" 2>/dev/null |
                 sed -n 's/^[^<]*<\([0-9][0-9]*\)-[0-9][0-9]*>.*/\1/p' | head -1)
             [ -n "$START" ] || continue
@@ -189,6 +190,11 @@ if [ -f "$ESP/EFI/ubuntu/grubaa64.efi" ]; then
     fi
     echo "--- EFI/ubuntu/grub.cfg ---"
     sed -n '1,40p' "$ESP/EFI/ubuntu/grub.cfg" 2>/dev/null || true
+    if [ -f "$ESP/EFI/ubuntu/grubenv" ]; then
+        NEXT=$(sed -n 's/^next_entry=//p' "$ESP/EFI/ubuntu/grubenv" |
+            head -1)
+        echo "EFI/ubuntu/grubenv next_entry: ${NEXT:-<unset>}"
+    fi
 else
     echo "first loader: Windows Boot Manager (no EFI/ubuntu/grubaa64.efi)"
 fi

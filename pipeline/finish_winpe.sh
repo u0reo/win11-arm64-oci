@@ -191,6 +191,10 @@ if [ -f "$GRUB" ]; then
 
     sudo -n python3 "$HERE/write_grub_menu.py" \
         "$ESP" "$UB" "$UBDEV" --timeout "$TIMEOUT"
+    # A stale next_entry would make the next boot (the Windows readiness
+    # check in build-image.sh) start Ubuntu instead of Windows.  The real
+    # first-boot marker is written by finish_disk.sh after that check.
+    sudo -n rm -f "$ESP/EFI/ubuntu/grubenv"
     sudo -n umount "$UB"
 
     for f in "$ESP/EFI/ubuntu/grub.cfg" "$ESP/EFI/BOOT/grub.cfg"; do

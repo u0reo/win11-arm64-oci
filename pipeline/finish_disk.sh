@@ -31,6 +31,13 @@
 #
 # The target can be a qcow2 file or a raw block device.
 # Usage: ./finish_disk.sh /path/to/disk.qcow2 | /dev/sdX
+#
+# FIRST_BOOT_UBUNTU=1 (used by internal/build-image.sh) writes
+# next_entry="Ubuntu (recovery)" to EFI/ubuntu/grubenv.  The next power-on
+# runs the recovery Ubuntu once, so oci-ubuntu-boot-order.service can create
+# the Ubuntu firmware entry before Windows first boots and takes the first
+# slot in NVRAM.  Set it only after the Windows readiness boot; booting
+# Ubuntu first would make that check wait forever.
 set -euo pipefail
 
 HERE=$(cd "$(dirname "$0")" && pwd)
@@ -41,6 +48,7 @@ PATCH_BOOTMGFW=${PATCH_BOOTMGFW:-0}
 STOCK_BOOTMGFW=${STOCK_BOOTMGFW:-}
 STOCK_BOOTMGR=${STOCK_BOOTMGR:-}
 STOCK_BOOT_STL=${STOCK_BOOT_STL:-}
+FIRST_BOOT_UBUNTU=${FIRST_BOOT_UBUNTU:-0}
 
 RAW=0
 if [ -b "$IMG" ]; then
@@ -209,6 +217,36 @@ START=$(fat_start "$ESPDEV" "::/$NEW_REL") || {
     exit 1
 }
 
+# The firmware's NVRAM is not part of the disk image.  On a fresh instance,
+# the first power-on reaches GRUB through the fallback loader.  If Windows
+# runs first, it creates its own Boot#### entry and puts it in front of the
+# fallback, so the next boot never reaches GRUB.  A one-time Ubuntu boot lets
+# oci-ubuntu-boot-order.service create the Ubuntu entry before that happens.
+# This must run after the Windows readiness boot in build-image.sh: making
+# Ubuntu the default too early would fail that check.
+if [ "$FIRST_BOOT_UBUNTU" = 1 ] &&
+   sudo -n mtype -i "$ESPDEV" ::/EFI/ubuntu/grubaa64.efi >/dev/null 2>&1; then
+    ENV="$WORK/grubenv"
+    if ! mtools_copy_out "$ESPDEV" /EFI/ubuntu/grubenv "$ENV"; then
+        python3 "$HERE/grubenv.py" create "$ENV"
+    fi
+    if ! python3 "$HERE/grubenv.py" set "$ENV" next_entry \
+            "Ubuntu (recovery)" 2>/dev/null; then
+        echo "  existing grubenv is not usable; creating a new block" >&2
+        python3 "$HERE/grubenv.py" create "$ENV"
+        python3 "$HERE/grubenv.py" set "$ENV" next_entry "Ubuntu (recovery)"
+    fi
+    sudo -n mmd -i "$ESPDEV" ::/EFI/ubuntu >/dev/null 2>&1 || true
+    sudo -n mcopy -o -i "$ESPDEV" "$ENV" "::/EFI/ubuntu/grubenv"
+    GOT=$(python3 "$HERE/grubenv.py" show "$ENV" |
+        sed -n 's/^next_entry=//p')
+    [ "$GOT" = "Ubuntu (recovery)" ] || {
+        echo "  cannot read back next_entry from EFI/ubuntu/grubenv" >&2
+        exit 1
+    }
+    echo "  next GRUB boot: Ubuntu (recovery) once (creates the EFI entry)"
+fi
+
 # The GRUB menu is read by GRUB's own FAT driver as well, so it has the same
 # 65536 limit.  finish_winpe.sh writes it after bcdboot, which can already
 # put it past the limit.
@@ -221,6 +259,13 @@ for rel in /EFI/ubuntu/grub.cfg /EFI/BOOT/grub.cfg; do
         COMPACT=1
     fi
 done
+if sudo -n mtype -i "$ESPDEV" ::/EFI/ubuntu/grubenv >/dev/null 2>&1; then
+    s=$(fat_start "$ESPDEV" "::/EFI/ubuntu/grubenv") || s=999999
+    if [ "$s" -ge 65536 ]; then
+        echo "  EFI/ubuntu/grubenv starts at cluster $s (>= 65536)" >&2
+        COMPACT=1
+    fi
+fi
 
 if [ "$COMPACT" = 1 ]; then
     # There may be no free cluster below 65536 left (bcdboot fills the ESP

@@ -222,6 +222,35 @@ Down + Enter を送れば Ubuntu が起動することを確認済みです。
 3. `efibootmgr --bootorder` でそのエントリだけを先頭へ移す
    （他のエントリは削除せず相対順を保つ）
 
+ただし、この unit は **Ubuntu が一度起動できた後** の修理です。Ubuntu の
+`Boot####` がまだ無い状態で Windows を先に起動すると、Windows が自分を
+先頭にして GRUB に到達できず、unit も走りません（WORKLOG 22.47, 22.51）。
+22.51 の対策前は、同じ順序でスクラッチビルドすると再発しました。
+
+そのため、最終イメージの ESP には初回だけ Ubuntu を選ぶ
+`next_entry=Ubuntu (recovery)` を `EFI/ubuntu/grubenv` に書きます。
+`internal/build-image.sh` は `--fresh-ubuntu` のとき、Windows の準備完了
+テスト（step 10）が終わった後の `finish_disk.sh`（step 12）で
+`FIRST_BOOT_UBUNTU=1` を渡します。Windows の初回起動より前に Ubuntu を
+既定にすると step 10 が Ubuntu で止まってしまうため、順序はこの位置で
+なければなりません。`--reuse-ubuntu` の Ubuntu には unit が入っている
+保証がないため、既定ではこのマーカーを書きません（必要なら
+`FIRST_BOOT_UBUNTU=1` を明示します）。
+
+1. 最初の電源投入: GRUB が `next_entry` を読み、Ubuntu を 1 回だけ起動
+2. `oci-ubuntu-boot-order.service` が `Boot#### Ubuntu` を作成し先頭へ移動
+3. GRUB は `next_entry` を空に戻す。次の電源投入は通常どおり Windows 11
+   （Ubuntu を選びたいときはメニューで選択）
+
+`next_entry` は GRUB 自身が消費するので、Ubuntu 側で消す処理はありません。
+`FIRST_BOOT_UBUNTU=0` でこの初回起動を無効にできます。ビルドホストで
+中身を確認・編集するには `pipeline/grubenv.py` を使います。
+
+```bash
+python3 pipeline/grubenv.py show  /mnt/esp/EFI/ubuntu/grubenv
+python3 pipeline/grubenv.py unset /mnt/esp/EFI/ubuntu/grubenv next_entry
+```
+
 `efibootmgr` が無い、`efivarfs` が読み取り専用、`/boot/efi` が未マウントの
 場合は説明を出して正常終了します。Ubuntu の起動を止めることはありません。
 手動で同じ処理をするには:

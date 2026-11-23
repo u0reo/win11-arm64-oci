@@ -6063,3 +6063,76 @@ sudo cat /boot/efi/EFI/ubuntu/grubenv | tr '\0' '\n' |
 
 OCI.md のトラブルシューティングにもこの方法を追記した。`grub-editenv` を
 使いたい場合は `apt-get install grub-common` で入る（復旧環境では任意）。
+
+## 22.51 スクラッチビルドで NVRAM 問題を予防する (2026-11-23)
+
+### 22.47 の対策は「事後修理」だった
+
+22.47 で追加した `oci-ubuntu-boot-order.service` は、Ubuntu が起動した
+ときに `efibootmgr` で Ubuntu の `Boot####` を作り、先頭へ移す。しかし
+Ubuntu のエントリがまだ無い状態で Windows を先に起動すると、Windows が
+`Boot0003 Windows Boot Manager` を作って先頭に置く。次の電源投入では
+ファームウェアが Windows を直接起動し、GRUB に到達しない。GRUB に到達
+しないので Ubuntu も起動せず、unit は走らない。つまり **初回の起動順が
+Windows だと、この修理は永久に発動しない**。
+
+実機では EFI シェルの `bcfg` で一度 Ubuntu を登録して復旧したが、対策前は
+同じ順序でスクラッチビルドすると再発した。ビルド中に NVRAM へ書く方法は
+無い（NVRAM はディスクイメージに含まれない）ため、ディスク側で「最初の
+1 回だけ Ubuntu を起動する」必要がある。
+
+### 初回だけ Ubuntu を起動する
+
+`write_grub_menu.py` に `--first-boot-ubuntu` を追加した。これは
+`EFI/ubuntu/grubenv` に次の 1 行を書く。
+
+```text
+next_entry=Ubuntu (recovery)
+```
+
+GRUB のメニューは `next_entry` があればそれを `default` に使い、その場で
+空に戻す（`set next_entry=` → `save_env next_entry`）。したがって Ubuntu は
+1 回だけ既定になり、次回以降は通常どおり Windows 11 が既定になる。
+`grub.cfg` は `$prefix/grubenv` を `load_env` で読んでから `next_entry` を
+確認する（GRUB は環境ブロックを自動では読まない）。
+
+`internal/build-image.sh` は `--fresh-ubuntu` のとき、step 10（Windows の
+初回起動・WinRM 待ち）が終わった後の step 12 で `finish_disk.sh` に
+`FIRST_BOOT_UBUNTU=1` を渡す。step 9 の `finish_winpe.sh` で書くと、
+step 10 が Ubuntu を起動して WinRM が返らずビルドが失敗するため、位置は
+step 12 でなければならない。`--reuse-ubuntu` は unit の有無を保証できない
+ので既定 0。
+
+`finish_disk.sh` は ESP の `EFI/ubuntu/grubenv` を取り出し、
+`pipeline/grubenv.py` で `next_entry` を設定して戻す。GRUB の FAT ドライバは
+先頭クラスタ 65536 以上を読めないので、`grubenv` も `esp_compact.sh` の
+優先リストに入れ、必要なら ESP を作り直す。`finish_winpe.sh` は step 10 の
+Windows 準備完了テストが Ubuntu で止まらないよう、古い `grubenv` を消して
+から終了する。
+
+### `pipeline/grubenv.py`
+
+`grub-editenv` の無い環境向けの小さな読み書きツール。1024 B の
+ヘッダ + `key=value` + `#` パディングをそのまま扱う。
+
+```bash
+python3 pipeline/grubenv.py show  /mnt/esp/EFI/ubuntu/grubenv
+python3 pipeline/grubenv.py set   /mnt/esp/EFI/ubuntu/grubenv next_entry "Ubuntu (recovery)"
+python3 pipeline/grubenv.py unset /mnt/esp/EFI/ubuntu/grubenv next_entry
+```
+
+`write_grub_menu.py` もこのモジュールを使う。`--diagnostics` を付けた
+ときに `grubenv` が無いと `save_env` が失敗する問題も、空ブロックを
+作ることで解消した。
+
+### 確認したこと
+
+- `write_grub_menu.py --first-boot-ubuntu` が 1024 B の `grubenv` と
+  `next_entry=Ubuntu (recovery)` を生成することを、偽の ESP/Ubuntu ツリーで
+  確認した。
+- 既存の `grubenv` に `--diagnostics` を重ねても `next_entry` とマーカーが
+  保持されることを確認した。
+- `python3 -m py_compile` と `bash -n` は通っている。
+- 実機または QEMU での「初回 Ubuntu → 再起動で Windows」は未確認。
+  次のスクラッチビルドで、シリアルに Ubuntu が一度起動し、
+  `oci-ubuntu-boot-order` が `Boot#### Ubuntu` を作ることを確認する。
