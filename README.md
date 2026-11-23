@@ -163,7 +163,13 @@ OCI CLI での付け替え、容量の考え方、無料枠は
 ### ステージ2-B live を toram で起動する
 
 1 インスタンスで完結します。live ISO を GRUB に登録し、`toram` で RAM に
-載せてから `/dev/sda` を上書きします。
+載せてから `/dev/sda` を上書きします。**起動元の Ubuntu がどちらかで手順が
+異なります。**
+
+#### A. OCI の標準 Ubuntu イメージ（素の GRUB）から起動する
+
+`update-grub` と `grub-reboot` がある場合は、従来どおり `prepare.sh` だけで
+登録できます。
 
 ```bash
 # 既存の Ubuntu にログイン
@@ -179,38 +185,45 @@ sudo ./scripts/prepare.sh \
 sudo reboot
 ```
 
-> **このプロジェクトの復旧 Ubuntu を使う場合**: GRUB は
-> `\EFI\ubuntu\grub.cfg` を直接読み、`update-grub` / `grub-reboot` は入って
-> いません。上の `prepare.sh --write --once` は seed の作成までは行いますが、
-> メニュー本体は書き換わりません。次のようにして ESP のメニューへ live
-> エントリを追加してください。
->
-> ```bash
-> sudo ./scripts/prepare.sh /mnt/iso/ubuntu-26.04.1-live-server-arm64.iso --write --ssh || true
-> sudo python3 pipeline/write_grub_menu.py /boot/efi / /dev/sda2 \
->   --timeout 30 --live-iso /mnt/iso/ubuntu-26.04.1-live-server-arm64.iso \
->   --live-seed --first-boot-live
-> sudo reboot
-> ```
->
-> `--live-seed` は `ds=nocloud` を live のカーネル引数に追加します。
-> `--first-boot-live` は `next_entry` を 1 回だけ live に向けます。
+#### B. このプロジェクトが作った復旧 Ubuntu から起動する
 
-`--once` / `--default` はメニューの番号ではなく、エントリの id
+この環境の GRUB は `\EFI\ubuntu\grub.cfg` を直接読み、
+`update-grub` / `grub-reboot` / `grub-common` は入っていません。
+**A の `prepare.sh --write --once` だけでは live は起動しません。**
+`prepare.sh` は cloud-init の seed と CIDATA ラベルだけを作り、メニューは
+`write_grub_menu.py` で直接書き換えます。
+
+```bash
+sudo ./scripts/prepare.sh /mnt/iso/ubuntu-26.04.1-live-server-arm64.iso \
+  --write --ssh || true      # update-grub が無いので失敗しても無視してよい
+
+sudo python3 pipeline/write_grub_menu.py /boot/efi / /dev/sda2 \
+  --timeout 30 \
+  --live-iso /mnt/iso/ubuntu-26.04.1-live-server-arm64.iso \
+  --live-seed --first-boot-live
+
+sudo reboot
+```
+
+`/dev/sda2` は復旧 Ubuntu のルートです。パーティション番号が違う場合は
+`findmnt -no SOURCE /` で確認してください。`--live-seed` は `ds=nocloud`
+を、`--first-boot-live` は `next_entry=Ubuntu live (toram)` を書き込みます。
+
+A の場合、`--once` / `--default` はメニューの番号ではなく、エントリの id
 （`win11-live-toram`）で live を指定するので、`update-grub` でメニューの
 順番が変わっても壊れません。`--once` は次の 1 回だけなので、live の起動に
 失敗しても電源を入れ直せば Ubuntu に戻ります。最初は `--once` で確認し、
 毎回 live で起動したいなら `--default` にしてください。
 
-`--once` / `--default` を付けない場合は、GRUB のメニューで
+A で `--once` / `--default` を付けない場合は、GRUB のメニューで
 `Ubuntu live (toram)` を選びます（`GRUB_TIMEOUT=0` だとメニューが出ないので、
-その場合はどちらかを付けてください）。
+その場合はどちらかを付けてください）。B では常に 30 秒のメニューが出ます。
 
 `--ssh` を使うには ESP が `/boot/efi` にマウントされている必要があります。
 `findmnt /boot/efi` で確認し、無ければ `lsblk -f` で vfat の ESP を探して
 `sudo mount /dev/sda15 /boot/efi` のようにマウントしてから実行してください。
 
-`--default` の戻し方は `prepare.sh` が表示します。変更前の
+A の場合、`--default` の戻し方は `prepare.sh` が表示します。変更前の
 `/etc/default/grub` は `/etc/default/grub.win11-arm64-oci.bak` にあります。
 
 live の root は RAM 上なので、リポジトリをもう一度 clone してから
