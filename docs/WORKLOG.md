@@ -6301,6 +6301,3 @@ EFI シェル → `startup.nsh`（`..V10-START` / `..V10-MAPPED` / `..V10-ESP-fs
 - Windows を起動して `oem/boot.ps1` の `bcdedit /create /application firmware`
   が ARM64 で実際に NVRAM entry を作れるかは未確認（失敗時は
   `{bootmgr} /addlast` にフォールバックする）。
-- Windows Boot Manager の BCD に Ubuntu bootapp を入れる実験は試験的に
-  別途行う。ARM64 の BootMgr は bootapp を起動できないため既知の制約があり、
-  このリポジトリには反映しない。
