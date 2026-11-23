@@ -24,6 +24,8 @@ set -euo pipefail
 HERE=$(cd "$(dirname "$0")" && pwd)
 # shellcheck source=../internal/live.sh
 . "$HERE/../internal/live.sh"
+# shellcheck source=../internal/apt.sh
+. "$HERE/../internal/apt.sh"
 
 MODE=raw
 TARGET=""
@@ -114,6 +116,7 @@ if [ "$CHECK" = 0 ]; then
         libxml2-utils shellcheck
         cpio rpm2cpio
     )
+    $SUDO bash "$HERE/../internal/apt.sh" disable_cdrom_source
     $SUDO apt-get update -qq
     $SUDO env DEBIAN_FRONTEND=noninteractive apt-get install -y -qq "${PKGS[@]}"
     echo "  installed ${#PKGS[@]} package(s)"

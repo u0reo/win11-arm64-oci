@@ -41,10 +41,13 @@ size_mb() {
 
 echo "== tools =="
 for t in qemu-system-aarch64 qemu-img qemu-nbd wimlib-imagex xorriso sgdisk \
-         mkfs.vfat mkntfs ntfsfix mcopy sfdisk partprobe zstd rclone python3; do
+         mkfs.vfat mkntfs ntfsfix mcopy sfdisk partprobe zstd python3; do
     if command -v "$t" >/dev/null 2>&1; then ok "$t"; else bad "$t not found"; fi
 done
-command -v age >/dev/null 2>&1 && ok "age" || warn "age not found (optional)"
+# Upload/packaging tools are not used by build.sh.  They are optional here.
+for t in rclone age; do
+    command -v "$t" >/dev/null 2>&1 && ok "$t" || warn "$t not found (upload/packaging only)"
+done
 command -v shellcheck >/dev/null 2>&1 && ok "shellcheck" || warn "shellcheck not found (CI only)"
 command -v rpm2cpio >/dev/null 2>&1 && ok "rpm2cpio" ||
     warn "rpm2cpio not found (only needed for --virtio *.rpm)"

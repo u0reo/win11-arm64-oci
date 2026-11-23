@@ -138,6 +138,50 @@ staging（`boot.wim` や OEMDRV など）は `BUILD_DIR` を省略すると
 `/dev/shm/build` になります。ISO を `$HOME` や overlay の `/` に置くと
 `/cow` を圧迫するので、`/dev/shm/iso` を使ってください。
 
+### 最小セットアップ（`setup-live.sh`）
+
+`setup.sh` は CI・パッケージング・任意機能まで含めた上位集合です。
+`rclone` / `age` / `jq` / `shellcheck` / `libxml2-utils` / `debootstrap`
+は `build.sh` から呼ばれません。RAM (`toram`) ビルドだけなら最小構成で
+十分です。
+
+```bash
+sudo ./scripts/setup-live.sh          # 必要なパッケージだけ入れて preflight
+./scripts/setup-live.sh --check       # 変更せずに確認
+sudo ./scripts/setup-live.sh --shm-size 16G
+```
+
+入れるのは `qemu-system-arm` / `qemu-utils` / `qemu-efi-aarch64` /
+`wimtools` / `xorriso` / `gdisk` / `dosfstools` / `ntfs-3g` / `mtools` /
+`parted` / `zstd` / `python3-hivex` / `python3-pefile` / `curl` だけです。
+`python3-winrm` と `rpm2cpio`/`cpio` は任意（WinRM 確認、RPM 版 virtio-win
+を使うときだけ）。`debootstrap` は live ISO が無いときだけ要ります。
+
+`setup.sh` / `setup-live.sh` はともに、インストーラが残した
+`file:///cdrom` の apt ソースを無効化してから `apt-get update` します
+（`internal/apt.sh`）。これは `/cdrom` が存在しない復旧 Ubuntu で
+`E: The repository 'file:/cdrom ... Release' does not have a Release file.`
+が出るためです（`cdrom.sources` → `cdrom.sources.disabled` にリネーム）。
+
+### 復旧 Ubuntu から live を起動する（`prepare-live.sh`）
+
+復旧 Ubuntu には `update-grub` / `grub-reboot` が無く、実際に読まれる
+GRUB 設定も `/etc/grub.d/40_custom` → `/boot/grub/grub.cfg` ではなく
+ESP の `\EFI\ubuntu\grub.cfg` です。したがって `prepare.sh --write --once`
+はそのままでは使えません（WORKLOG 22.53）。専用スクリプトを使います。
+
+```bash
+# ISO は /srv/iso などの実ファイルシステムに置く（tmpfs は不可）
+sudo ./scripts/prepare-live.sh /srv/iso/ubuntu-26.04.1-live-server-arm64.iso
+sudo reboot
+```
+
+これは `prepare.sh --ssh --seed-only` で cloud-init seed と ESP の
+`CIDATA` ラベルを用意し、`write_grub_menu.py --live-iso ... --live-seed
+--first-boot-live` で ESP のメニューに live エントリを書き、`next_entry`
+で次回 1 回だけ live を起動します。`fatlabel`（dosfstools）が必要なので、
+先に `setup-live.sh` を実行してください。
+
 ### `prepare.sh --ssh` の仕組み
 
 `--write` は `/etc/grub.d/40_custom` に追記して `update-grub` まで

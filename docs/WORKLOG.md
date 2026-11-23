@@ -6339,3 +6339,55 @@ Ubuntu は前者にしか入っていなかったため、WBM には Windows 11 
 
 実験用の BCD 編集・バックアップはリポジトリ外
 （`/home/ubuntu/wbm-test-backup/`）に置き、コミットしない。
+
+## 22.56 RAM 起動のセットアップを最小構成に分離 (2026-11-23)
+
+### 症状
+
+- `sudo ./scripts/prepare.sh /srv/iso/ubuntu-26.04.1-live-server-arm64.iso
+  --write --ssh --once` が
+  `prepare: fatlabel failed for /dev/sda1 (install dosfstools)` で停止。
+- `sudo ./scripts/setup.sh` は
+  `E: The repository 'file:/cdrom resolute Release' does not have a Release file.`
+  で停止。復旧 Ubuntu には `/cdrom` が無い。
+- 復旧 Ubuntu には `update-grub` / `grub-reboot` / `grub-editenv` も無く、
+  `prepare.sh --once` は dosfstools を入れても次の段階で失敗する。
+  実際に読まれる GRUB 設定は ESP の `\EFI\ubuntu\grub.cfg` なので、
+  `/etc/grub.d/40_custom` への追記では live エントリが出ない（22.53 と同じ）。
+
+### 対処
+
+- `internal/apt.sh`（新規）: インストーラが残した `cdrom.sources` /
+  `cdrom.list` を `.disabled` にリネームし、`/etc/apt/sources.list` の
+  `deb cdrom:` 行をコメントアウト。`setup.sh` と `setup-live.sh` から
+  `apt-get update` の前に呼ぶ。冪等。
+- `scripts/setup-live.sh`（新規）: RAM ビルドに必要なパッケージだけを
+  入れる。CI/アップロード用の `rclone` / `age` / `jq` / `shellcheck` /
+  `libxml2-utils` / `debootstrap` は入れない。`python3-winrm` と
+  `rpm2cpio`/`cpio` も任意として除外。`/dev/shm` の再マウントと
+  `/dev/shm/iso` / `/dev/shm/build` の作成、`preflight.sh` の実行まで行う。
+  `--check` は変更しない。
+- `internal/preflight.sh`: `rclone` を必須から任意（warn）へ変更。
+  `age` と同じ扱いにする。
+- `scripts/prepare.sh`: `--seed-only` を追加。cloud-init seed と ESP の
+  `CIDATA` ラベルだけを書き、GRUB 設定は触らず終了する。
+- `scripts/prepare-live.sh`（新規）: `prepare.sh --ssh --seed-only` と
+  `write_grub_menu.py --live-iso ... --live-seed --first-boot-live` を
+  組み合わせ、ESP の GRUB メニューに live エントリを書き、`next_entry`
+  で次回 1 回だけ live を起動する。
+
+### 検証
+
+- `sudo bash internal/apt.sh disable_cdrom_source` の後
+  `apt-get update` が成功。`/dev/sda1` のラベル操作に必要な
+  `dosfstools` だけを導入（`fatlabel` が使えるようになった）。
+- `./scripts/setup-live.sh --check` は apt エラー無く動作し、不足
+  パッケージと preflight の結果を表示した。
+- 新規スクリプトは `bash -n` を通過。
+
+### 未確認
+
+- `prepare-live.sh` は ESP を書き換えるため、未実行。再起動して live が
+  起動するかは次の作業で確認する。
+- live 起動後に `setup-live.sh` を実行して、最小パッケージで
+  `build.sh` の preflight が通るかは未確認。

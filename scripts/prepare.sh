@@ -44,6 +44,10 @@
 #             `update-grub` can add or remove entries without breaking it.
 #             The previous file is saved to
 #             /etc/default/grub.win11-arm64-oci.bak.  Needs --write.
+# --seed-only write only the cloud-init seed and set the ESP label to CIDATA,
+#             then exit.  Use with --ssh --write.  For the recovery Ubuntu,
+#             which has no update-grub/grub-reboot, use scripts/prepare-live.sh
+#             instead (it also writes the ESP's own grub.cfg).
 # --id ID     id of the menu entry (default win11-live-toram).  It is also the
 #             value of GRUB_DEFAULT, so it must not start with a digit.
 #
@@ -61,6 +65,7 @@ WRITE=0
 WANT_SSH=0
 WANT_DEFAULT=0
 WANT_ONCE=0
+SEED_ONLY=0
 SHM_SIZE=${SHM_SIZE:-100%}
 ID=${ID:-win11-live-toram}
 GRUB_CUSTOM=${GRUB_CUSTOM:-/etc/grub.d/40_custom}
@@ -88,6 +93,7 @@ while [ $# -gt 0 ]; do
         --ssh) WANT_SSH=1; shift ;;
         --default) WANT_DEFAULT=1; shift ;;
         --once) WANT_ONCE=1; shift ;;
+        --seed-only) SEED_ONLY=1; shift ;;
         -h|--help) usage 0 ;;
         *) echo "prepare: unknown argument: $1" >&2; usage 1 ;;
     esac
@@ -114,6 +120,10 @@ if [ "$WANT_DEFAULT" = 1 ] || [ "$WANT_ONCE" = 1 ]; then
         echo "prepare: --default and --once need --write" >&2
         exit 1
     }
+fi
+if [ "$SEED_ONLY" = 1 ] && [ "$WANT_SSH" != 1 ]; then
+    echo "prepare: --seed-only needs --ssh" >&2
+    exit 1
 fi
 
 [ -f "$ISO_ARG" ] || { echo "prepare: missing $ISO_ARG" >&2; exit 1; }
@@ -242,6 +252,11 @@ if [ "$WANT_SSH" = 1 ]; then
 
     DS_ARG="ds=nocloud"
     echo "prepare: wrote $ESPDIR/user-data and meta-data (ssh keys: $(printf '%s\n' "$KEYS" | wc -l))"
+fi
+
+if [ "$SEED_ONLY" = 1 ]; then
+    echo "prepare: seed only; GRUB config untouched"
+    exit 0
 fi
 
 CMDLINE="toram ip=dhcp console=ttyAMA0,115200"
