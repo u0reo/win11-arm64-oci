@@ -217,9 +217,12 @@ Down + Enter を送れば Ubuntu が起動することを確認済みです。
 
 1. `efibootmgr -v` から `\EFI\ubuntu\grubaa64.efi`（shim があれば
    `\EFI\ubuntu\shimaa64.efi`）を指すエントリを探す
-2. 無ければ ESP のパーティション番号を使って `efibootmgr --create` で
-   追加する
-3. `efibootmgr --bootorder` でそのエントリだけを先頭へ移す
+2. そのエントリのデバイスパスに含まれる **ESP の GPT GUID** が、現在の
+   `/boot/efi` の PARTUUID と一致するか確認する。古いイメージの GUID の
+   ままなら、ローダーが存在しても起動できないため削除する（WORKLOG 22.54）
+3. 正しいエントリが無ければ ESP のパーティション番号を使って
+   `efibootmgr --create` で追加する。重複した Ubuntu エントリも削除する
+4. `efibootmgr --bootorder` でそのエントリだけを先頭へ移す
    （他のエントリは削除せず相対順を保つ）
 
 ただし、この unit は **Ubuntu が一度起動できた後** の修理です。Ubuntu の
@@ -247,18 +250,28 @@ Down + Enter を送れば Ubuntu が起動することを確認済みです。
 中身を確認・編集するには `pipeline/grubenv.py` を使います。
 
 Windows 側にも保険を入れています。`oem/boot.ps1` は OEM Bootstrap タスク
-（`onstart`, SYSTEM）から毎回の Windows 起動で走り、次を実行します。
+（`onstart`, SYSTEM）から毎回の Windows 起動で走ります（WORKLOG 22.54）。
 
-```cmd
-bcdedit /set {fwbootmgr} displayorder {bootmgr} /addlast
-```
+1. `mountvol` で ESP を一時的にマウントし、Ubuntu のローダー
+   （`\EFI\ubuntu\shimaa64.efi`、無ければ `grubaa64.efi`）を確認する
+2. `bcdedit /enum firmware` の Ubuntu エントリについて、**デバイスが
+   `{bootmgr}` と同じ ESP か**、パスが現在のローダーかを照合する。
+   古い GUID を指すエントリや重複は削除し、必要なら
+   `bcdedit /create /d Ubuntu /application firmware` で作り直す
+3. `bcdedit /set {fwbootmgr} displayorder <Ubuntu> /addfirst` で Ubuntu を
+   ファームウェアの先頭へ移す
 
-Windows の初回起動が `Boot####` を先頭にしても、ファームウェアの
-BlockVolume エントリ（`\EFI\BOOT\BOOTAA64.EFI` = shim → GRUB）が先に
-残るため GRUB に到達できます。GRUB の既定は Windows 11 のままなので、
-既定起動自体は変わりません。Ubuntu がある状態でも Windows が先頭を
-動かさない、と以前の文書は書いていましたが、それは実機観測からの
-推測でした。Windows 側の保険はその推測に依存しません（WORKLOG 22.52）。
+Ubuntu エントリを確認・作成できなかった場合だけ、以前の動作に戻して
+`bcdedit /set {fwbootmgr} displayorder {bootmgr} /addlast` を実行します。
+これは BlockVolume フォールバック（`\EFI\BOOT\BOOTAA64.EFI` = shim → GRUB）
+を先に残す保険です。GRUB の既定は Windows 11 のままなので、既定起動自体は
+変わりません（WORKLOG 22.52, 22.54）。
+
+**UEFI BootMenu から Ubuntu を選んでも起動しない**場合は、まず
+`efibootmgr -v` の `Boot#### Ubuntu` の `HD(1,GPT,...)` GUID が現在の ESP
+（通常 `/dev/sda1`）の PARTUUID と一致するか確認してください。一致しなければ
+古いエントリです。`sudo efibootmgr -b <num> -B` で削除した後、
+`sudo /usr/local/sbin/oci-ubuntu-boot-order` を実行すると正しく作り直せます。
 
 ```bash
 python3 pipeline/grubenv.py show  /mnt/esp/EFI/ubuntu/grubenv

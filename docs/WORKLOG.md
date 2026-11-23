@@ -6239,3 +6239,68 @@ sudo reboot
 
 再起動して live が実際に `Ubuntu live (toram)` を起動するかは未確認。
 起動しなければシリアルの GRUB メニューで live エントリを直接選ぶこと。
+
+## 22.54 UEFI の Ubuntu エントリが古い ESP GUID を指していた (2026-11-23)
+
+### 症状
+
+Windows は起動できたが、UEFI の BootMenu で "Ubuntu" を選んでも起動しない。
+EFI シェル → `startup.nsh`（`..V10-START` / `..V10-MAPPED` / `..V10-ESP-fs0`）
+→ GRUB 経由なら `Ubuntu (recovery)` は起動する。GRUB → `Windows 11` は
+`Failed to boot both default and fallback entries` になった。
+
+### 検証（実機・読み取り専用）
+
+- `lsblk`: 現在の ESP は `sda1` = `f6ed2307-e6e8-4b5d-b7b5-9d7e76a2f520`、
+  Ubuntu `/` = `sda2`、Windows = `sda3`。`sdb1` = `057542d2-...` は古い
+  BlockVolume の ESP。
+- `efibootmgr -v` の `Boot0007* Ubuntu` は
+  `HD(1,GPT,5933fc32-596a-4286-9916-a5e24583534c,...)/\EFI\ubuntu\grubaa64.efi`
+  を指していた。この GUID は現在のどのパーティションにも存在しない
+  （22.20 頃の ESP の GUID）。つまり **ローダーパスは正しいがデバイスパスが
+  古い**。対して `Boot0003 Windows Boot Manager` は `f6ed2307-...` を
+  正しく指していた。
+- `\EFI\ubuntu\grubaa64.efi` / `shimaa64.efi` / `grub.cfg` / `grubenv` は
+  全部存在し、`/boot/vmlinuz-7.0.0-30-generic.raw`（72,613,888 B）もある。
+  `grub.cfg` の `linux` 行も `.raw` を指すため 22.48 の stubble assert は
+  原因ではない（同節で NVRAM 経由では発動しないと明記）。
+- `oci-ubuntu-boot-order.service` は active / exited 0 だったが、
+  `pipeline/oci-ubuntu-boot-order.sh` の `find_ubuntu_num()` は
+  `\EFI\ubuntu\grubaa64.efi` という**文字列だけ**で既存 entry を判定する。
+  古い GUID の Boot0007 が「見つかった → 先頭なので OK」となり、
+  デバイスパスを一度も検証していなかった。
+
+### 対処
+
+1. NVRAM を修正: `sudo efibootmgr -b 0007 -B` →
+   `sudo /usr/local/sbin/oci-ubuntu-boot-order`。
+   新しい `Boot0007 Ubuntu` は
+   `HD(1,GPT,f6ed2307-...)/\EFI\ubuntu\shimaa64.efi` を指し、BootOrder
+   `0007,0003,...` の先頭になった（ESP に shim があるためローダーは shim）。
+2. `oem/boot.ps1`: Windows 起動時に ESP を `mountvol` で確認し、
+   `bcdedit /enum firmware` の Ubuntu entry が `{bootmgr}` と同じ ESP
+   を指すか照合。古い/重複 entry は削除し、無ければ
+   `bcdedit /create /d Ubuntu /application firmware` で作って
+   `device partition=<ESP文字>` と `path` を設定し、
+   `displayorder <id> /addfirst` で先頭へ。作れない場合だけ旧来の
+   `{bootmgr} /addlast` にフォールバック。
+3. `pipeline/oci-ubuntu-boot-order.sh`: `find_ubuntu_entries()` が
+   `Boot<num> <GPT GUID>` を出力し、現在の ESP の PARTUUID と違う
+   entry を削除してから作り直す。重複も削除。
+4. `docs/DUALBOOT.md` / `docs/OCI.md` に手順とトラブルシュートを追記。
+
+### 検証（対処後）
+
+- わざと古い `sdb1` を指す一時 entry を作り、
+  `Boot0007` (正) + `Boot0008` (GUID `057542d2-...`) の状態で unit を実行。
+  `Boot0008 points at old ESP ...; deleting` と出て削除され、
+  `Boot0007 is already first` のまま正しい entry だけが残った。
+
+### 未確認
+
+- Windows を起動して `oem/boot.ps1` の `bcdedit /create /application firmware`
+  が ARM64 で実際に NVRAM entry を作れるかは未確認（失敗時は
+  `{bootmgr} /addlast` にフォールバックする）。
+- Windows Boot Manager の BCD に Ubuntu bootapp を入れる実験は試験的に
+  別途行う。ARM64 の BootMgr は bootapp を起動できないため既知の制約があり、
+  このリポジトリには反映しない。

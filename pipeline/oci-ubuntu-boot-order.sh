@@ -8,9 +8,11 @@
 # only the firmware order is wrong.
 #
 # This script runs from oci-ubuntu-boot-order.service on every Ubuntu boot.
-# It reuses an existing Ubuntu entry or creates one, then moves that entry to
-# the front.  No entry is deleted and Windows stays selectable from the
-# firmware menu.  It is safe to run by hand:
+# It verifies that the existing Ubuntu entry points at the current ESP (the
+# GPT GUID in its device path), deletes it if an older image's GUID is still
+# there, creates a fresh entry when needed, and moves it to the front.
+# Duplicate Ubuntu entries are removed; every other entry, including Windows,
+# stays selectable from the firmware menu.  It is safe to run by hand:
 #
 #     sudo /usr/local/sbin/oci-ubuntu-boot-order
 #
@@ -56,26 +58,57 @@ if [ -z "$DISK_NAME" ] || [ -z "$PART" ]; then
     exit 0
 fi
 DISK=/dev/$DISK_NAME
+ESP_PARTUUID=$(lsblk -no PARTUUID "$SRC" 2>/dev/null | tr -d ' \r\n' | tr 'A-Z' 'a-z')
+if [ -z "$ESP_PARTUUID" ]; then
+    log "no PARTUUID for $SRC; cannot verify the Ubuntu entry device path"
+fi
 
-find_ubuntu_num() {
+# One line per Ubuntu entry: "<boot number> <ESP GPT GUID>".  The GUID comes
+# from the HD(...) part of the device path.  Matching only on the loader path
+# (the old behaviour) kept entries that still pointed at an earlier image's
+# ESP, so the firmware BootMenu offered Ubuntu but could not load it.
+find_ubuntu_entries() {
     efibootmgr -v 2>/dev/null | awk '
         /^Boot[0-9A-Fa-f][0-9A-Fa-f][0-9A-Fa-f][0-9A-Fa-f]/ {
-            if (index($0, "\\EFI\\ubuntu\\shimaa64.efi") ||
-                index($0, "\\EFI\\ubuntu\\grubaa64.efi")) {
-                print substr($0, 5, 4)
-                exit
+            line = $0
+            if (index(line, "\\EFI\\ubuntu\\shimaa64.efi") == 0 &&
+                index(line, "\\EFI\\ubuntu\\grubaa64.efi") == 0) next
+            num = substr(line, 5, 4)
+            guid = ""
+            if (match(line, /HD\([0-9]+,GPT,[0-9a-fA-F][0-9a-fA-F-]*/)) {
+                guid = substr(line, RSTART, RLENGTH)
+                sub(/^HD\([0-9]+,GPT,/, "", guid)
+                guid = tolower(guid)
             }
+            print num, guid
         }'
 }
 
-NUM=$(find_ubuntu_num)
+NUM=
+while read -r num guid; do
+    [ -n "$num" ] || continue
+    if [ -n "$ESP_PARTUUID" ] && [ -n "$guid" ] && [ "$guid" != "$ESP_PARTUUID" ]; then
+        log "Boot$num points at old ESP $guid (current $ESP_PARTUUID); deleting"
+        efibootmgr -b "$num" -B >/dev/null 2>&1 || log "could not delete Boot$num"
+        continue
+    fi
+    if [ -n "$NUM" ]; then
+        log "Boot$num is a second Ubuntu entry; deleting the duplicate"
+        efibootmgr -b "$num" -B >/dev/null 2>&1 || true
+        continue
+    fi
+    NUM=$num
+done <<EOF
+$(find_ubuntu_entries)
+EOF
+
 if [ -z "$NUM" ]; then
     if ! efibootmgr --create --disk "$DISK" --part "$PART" \
             --label Ubuntu --loader "$LOADER" >/dev/null 2>&1; then
         log "efibootmgr could not add the Ubuntu entry (read-only NVRAM?)"
         exit 0
     fi
-    NUM=$(find_ubuntu_num)
+    NUM=$(find_ubuntu_entries | awk 'NR == 1 { print $1 }')
     if [ -z "$NUM" ]; then
         log "the new Ubuntu entry did not appear in efibootmgr"
         exit 0
