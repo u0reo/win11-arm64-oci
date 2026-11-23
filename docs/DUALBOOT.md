@@ -246,6 +246,20 @@ Down + Enter を送れば Ubuntu が起動することを確認済みです。
 `FIRST_BOOT_UBUNTU=0` でこの初回起動を無効にできます。ビルドホストで
 中身を確認・編集するには `pipeline/grubenv.py` を使います。
 
+Windows 側にも保険を入れています。`oem/boot.ps1` は OEM Bootstrap タスク
+（`onstart`, SYSTEM）から毎回の Windows 起動で走り、次を実行します。
+
+```cmd
+bcdedit /set {fwbootmgr} displayorder {bootmgr} /addlast
+```
+
+Windows の初回起動が `Boot####` を先頭にしても、ファームウェアの
+BlockVolume エントリ（`\EFI\BOOT\BOOTAA64.EFI` = shim → GRUB）が先に
+残るため GRUB に到達できます。GRUB の既定は Windows 11 のままなので、
+既定起動自体は変わりません。Ubuntu がある状態でも Windows が先頭を
+動かさない、と以前の文書は書いていましたが、それは実機観測からの
+推測でした。Windows 側の保険はその推測に依存しません（WORKLOG 22.52）。
+
 ```bash
 python3 pipeline/grubenv.py show  /mnt/esp/EFI/ubuntu/grubenv
 python3 pipeline/grubenv.py unset /mnt/esp/EFI/ubuntu/grubenv next_entry

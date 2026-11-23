@@ -43,6 +43,20 @@ try {
     & netsh.exe advfirewall set allprofiles state off 2>&1 | Out-File -Append -Encoding ascii $Log
     Log "services-configured"
 
+    # Keep the firmware boot order pointing at GRUB, not directly at Windows.
+    # Windows Setup prepends its own Boot#### on first boot; if that wins, the
+    # firmware never starts shim/GRUB and the Ubuntu recovery unit cannot run.
+    # Moving {bootmgr} to the end of {fwbootmgr} displayorder leaves the OCI
+    # block-volume fallback (which starts \EFI\BOOT\BOOTAA64.EFI) first.
+    # GRUB's own default is still Windows 11, so the default boot is unchanged.
+    try {
+        & bcdedit.exe /set '{fwbootmgr}' displayorder '{bootmgr}' /addlast 2>&1 |
+            Out-File -Append -Encoding ascii $Log
+        Log ("fwbootmgr-windows-last rc=" + $LASTEXITCODE)
+    } catch {
+        Log "fwbootmgr-order-unavailable: $_"
+    }
+
     # Do NOT enable EMS here.  ARM64 Windows does not implement EMS/SAC, but
     # bcdedit still writes the BCD and returns 0.  On OCI A1 an explicit
     # EMSPORT:1 means the x86 COM1 I/O port 0x3F8, while the platform serial

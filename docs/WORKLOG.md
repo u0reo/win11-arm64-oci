@@ -6136,3 +6136,43 @@ python3 pipeline/grubenv.py unset /mnt/esp/EFI/ubuntu/grubenv next_entry
 - 実機または QEMU での「初回 Ubuntu → 再起動で Windows」は未確認。
   次のスクラッチビルドで、シリアルに Ubuntu が一度起動し、
   `oci-ubuntu-boot-order` が `Boot#### Ubuntu` を作ることを確認する。
+
+## 22.52 Windows 側のブート順保険（22.51 の前提を修正）
+
+### 指摘
+
+22.51 の説明では「Ubuntu の `Boot####` が存在すれば Windows は自分を先頭へ
+動かさない」と書いた。しかし実機で確認できたのは `bcfg` 後に Windows を
+起動し、**その後 Ubuntu を起動して unit が先頭へ戻した**時点の NVRAM
+（`BootOrder: 0007,0003,...`）だけだった。Windows 起動直後に Ubuntu を
+介さず読んだ記録は無く、「入口があるから上書きされない」というのは
+推測に過ぎない。Windows の初回起動が無条件に `Boot####` を先頭へ置くなら、
+22.51 の初回 Ubuntu だけでは GRUB が再び隠れる。
+
+### 対策
+
+`oem/boot.ps1` に次を追加した。これは OEM Bootstrap タスク
+（`onstart`, SYSTEM, HIGHEST）から **毎回の Windows 起動** で走る。
+
+```powershell
+bcdedit /set '{fwbootmgr}' displayorder '{bootmgr}' /addlast
+```
+
+実機の BCD では `{fwbootmgr}` の displayorder は
+`{bootmgr}` → `{6f5d77a7}`（UEFI ORACLE BlockVolume）→
+BootManagerMenuApp → EFI Firmware Setup → EFI Internal Shell の順だった。
+`{bootmgr}` を末尾へ移すと BlockVolume が先頭になり、そのエントリは
+`\EFI\BOOT\BOOTAA64.EFI`（shim → GRUB）を起動する。Windows が初回起動で
+`Boot0003` を先頭にしても、次の電源投入では GRUB に到達できる。
+GRUB の既定は Windows 11 のままなので、既定起動は変わらない。
+
+Ubuntu 側の unit（Ubuntu を先頭へ）と Windows 側の `boot.ps1`（Windows を
+末尾へ）は、どちらも「GRUB が先に来る」ことを保証するので矛盾しない。
+`finish_disk.sh` の BCD 正規化はオフラインの hive 編集なので、この
+`bcdedit` が書いたファームウェア BootOrder を壊さない。
+
+### 未確認
+
+- 実機で Windows 起動直後に `efibootmgr -v` を読み、Boot0002（または
+  Boot0007）が Boot0003 より前にあることを確認する。
+- その状態で power-cycle し、手動 `bcfg` なしで GRUB が出ることを確認する。

@@ -275,6 +275,11 @@ pool に無い場合は警告だけ出して続行し、EFI シェルの `bcfg` 
 できます。`finish_winpe.sh` は step 10 の Windows 準備完了テストが Ubuntu
 で止まらないよう、古い `next_entry` を消してから終了します。
 
+Windows 側の `oem/boot.ps1` も毎回の起動で `{bootmgr}` を `{fwbootmgr}`
+の displayorder 末尾へ移します。Windows が初回起動で `Boot####` を先頭に
+しても、OCI の BlockVolume フォールバック（shim → GRUB）が先に残るため、
+Ubuntu の unit が走らなくても GRUB に戻れます（WORKLOG 22.52）。
+
 GRUB が Windows を chainload する前に `search --file --set=root
 /EFI/Microsoft/Boot/bootmgfw.efi` を実行する理由と、`bootmgfw.efi` の
 開始クラスタ制限は [DUALBOOT.md](DUALBOOT.md#起動メニュー) を参照して
