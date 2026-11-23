@@ -13,11 +13,18 @@ from the recovery ext4 partition so the menu does not depend on a second
 GRUB configuration.
 
 Usage:
-    write_grub_menu.py ESP_MNT UBUNTU_MNT ROOT_DEV [--timeout 1] [--diagnostics]
+    write_grub_menu.py ESP_MNT UBUNTU_MNT ROOT_DEV [--timeout 1]
+                       [--diagnostics] [--first-boot-ubuntu]
 
 --diagnostics adds boot-stage markers in EFI/ubuntu/grubenv and, when
 EFI/Microsoft/Boot/bootmgfw-dbg.efi exists, a second Windows entry that
 chainloads that copy.
+
+--first-boot-ubuntu writes next_entry="Ubuntu (recovery)" to
+EFI/ubuntu/grubenv.  GRUB consumes it on the next power-on, so the recovery
+Ubuntu runs once before Windows can create its own firmware entry and take
+the first slot.  oci-ubuntu-boot-order.service then adds the Ubuntu entry
+and moves it to the front; later boots use the normal Windows default.
 
 Both filesystems must already be mounted.  Run as root (or with sudo) so the
 menu can be written to the ESP.
@@ -29,6 +36,8 @@ import os
 import re
 import subprocess
 import sys
+
+from grubenv import GrubenvError, read as read_grubenv, write as write_grubenv
 
 WINDOWS_LABEL = "Windows 11"
 UBUNTU_LABEL = "Ubuntu (recovery)"
@@ -223,9 +232,21 @@ menuentry "{WINDOWS_LABEL} (debug copy)" {{
 # video console and the serial port, so this menu and its arrow keys work
 # over the OCI serial console.  Do not load GRUB's own "serial" module here:
 # it is an x86 COM-port driver and fails on ARM64.
+# Load EFI/ubuntu/grubenv first; save_env writes there and next_entry lives
+# there.  Load it before setting timeout/default so the menu's own values win.
+if [ -s $prefix/grubenv ]; then
+    load_env
+fi
 set timeout={timeout}
 set default=0
 set timeout_style=menu
+# grub-reboot and write_grub_menu.py --first-boot-ubuntu store a one-time
+# selection in grubenv.  Consume it here so only the next boot uses it.
+if [ -n "$next_entry" ]; then
+    set default="$next_entry"
+    set next_entry=
+    save_env next_entry
+fi
 {diag_top}
 menuentry "{WINDOWS_LABEL}" {{
 {win_body}}}
@@ -252,6 +273,10 @@ def main() -> int:
     parser.add_argument("--diagnostics", action="store_true",
                         help="record boot stages in EFI/ubuntu/grubenv and "
                              "add a debug-copy Windows entry")
+    parser.add_argument("--first-boot-ubuntu", action="store_true",
+                        help="run Ubuntu (recovery) on the next boot so it can "
+                             "create its firmware boot entry before Windows "
+                             "takes the first slot")
     args = parser.parse_args()
 
     if args.timeout < 0:
@@ -288,10 +313,35 @@ def main() -> int:
             if f'menuentry "{label}"' not in got:
                 die(f"{path}: {label} entry is missing after writing")
 
+    env_path = os.path.join(esp, "EFI/ubuntu/grubenv")
+    env_values: dict[str, str] | None
+    try:
+        env_values = read_grubenv(env_path)
+    except GrubenvError as exc:
+        if args.first_boot_ubuntu or args.diagnostics:
+            print(f"warning: {exc}; replacing it", file=sys.stderr)
+            env_values = {}
+        else:
+            print(f"warning: {exc}; leaving it alone", file=sys.stderr)
+            env_values = None
+    if env_values is not None:
+        if args.first_boot_ubuntu:
+            env_values["next_entry"] = UBUNTU_LABEL
+        if args.first_boot_ubuntu or args.diagnostics or env_values:
+            # Create the block for --diagnostics (save_env needs it) and keep
+            # any markers that are already there.
+            try:
+                write_grubenv(env_path, env_values)
+            except (GrubenvError, OSError) as exc:
+                die(str(exc))
+            print(f"wrote {env_path}")
+
     print(f"root UUID:   {uuid}")
     print(f"kernel:      {kernel}")
     print(f"initrd:      {initrd}")
     print(f"timeout:     {args.timeout}s (default: {WINDOWS_LABEL})")
+    if args.first_boot_ubuntu:
+        print(f"first boot:  {UBUNTU_LABEL} once (next_entry)")
     for path in paths:
         print(f"wrote {path}")
     return 0
