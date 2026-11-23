@@ -333,7 +333,11 @@ GRUB の FAT ドライバは、先頭クラスタが 65536 以上のファイル
 再フォーマット時に volume serial を保持します。さらに `inspect_image.sh`
 が最終イメージの fstab と実際の ESP を照合し、不一致ならビルドを失敗させ、
 `test_recovery_boot.sh` が QEMU で Ubuntu が emergency mode に入らないことを
-確認します（TCG では 15 分程度かかります）。
+確認します（TCG では 15 分程度かかります）。ディスクは一時的な qcow2
+オーバーレイ経由で渡します。イメージを `readonly=on` で渡すとゲスト側で
+ルートが書き込み不可になり、`systemd-remount-fs.service` の失敗から
+shutdown に回ってログインプロンプトまで到達しないためです。
+オーバーレイなら元イメージを一切変更せずに通常どおり起動できます。
 
 Windows Boot Manager の BCD には Ubuntu の bootapp エントリを残しません
 （ARM64 の BootMgr では bootapp を起動できないため）。GRUB が Ubuntu を

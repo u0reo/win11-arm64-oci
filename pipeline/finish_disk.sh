@@ -236,7 +236,12 @@ if [ "$FIRST_BOOT_UBUNTU" = 1 ] &&
         python3 "$HERE/grubenv.py" create "$ENV"
         python3 "$HERE/grubenv.py" set "$ENV" next_entry "Ubuntu (recovery)"
     fi
-    sudo -n mmd -i "$ESPDEV" ::/EFI/ubuntu >/dev/null 2>&1 || true
+    # mmd prompts on /dev/tty ("Long file name already exists: skip?"), which
+    # hangs forever when the build runs in a non-interactive session.  Only
+    # create the directory when it is actually missing.
+    if ! sudo -n mdir -i "$ESPDEV" ::/EFI/ubuntu >/dev/null 2>&1; then
+        sudo -n mmd -i "$ESPDEV" ::/EFI/ubuntu >/dev/null 2>&1 || true
+    fi
     sudo -n mcopy -o -i "$ESPDEV" "$ENV" "::/EFI/ubuntu/grubenv"
     GOT=$(python3 "$HERE/grubenv.py" show "$ENV" |
         sed -n 's/^next_entry=//p')

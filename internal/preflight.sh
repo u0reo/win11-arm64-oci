@@ -53,13 +53,20 @@ command -v cpio >/dev/null 2>&1 && ok "cpio" ||
 
 echo "== python modules =="
 python3 - <<'PY' || fail=1
-mods = ["hivex", "pefile"]
-for m in mods:
+required = ["hivex", "pefile"]
+optional = ["winrm", "requests_ntlm"]
+for m in required:
     try:
         __import__(m)
         print(f"  ok    {m}")
     except Exception:
         print(f"  warn  {m} not installed (inspect_image.sh will skip some checks)")
+for m in optional:
+    try:
+        __import__(m)
+        print(f"  ok    {m}")
+    except Exception:
+        print(f"  warn  {m} not installed (WinRM setup-marker/shutdown checks disabled)")
 PY
 
 echo "== privileges =="
@@ -161,8 +168,25 @@ else
     echo "  estimate: guest ${MEM} + staging ~${STAGING_MB} + overhead ~${OVERHEAD_MB} = ~${EST_MB} MiB (+ media if copied to RAM)"
     NEED_RAM=$EST_MB
 fi
+# FROM_STEP>=11 only reconnects to an already running guest.  Its RAM is
+# already counted as used, so do not reject the resume for that reason.
+skip_ram_fail=0
+existing_pid=''
+if [ "${FROM_STEP:-0}" -ge 11 ] && [ -f "$BUILD/logs/qemu-install.pid" ]; then
+    existing_pid=$(cat "$BUILD/logs/qemu-install.pid" 2>/dev/null || true)
+    case "$existing_pid" in
+        ''|*[!0-9]*) existing_pid='' ;;
+        *) kill -0 "$existing_pid" 2>/dev/null || existing_pid='' ;;
+    esac
+    if [ -n "$existing_pid" ]; then
+        echo "  ok    existing qemu pid=$existing_pid (FROM_STEP>=11 starts no new guest)"
+        skip_ram_fail=1
+    fi
+fi
 if [ "$MEM_AVAIL_MB" -ge "$NEED_RAM" ]; then
     ok "memory headroom (estimate)"
+elif [ "$skip_ram_fail" = 1 ]; then
+    warn "memory is held by qemu pid=$existing_pid; no new guest is started at FROM_STEP>=11"
 elif [ "$MEM_AVAIL_MB" -ge $(( MEM + OVERHEAD_MB )) ]; then
     warn "memory may be tight for build+guest (available ${MEM_AVAIL_MB} MiB, estimated ${NEED_RAM} MiB); consider lower --mem"
 else

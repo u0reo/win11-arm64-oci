@@ -37,6 +37,7 @@ command -v qemu-system-aarch64 >/dev/null 2>&1 || {
 WORK=$(mktemp -d /tmp/recovery-boot.XXXXXX)
 NBD=0
 LOOP=""
+OVERLAY=""
 QEMU_PID=""
 cleanup() {
     set +e
@@ -45,6 +46,7 @@ cleanup() {
     [ "$NBD" = 1 ] && sudo -n qemu-nbd --disconnect /dev/nbd0 >/dev/null 2>&1
     [ -n "$LOOP" ] && sudo -n losetup -d "$LOOP" >/dev/null 2>&1
     cleanup_part_loops
+    [ -n "$OVERLAY" ] && sudo -n rm -f "$OVERLAY" >/dev/null 2>&1
     rm -rf "$WORK"
 }
 trap cleanup EXIT
@@ -103,6 +105,15 @@ if [ "$NBD" = 1 ]; then
     NBD=0
 fi
 
+# The guest must see a writable root.  Opening the image with readonly=on
+# marks the whole disk write-protected in the guest: fsck fails,
+# systemd-remount-fs.service fails, and current systemd turns that into a
+# shutdown instead of a login prompt (the serial ends in a stuck multipathd
+# job).  Boot through a qcow2 overlay instead: the guest can write normally,
+# but every write lands in $WORK and the original image is never touched.
+OVERLAY="$WORK/overlay.qcow2"
+sudo -n qemu-img create -f qcow2 -F "$FMT" -b "$IMG" "$OVERLAY" >/dev/null
+
 SERIAL=$WORK/serial.log
 : > "$SERIAL"
 ACCEL_ARGS=(-accel tcg,thread=multi -cpu neoverse-n1)
@@ -117,7 +128,7 @@ QEMU=(qemu-system-aarch64
     -kernel "$WORK/vmlinuz"
     -initrd "$WORK/initrd"
     -append "root=UUID=$ROOT_UUID ro console=ttyAMA0,115200"
-    -drive "if=none,id=disk0,format=$FMT,file=$IMG,readonly=on"
+    -drive "if=none,id=disk0,format=qcow2,file=$OVERLAY"
     -device virtio-scsi-pci,id=scsi0
     -device scsi-hd,drive=disk0,bus=scsi0.0
     -display none

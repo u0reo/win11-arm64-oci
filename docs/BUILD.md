@@ -134,11 +134,18 @@ WinPE の bootfat を付けたまま再起動すると、また WinPE が起動�
 
 ## 準備完了の判定
 
-phase B では、QEMU の hostfwd (`127.0.0.1:15985` → guest 5985) に対して
-HTTP を投げ、WinRM が応答したら準備完了とみなします。
+phase B では、まず QEMU の hostfwd (`127.0.0.1:15985` → guest 5985) に
+HTTP を投げます。hostfwd は起動直後から TCP accept するため、
+TCP connect だけではなく HTTP 応答コードを見ます。
 
-QEMU の hostfwd は起動直後から TCP accept するため、
-TCP connect だけでは判定できません。HTTP 応答コードを見ます。
+ただし HTTP が返り始めても `firstlogon.ps1` / `boot.ps1` はまだ実行中です。
+既定 (`SETUP_READY_CHECK=1`) ではさらに WinRM 経由で
+`C:\OEM\done.txt` と `C:\OEM\firstlogon.done` の存在を確認し、
+**OEM セットアップが完走してから**準備完了とみなします。
+WinRM は Negotiate/NTLM を使うため `python3-winrm` と
+`WIN_USERNAME` / `WIN_PASSWORD` が必要です。
+認証情報が無い場合や `SETUP_READY_CHECK=0` の場合は、従来どおり
+HTTP 応答のみで完了とみなします。
 
 ## シャットダウン
 
@@ -146,7 +153,11 @@ TCP connect だけでは判定できません。HTTP 応答コードを見ます
 **強制リセットは使いません。** 以前の作業で `system_reset` が
 SOFTWARE ハイブを壊したためです。
 
-シャットダウンが完了しない場合は、スクリプトはエラーで止まります。
+Windows が電源ボタン要求を無視する場合があります。セットアップ中に
+要求を送ると特に起きやすいため、準備完了判定を上記のように改めました。
+それでも `POWERDOWN_GRACE`（既定 120 秒）以内にゲストが終了しない場合は、
+WinRM から `shutdown.exe /s /t 0 /f` を送ってゲスト自身にシャットダウン
+させます。これでもダメな場合はスクリプトはエラーで止まりますが、
 **ゲストは強制終了しません。** QEMU はそのまま残るので、画面とログを確認して
 から次を実行してください。`build/logs/qemu-install.pid` に PID が残っており、
 `FROM_STEP=11` はその QEMU に再接続して待機を続けます（新しい QEMU は
@@ -156,9 +167,8 @@ SOFTWARE ハイブを壊したためです。
 sudo env FROM_STEP=11 ./scripts/build.sh ... --yes
 ```
 
-待ち時間は `SHUTDOWN_TIMEOUT`（既定 5400 秒）で変更できます。KVM の無い
-TCG では OOBE と初回ログオンだけで 1 時間以上かかることがあり、電源要求を
-送った時点でまだ処理中だと、その完了まで電源が切れません。
+待ち時間は `SHUTDOWN_TIMEOUT`（既定 5400 秒）、WinRM の要求ごとの
+タイムアウトは `WINRM_TIMEOUT`（既定 120 秒）で変更できます。
 
 ## 手動フォールバック
 

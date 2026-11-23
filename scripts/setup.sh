@@ -107,6 +107,7 @@ if [ "$CHECK" = 0 ]; then
     PKGS=(
         qemu-system-arm qemu-utils qemu-efi-aarch64
         wimtools libhivex-bin python3-hivex python3-pefile
+        python3-winrm
         mtools dosfstools ntfs-3g xorriso gdisk zstd
         debootstrap parted e2fsprogs
         curl rclone age jq

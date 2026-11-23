@@ -55,6 +55,15 @@
 #                        seconds to wait for the guest to power down before
 #                        exiting.  The VM is never killed; FROM_STEP=11
 #                        reconnects to it through build/logs/qemu-install.pid.
+#   SETUP_READY_CHECK=1  wait for C:\OEM\done.txt and firstlogon.done over
+#                        WinRM before declaring the guest ready.  An HTTP
+#                        response from WinRM alone is not enough: OEM setup
+#                        may still be running, and an ACPI powerdown sent
+#                        during setup is silently ignored by Windows.
+#                        Set to 0 to keep the old HTTP-only check.
+#   WINRM_TIMEOUT=120    per-request WinRM timeout (seconds).
+#   POWERDOWN_GRACE=120  seconds to wait for an ACPI powerdown before trying
+#                        `shutdown /s /t 0 /f` over WinRM as a fallback.
 #   WIN_USERNAME / WIN_PASSWORD / COMPUTER_NAME   (render.py overrides)
 #
 # On live (toram), BUILD_DIR defaults to /dev/shm/build and /dev/shm is
@@ -100,9 +109,14 @@ export BOOT_MENU_TIMEOUT
 
 FROM_STEP=${FROM_STEP:-0}
 SHUTDOWN_TIMEOUT=${SHUTDOWN_TIMEOUT:-5400}
-case "$SHUTDOWN_TIMEOUT" in
-    ''|*[!0-9]*) echo "SHUTDOWN_TIMEOUT must be a number of seconds" >&2; exit 2 ;;
-esac
+SETUP_READY_CHECK=${SETUP_READY_CHECK:-1}
+WINRM_TIMEOUT=${WINRM_TIMEOUT:-120}
+POWERDOWN_GRACE=${POWERDOWN_GRACE:-120}
+for v in SHUTDOWN_TIMEOUT WINRM_TIMEOUT POWERDOWN_GRACE; do
+    case "${!v}" in
+        ''|*[!0-9]*) echo "$v must be a number of seconds" >&2; exit 2 ;;
+    esac
+done
 case "$FROM_STEP" in
     ''|*[!0-9]*) echo "FROM_STEP must be a number between 0 and 13" >&2; exit 2 ;;
 esac
@@ -175,7 +189,9 @@ export BUILD_DIR="$BUILD"
 
 mkdir -p "$BUILD/logs" "$BUILD/artifacts"
 LOG="$BUILD/logs/build.log"
-exec > >(tee -a "$LOG") 2>&1
+# Prefix every line with a UTC timestamp before it reaches the terminal and
+# build.log.  Children inherit this stdout, so their output is stamped too.
+exec > >(python3 "$HERE/timestamp-log.py" | tee -a "$LOG") 2>&1
 
 step() { echo; echo "==== $* ===="; }
 
@@ -320,6 +336,9 @@ if [ "$FROM_STEP" -le 10 ]; then
 
     ready=0
     deadline=$(( $(date +%s) + 9000 ))   # 150 minutes
+    marker_errors=0
+    last_marker=''
+    last_code=''
     while [ "$(date +%s)" -lt "$deadline" ]; do
         if ! kill -0 "$QEMU_PID" 2>/dev/null; then
             rm -f "$BUILD/logs/qemu-install.pid"
@@ -329,10 +348,49 @@ if [ "$FROM_STEP" -le 10 ]; then
         # QEMU's hostfwd listener accepts immediately, so probe WinRM with HTTP.
         code=$(curl -s -o /dev/null -m 5 -w '%{http_code}' \
             "http://127.0.0.1:${WINRM_PORT}/wsman" 2>/dev/null || true)
-        if [ -n "$code" ] && [ "$code" != "000" ]; then
-            ready=1
+        if [ -z "$code" ] || [ "$code" = "000" ]; then
+            sleep 15
+            continue
+        fi
+        if [ "$code" != "$last_code" ]; then
             echo "WinRM responded with HTTP $code"
+            last_code=$code
+        fi
+
+        # The service can accept HTTP while firstlogon.ps1 / boot.ps1 are still
+        # configuring the guest.  Do not power down until their markers exist.
+        if [ "$SETUP_READY_CHECK" != 1 ] ||
+           [ -z "${WIN_USERNAME:-}" ] || [ -z "${WIN_PASSWORD:-}" ]; then
+            echo "setup marker check disabled; using the HTTP response only"
+            ready=1
             break
+        fi
+        if out=$(timeout "$((WINRM_TIMEOUT + 10))" \
+                 python3 "$HERE/winrm-guest.py" ready 2>&1); then
+            rc=0
+        else
+            rc=$?
+        fi
+        case "$rc" in
+            0)
+                echo "$out"
+                ready=1
+                break
+                ;;
+            2)
+                marker_errors=$((marker_errors + 1))
+                # A broken WinRM login must not hang the build forever.
+                if [ "$marker_errors" -ge 20 ]; then
+                    echo "WinRM marker probe keeps failing; falling back to the HTTP check" >&2
+                    echo "$out" >&2
+                    ready=1
+                    break
+                fi
+                ;;
+        esac
+        if [ "$out" != "$last_marker" ]; then
+            echo "$out"
+            last_marker=$out
         fi
         sleep 15
     done
@@ -360,6 +418,23 @@ if [ "$FROM_STEP" -le 11 ]; then
         esac
         echo "waiting for qemu pid=$QEMU_PID (up to ${SHUTDOWN_TIMEOUT}s)"
         python3 "$HERE/qmp-powerdown.py" "$BUILD/install.qmp" --timeout 60
+
+        # Windows can ignore the ACPI power button.  Give it a short grace
+        # period, then ask the guest itself to shut down.  Never hard-reset.
+        grace_deadline=$(( $(date +%s) + POWERDOWN_GRACE ))
+        while [ "$(date +%s)" -lt "$grace_deadline" ]; do
+            kill -0 "$QEMU_PID" 2>/dev/null || break
+            sleep 5
+        done
+        if kill -0 "$QEMU_PID" 2>/dev/null &&
+           [ -n "${WIN_USERNAME:-}" ] && [ -n "${WIN_PASSWORD:-}" ]; then
+            echo "ACPI powerdown ignored after ${POWERDOWN_GRACE}s; trying WinRM shutdown"
+            if ! timeout "$((WINRM_TIMEOUT + 10))" \
+                    python3 "$HERE/winrm-guest.py" shutdown; then
+                echo "WinRM shutdown failed; continuing to wait without a hard reset" >&2
+            fi
+        fi
+
         if ! timeout "$SHUTDOWN_TIMEOUT" tail --pid="$QEMU_PID" -f /dev/null; then
             if ! kill -0 "$QEMU_PID" 2>/dev/null; then
                 :   # QEMU exited normally just after the power request.
