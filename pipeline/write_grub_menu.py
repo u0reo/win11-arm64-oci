@@ -15,10 +15,16 @@ GRUB configuration.
 Usage:
     write_grub_menu.py ESP_MNT UBUNTU_MNT ROOT_DEV [--timeout 1]
                        [--diagnostics] [--first-boot-ubuntu]
+                       [--live-iso ISO [--live-seed] [--first-boot-live]]
 
 --diagnostics adds boot-stage markers in EFI/ubuntu/grubenv and, when
 EFI/Microsoft/Boot/bootmgfw-dbg.efi exists, a second Windows entry that
 chainloads that copy.
+
+--live-iso adds a menuentry that boots an Ubuntu live ISO with `toram`.
+--live-seed adds ds=nocloud to its command line (use with the CIDATA ESP
+written by `scripts/prepare.sh --ssh`).  --first-boot-live selects the live
+entry once via next_entry.
 
 --first-boot-ubuntu writes next_entry="Ubuntu (recovery)" to
 EFI/ubuntu/grubenv.  GRUB consumes it on the next power-on, so the recovery
@@ -142,8 +148,57 @@ def find_boot_files(ubuntu_mnt: str) -> tuple[str, str]:
     return kernel, initrd
 
 
+def live_entry(iso_path: str, label: str, seed: bool) -> tuple[str, str]:
+    """Build a GRUB menu entry that boots a live ISO with `toram`.
+
+    The ISO must live on a mounted filesystem with a UUID; GRUB finds it by
+    that UUID and uses loopback to read /casper/vmlinuz and /casper/initrd.
+    `toram` copies the live root into RAM so the underlying disk can be
+    wiped.  Returns (entry_text, label).
+    """
+    path = os.path.abspath(iso_path)
+    if not os.path.isfile(path):
+        die(f"live ISO not found: {path}")
+    try:
+        mnt = subprocess.check_output(
+            ["findmnt", "-no", "TARGET", "--target", path],
+            text=True, stderr=subprocess.DEVNULL).strip()
+        iso_uuid = subprocess.check_output(
+            ["findmnt", "-no", "UUID", "--target", path],
+            text=True, stderr=subprocess.DEVNULL).strip()
+        fstype = subprocess.check_output(
+            ["findmnt", "-no", "FSTYPE", "--target", path],
+            text=True, stderr=subprocess.DEVNULL).strip()
+    except (OSError, subprocess.CalledProcessError):
+        die(f"cannot find the mounted filesystem for {path}")
+    if not mnt or not iso_uuid:
+        die(f"{path} is not on a mounted filesystem with a UUID")
+    if fstype in ("tmpfs", "ramfs"):
+        die(f"{path} is on {fstype}; GRUB cannot read it after a reboot")
+    rel = path[len(mnt):] or "/"
+    if not rel.startswith("/"):
+        rel = "/" + rel
+    cmdline = ("toram ip=dhcp console=ttyAMA0,115200" +
+               (" ds=nocloud" if seed else ""))
+    text = f"""menuentry "{label}" {{
+    insmod part_gpt
+    insmod ext2
+    insmod loopback
+    insmod iso9660
+    search --no-floppy --fs-uuid --set=root {iso_uuid}
+    set isofile="{rel}"
+    loopback loop $isofile
+    linux (loop)/casper/vmlinuz boot=casper iso-scan/filename=$isofile \\
+        {cmdline} ---
+    initrd (loop)/casper/initrd
+}}
+"""
+    return text, label
+
+
 def menu_text(timeout: int, uuid: str, kernel: str, initrd: str,
-              diagnostics: bool = False, debug_copy: bool = False) -> str:
+              diagnostics: bool = False, debug_copy: bool = False,
+              live_entry: str = "") -> str:
     diag_top = ""
     win_body = """    insmod part_gpt
     insmod fat
@@ -251,7 +306,7 @@ fi
 menuentry "{WINDOWS_LABEL}" {{
 {win_body}}}
 
-{dbg_entry}menuentry "{UBUNTU_LABEL}" {{
+{dbg_entry}{live_entry}menuentry "{UBUNTU_LABEL}" {{
 {ubuntu_body}}}
 """
 
@@ -277,6 +332,16 @@ def main() -> int:
                         help="run Ubuntu (recovery) on the next boot so it can "
                              "create its firmware boot entry before Windows "
                              "takes the first slot")
+    parser.add_argument("--live-iso", metavar="ISO",
+                        help="add a 'toram' live-ISO menuentry (the ISO must "
+                             "be on a mounted filesystem with a UUID)")
+    parser.add_argument("--live-label", default="Ubuntu live (toram)",
+                        help="title of the live menuentry")
+    parser.add_argument("--live-seed", action="store_true",
+                        help="add ds=nocloud to the live kernel command line "
+                             "(use with a CIDATA ESP from prepare.sh --ssh)")
+    parser.add_argument("--first-boot-live", action="store_true",
+                        help="run the live ISO on the next boot only")
     args = parser.parse_args()
 
     if args.timeout < 0:
@@ -295,8 +360,14 @@ def main() -> int:
     kernel, initrd = find_boot_files(ubuntu)
     debug_copy = os.path.isfile(
         os.path.join(esp, "EFI/Microsoft/Boot/bootmgfw-dbg.efi"))
+    live = ""
+    if args.live_iso:
+        live, live_label = live_entry(args.live_iso, args.live_label,
+                                      args.live_seed)
+    else:
+        live_label = args.live_label
     text = menu_text(args.timeout, uuid, kernel, initrd, args.diagnostics,
-                     debug_copy)
+                     debug_copy, live)
 
     # GRUB's built-in prefix is /EFI/ubuntu, so that is the file it really
     # reads.  EFI/BOOT/grub.cfg is a copy for a GRUB installed with the
@@ -306,10 +377,13 @@ def main() -> int:
     for path in paths:
         write_file(path, text)
 
+    labels = [WINDOWS_LABEL, UBUNTU_LABEL]
+    if live:
+        labels.append(live_label)
     for path in paths:
         with open(path, encoding="utf-8") as f:
             got = f.read()
-        for label in (WINDOWS_LABEL, UBUNTU_LABEL):
+        for label in labels:
             if f'menuentry "{label}"' not in got:
                 die(f"{path}: {label} entry is missing after writing")
 
@@ -318,16 +392,21 @@ def main() -> int:
     try:
         env_values = read_grubenv(env_path)
     except GrubenvError as exc:
-        if args.first_boot_ubuntu or args.diagnostics:
+        if args.first_boot_ubuntu or args.first_boot_live or args.diagnostics:
             print(f"warning: {exc}; replacing it", file=sys.stderr)
             env_values = {}
         else:
             print(f"warning: {exc}; leaving it alone", file=sys.stderr)
             env_values = None
     if env_values is not None:
-        if args.first_boot_ubuntu:
+        if args.first_boot_live:
+            if not live:
+                die("--first-boot-live needs --live-iso")
+            env_values["next_entry"] = live_label
+        elif args.first_boot_ubuntu:
             env_values["next_entry"] = UBUNTU_LABEL
-        if args.first_boot_ubuntu or args.diagnostics or env_values:
+        if (args.first_boot_ubuntu or args.first_boot_live or
+                args.diagnostics or env_values):
             # Create the block for --diagnostics (save_env needs it) and keep
             # any markers that are already there.
             try:
@@ -342,6 +421,10 @@ def main() -> int:
     print(f"timeout:     {args.timeout}s (default: {WINDOWS_LABEL})")
     if args.first_boot_ubuntu:
         print(f"first boot:  {UBUNTU_LABEL} once (next_entry)")
+    if args.first_boot_live:
+        print(f"first boot:  {live_label} once (next_entry)")
+    if live:
+        print(f"live ISO:    {args.live_iso}")
     for path in paths:
         print(f"wrote {path}")
     return 0

@@ -179,6 +179,23 @@ sudo ./scripts/prepare.sh \
 sudo reboot
 ```
 
+> **このプロジェクトの復旧 Ubuntu を使う場合**: GRUB は
+> `\EFI\ubuntu\grub.cfg` を直接読み、`update-grub` / `grub-reboot` は入って
+> いません。上の `prepare.sh --write --once` は seed の作成までは行いますが、
+> メニュー本体は書き換わりません。次のようにして ESP のメニューへ live
+> エントリを追加してください。
+>
+> ```bash
+> sudo ./scripts/prepare.sh /mnt/iso/ubuntu-26.04.1-live-server-arm64.iso --write --ssh || true
+> sudo python3 pipeline/write_grub_menu.py /boot/efi / /dev/sda2 \
+>   --timeout 30 --live-iso /mnt/iso/ubuntu-26.04.1-live-server-arm64.iso \
+>   --live-seed --first-boot-live
+> sudo reboot
+> ```
+>
+> `--live-seed` は `ds=nocloud` を live のカーネル引数に追加します。
+> `--first-boot-live` は `next_entry` を 1 回だけ live に向けます。
+
 `--once` / `--default` はメニューの番号ではなく、エントリの id
 （`win11-live-toram`）で live を指定するので、`update-grub` でメニューの
 順番が変わっても壊れません。`--once` は次の 1 回だけなので、live の起動に

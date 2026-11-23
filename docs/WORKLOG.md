@@ -6176,3 +6176,66 @@ Ubuntu 側の unit（Ubuntu を先頭へ）と Windows 側の `boot.ps1`（Windo
 - 実機で Windows 起動直後に `efibootmgr -v` を読み、Boot0002（または
   Boot0007）が Boot0003 より前にあることを確認する。
 - その状態で power-cycle し、手動 `bcfg` なしで GRUB が出ることを確認する。
+
+## 22.53 復旧 Ubuntu から live が起動しない (2026-11-23)
+
+### 症状
+
+README のステージ2-B どおりに次を実行して reboot したが、live が起動せず
+復旧 Ubuntu に戻ってきた。
+
+```bash
+sudo ./scripts/prepare.sh /srv/iso/ubuntu-26.04.1-live-server-arm64.iso \
+    --write --ssh --once
+sudo reboot
+```
+
+### 原因
+
+`scripts/prepare.sh` は standard な Ubuntu の GRUB を前提としている。
+
+- `--write` は `/etc/grub.d/40_custom` にエントリを足して `update-grub` を
+  呼ぶ
+- `--once` は `grub-reboot` で `/boot/grub/grubenv` に `next_entry` を書く
+
+しかしこのプロジェクトの復旧 Ubuntu は次の構成だった。
+
+- GRUB が読むのは `/boot/grub/grub.cfg` ではなく
+  `\EFI\ubuntu\grub.cfg`（署名済み GRUB の prefix が `/EFI/ubuntu`）
+- `update-grub` / `grub-reboot` / `grub-common` は入っていない
+
+`prepare.sh --ssh` は ESP への cloud-init seed 書き込みと CIDATA ラベル
+変更には成功したが、`update-grub` が無いのでメニューは変わらなかった。
+`/boot/grub/grub.cfg` には復旧 Ubuntu のエントリしか無く、ESP の
+`EFI/ubuntu/grub.cfg` には live エントリが無い。したがって再起動後は
+従来どおり GRUB → 復旧 Ubuntu（既定 Windows）になった。
+
+### 対策
+
+`write_grub_menu.py` に live 用のオプションを追加した。
+
+```bash
+sudo ./scripts/prepare.sh /mnt/iso/ubuntu-26.04.1-live-server-arm64.iso \
+    --write --ssh || true      # seed/CIDATA を作る。update-grub 失敗は無視
+sudo python3 pipeline/write_grub_menu.py /boot/efi / /dev/sda2 \
+    --timeout 30 \
+    --live-iso /mnt/iso/ubuntu-26.04.1-live-server-arm64.iso \
+    --live-seed --first-boot-live
+sudo reboot
+```
+
+- `--live-iso`: ISO のあるマウント先の UUID と相対パスを `findmnt` で
+  取得し、`loopback` + `boot=casper ... toram` の menuentry を生成
+- `--live-seed`: `ds=nocloud` をカーネル引数へ追加
+- `--first-boot-live`: `EFI/ubuntu/grubenv` の `next_entry` を live の
+  タイトルに設定。GRUB が既存の `load_env` / `next_entry` 処理で 1 回だけ
+  選択する
+
+生成した `grub.cfg` を `grub-script-check` で検証し、`next_entry=Ubuntu live
+(toram)` を確認した。README のステージ2-B と SCRATCH.md にも同じ手順を
+追記した。
+
+### 未確認
+
+再起動して live が実際に `Ubuntu live (toram)` を起動するかは未確認。
+起動しなければシリアルの GRUB メニューで live エントリを直接選ぶこと。

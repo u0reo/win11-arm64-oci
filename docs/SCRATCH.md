@@ -46,6 +46,9 @@ export VIRTIO_ISO=/path/to/virtio-win.iso
 - 初回だけ Ubuntu を起動する `FIRST_BOOT_UBUNTU` は既定で有効です。
   無効にする場合は `FIRST_BOOT_UBUNTU=0` を付けてください。
 - イメージの検査は `pipeline/inspect_image.sh $DISK` で行えます。
+- この復旧 Ubuntu から live (`toram`) を起動する場合は `scripts/prepare.sh`
+  ではなく `pipeline/write_grub_menu.py --live-iso ... --first-boot-live`
+  を使ってください（README のステージ2-B の注意を参照）。
 
 ## ビルド後に見るべきポイント
 
