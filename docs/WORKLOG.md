@@ -6375,6 +6375,8 @@ Ubuntu は前者にしか入っていなかったため、WBM には Windows 11 
   `write_grub_menu.py --live-iso ... --live-seed --first-boot-live` を
   組み合わせ、ESP の GRUB メニューに live エントリを書き、`next_entry`
   で次回 1 回だけ live を起動する。
+- `README.md` / `docs/OCI.md`: 入口スクリプトの一覧、最小構成、復旧 Ubuntu
+  からの live 起動手順、apt/cdrom の注意を追記。
 
 ### 検証
 

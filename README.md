@@ -28,13 +28,15 @@ OCI の Ubuntu を一時的なビルド機にし、ブートボリュームの�
 | [付録A](#付録a-github-actions-で回す) | GitHub Actions で回す | [docs/GITHUB.md](docs/GITHUB.md) |
 | [付録B](#付録b-ローカルで-qcow2-を作る) | ローカルで qcow2 を作る | [docs/BUILD.md](docs/BUILD.md) |
 
-`scripts/` にある入口は 3 つだけです。内部部品は `internal/` にあり、直接は叩きません。
+`scripts/` の入口は次の 5 つです。内部部品は `internal/` にあり、直接は叩きません。
 
 | スクリプト | 用途 | 使うステージ |
 |---|---|---|
-| `scripts/setup.sh` | ホストの準備と検査（冪等） | 2-A・2-B |
+| `scripts/setup.sh` | ホストの準備と検査（全パッケージ。冪等） | 2-A |
+| `scripts/setup-live.sh` | RAM ビルド用の最小準備（冪等） | 2-B（live 内） |
 | `scripts/build.sh` | ディスクを作る唯一の入口 | 4 |
-| `scripts/prepare.sh` | live ISO を GRUB に登録し、自動起動を設定する | 2-B |
+| `scripts/prepare.sh` | live ISO を GRUB に登録し、自動起動を設定する | 2-B（素の Ubuntu） |
+| `scripts/prepare-live.sh` | 復旧 Ubuntu から live を起動する（ESP の GRUB を直接書く） | 2-B（復旧 Ubuntu） |
 
 ## ステージ1 準備
 
@@ -53,7 +55,7 @@ OCI の無料枠とボリューム容量は
 [docs/OCI.md](docs/OCI.md#コスト) を参照してください。
 
 パッケージの導入とホスト検査は、ステージ2でビルド機にログインしてから
-`setup.sh` で行います。
+`setup.sh`（2-A）または `setup-live.sh`（2-B の live セッション）で行います。
 
 ### Ubuntu live ISO を入手する
 
@@ -119,20 +121,32 @@ sudo ./scripts/setup.sh          # 入れてから検査（直接書き込みが
 一時ファイルを別の場所に置くときは `--build-dir`、判定を変えたいときは
 `--min-free-gb` を使います。
 
-live (`toram`) では `setup.sh` が `/dev/shm` を RAM の 100%
+live (`toram`) では `setup.sh` / `setup-live.sh` が `/dev/shm` を RAM の 100%
 （`SHM_SIZE`、または `--shm-size` で変更）に再マウントします。staging は
 `/dev/shm/build` が既定で、Windows ISO と virtio-win は `/dev/shm/iso`
-に置きます。`setup.sh --check` は何も変更しません。
+に置きます。`--check` は何も変更しません。
 
-手動で入れる場合:
+**RAM ビルドなら `setup-live.sh` だけで十分です。** `setup.sh` は CI や
+イメージ配布用の上位集合で、`rclone` / `age` / `jq` / `shellcheck` /
+`libxml2-utils` / `debootstrap` など `build.sh` が使わないパッケージも
+入ります。
 
 ```bash
-sudo apt-get install -y \
-  qemu-system-arm qemu-utils qemu-efi-aarch64 wimtools \
-  libhivex-bin python3-hivex python3-pefile \
-  mtools dosfstools ntfs-3g xorriso gdisk zstd \
-  curl rclone age jq
+sudo ./scripts/setup-live.sh          # 最小構成を入れて preflight
+./scripts/setup-live.sh --check       # 検査だけ
 ```
+
+最小構成は `qemu-system-arm` / `qemu-utils` / `qemu-efi-aarch64` /
+`wimtools` / `xorriso` / `gdisk` / `dosfstools` / `ntfs-3g` / `mtools` /
+`parted` / `zstd` / `python3-hivex` / `python3-pefile` / `curl` です。
+`python3-winrm`（WinRM 確認）と `rpm2cpio` / `cpio`（RPM 版 virtio-win）
+は任意なので入りません。必要なら別途 `apt-get install` してください。
+
+どちらのスクリプトも、インストーラが残した `file:///cdrom` の apt ソースを
+（`cdrom.sources` → `cdrom.sources.disabled` にリネームして）無効化してから
+`apt-get update` します。復旧 Ubuntu では `/cdrom` が無いため、これを
+しないと `E: The repository 'file:/cdrom ... Release' does not have a Release file.`
+で停止します。
 
 ### ステージ2-A ボリュームを付け替える
 
@@ -190,24 +204,20 @@ sudo reboot
 この環境の GRUB は `\EFI\ubuntu\grub.cfg` を直接読み、
 `update-grub` / `grub-reboot` / `grub-common` は入っていません。
 **A の `prepare.sh --write --once` だけでは live は起動しません。**
-`prepare.sh` は cloud-init の seed と CIDATA ラベルだけを作り、メニューは
-`write_grub_menu.py` で直接書き換えます。
+`prepare-live.sh` が cloud-init の seed と CIDATA ラベルを用意し、
+メニューは `write_grub_menu.py` で ESP の grub.cfg に直接書き込みます。
 
 ```bash
-sudo ./scripts/prepare.sh /mnt/iso/ubuntu-26.04.1-live-server-arm64.iso \
-  --write --ssh || true      # update-grub が無いので失敗しても無視してよい
-
-sudo python3 pipeline/write_grub_menu.py /boot/efi / /dev/sda2 \
-  --timeout 30 \
-  --live-iso /mnt/iso/ubuntu-26.04.1-live-server-arm64.iso \
-  --live-seed --first-boot-live
-
+# 事前に dosfstools が必要: sudo ./scripts/setup-live.sh
+sudo ./scripts/prepare-live.sh /srv/iso/ubuntu-26.04.1-live-server-arm64.iso
 sudo reboot
 ```
 
-`/dev/sda2` は復旧 Ubuntu のルートです。パーティション番号が違う場合は
-`findmnt -no SOURCE /` で確認してください。`--live-seed` は `ds=nocloud`
-を、`--first-boot-live` は `next_entry=Ubuntu live (toram)` を書き込みます。
+ルートデバイスは `findmnt -no SOURCE /` から自動検出します。ISO は
+`/srv/iso` などの実ファイルシステムに置いてください（tmpfs は不可）。
+`--timeout 秒数` でメニュー時間、`--no-first-boot` で「次回だけ」を
+外せます。`next_entry=Ubuntu live (toram)` は 1 回だけ消費され、
+その後は Windows 11 が既定に戻ります。
 
 A の場合、`--once` / `--default` はメニューの番号ではなく、エントリの id
 （`win11-live-toram`）で live を指定するので、`update-grub` でメニューの
@@ -227,15 +237,16 @@ A の場合、`--default` の戻し方は `prepare.sh` が表示します。変�
 `/etc/default/grub` は `/etc/default/grub.win11-arm64-oci.bak` にあります。
 
 live の root は RAM 上なので、リポジトリをもう一度 clone してから
-`setup.sh` を実行します。
+`setup-live.sh` を実行します（全パッケージ版の `setup.sh` でも動きますが、
+RAM 上では不要なパッケージまで入ります）。
 
 ```bash
 git clone https://github.com/<OWNER>/win11-arm64-oci.git
 cd win11-arm64-oci
-sudo ./scripts/setup.sh
+sudo ./scripts/setup-live.sh
 ```
 
-`setup.sh` は live (`toram`) を検出すると `/dev/shm` を RAM の 100% に
+`setup-live.sh` は live (`toram`) を検出すると `/dev/shm` を RAM の 100% に
 再マウントし、`/dev/shm/iso` と `/dev/shm/build` を作ります。`--ssh` で
 起動した場合は cloud-init も起動時に同じ設定を行います。
 
@@ -264,8 +275,10 @@ curl -LO https://fedorapeople.org/groups/virt/virtio-win/direct-downloads/archiv
 
 `--virtio` は拡張子で ISO と RPM を判定します。RPM を渡すと
 `internal/stage-drivers.sh` が `rpm2cpio` + `cpio` で
-`by-driver/*/w11/ARM64` だけを取り出します（`scripts/setup.sh` がこの 2 つを
-入れます）。loop mount しないので、`umount` の後始末も要りません。
+`by-driver/*/w11/ARM64` だけを取り出します。この 2 つは最小構成の
+`setup-live.sh` には含まれないので、RPM を使う場合は
+`sudo apt-get install -y rpm2cpio cpio` を追加してください（ISO なら不要）。
+loop mount しないので、`umount` の後始末も要りません。
 
 ```bash
 sudo ./scripts/build.sh --disk /dev/sdb \
@@ -384,6 +397,9 @@ sudo ./scripts/build.sh --fresh-ubuntu --winre-partition --disk /dev/sdb \
 - `--fresh-ubuntu` / `--reuse-ubuntu` 構成では、シリアル
   コンソールと VNC に GRUB のメニュー（Windows 11 が既定、Ubuntu (recovery)
   を選択可）が 1 秒だけ表示されます（`--boot-menu 秒数` で変更、`0` で非表示）。
+  Ubuntu は UEFI の BootMenu と GRUB から選びます。Windows Boot Manager の
+  OS メニューは Windows 11 だけを 1 秒表示し、Ubuntu は出しません
+  （ARM64 の BootMgr は bootapp から EFI アプリを起動できないため）。
   Windows のみの構成では Windows Boot Manager のメニューが表示されます
 - ARM64 の Windows は EMS/SAC に対応していないため、Windows 側のシリアル
   復旧はできません。Windows の復旧は RDP / WinRM を使ってください
@@ -445,8 +461,9 @@ sudo env WIN_USERNAME="$WIN_USERNAME" WIN_PASSWORD="$WIN_PASSWORD" \
 
 - **ステージ2-A**: ビルダー B を停止します。B のブートボリュームを残すと
   その分だけ課金対象になります。
-- **ステージ2-B**: `prepare.sh --ssh` が ESP のラベルを `CIDATA` に変えて
-  います。表示された `fatlabel` コマンドで元に戻します。
+- **ステージ2-B**: `prepare.sh --ssh` / `prepare-live.sh` が ESP のラベルを
+  `CIDATA` に変えています。表示された `fatlabel` コマンドで元に戻します
+  （例: `sudo fatlabel /dev/sda1 SYSTEM`）。
 - ビルド前のバックアップ、失敗時の復旧、コストの内訳は
   [docs/OCI.md](docs/OCI.md#ステージ6-後片付け) を参照してください。
 
@@ -486,8 +503,8 @@ sudo ./scripts/build.sh --image build/win11-arm64.qcow2 \
 ```text
 autounattend/   無人インストール XML テンプレート
 oem/            初回起動時の PowerShell / CMD
-scripts/        入口 3 つ: setup.sh / build.sh / prepare.sh
-internal/       内部部品: build-image, live, render, preflight ...
+scripts/        入口 5 つ: setup.sh / setup-live.sh / build.sh / prepare.sh / prepare-live.sh
+internal/       内部部品: build-image, live, apt, render, preflight ...
 pipeline/       ディスク構築の部品: wimlib apply, WinPE, QEMU, 検査
 docs/           OCI / GITHUB / BUILD / DUALBOOT / SCRATCH / WORKLOG
 ```
