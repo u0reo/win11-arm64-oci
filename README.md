@@ -459,7 +459,7 @@ oem/            初回起動時の PowerShell / CMD
 scripts/        入口 3 つ: setup.sh / build.sh / prepare.sh
 internal/       内部部品: build-image, live, render, preflight ...
 pipeline/       ディスク構築の部品: wimlib apply, WinPE, QEMU, 検査
-docs/           OCI / GITHUB / BUILD / DUALBOOT / WORKLOG
+docs/           OCI / GITHUB / BUILD / DUALBOOT / SCRATCH / WORKLOG
 ```
 
 ## ドキュメント
@@ -468,6 +468,7 @@ docs/           OCI / GITHUB / BUILD / DUALBOOT / WORKLOG
 - [docs/GITHUB.md](docs/GITHUB.md) — GitHub リポジトリ、Secrets、self-hosted runner
 - [docs/BUILD.md](docs/BUILD.md) — パイプラインの各段階と手動フォールバック
 - [docs/DUALBOOT.md](docs/DUALBOOT.md) — Ubuntu 復旧環境を残す場合の詳細
+- [docs/SCRATCH.md](docs/SCRATCH.md) — 環境を消す前の確認、やり直しの入力
 - [docs/WORKLOG.md](docs/WORKLOG.md) — 26H2 構築までの作業ログ（サニタイズ済み）
 - [SECURITY.md](SECURITY.md) — セキュリティ方針
 

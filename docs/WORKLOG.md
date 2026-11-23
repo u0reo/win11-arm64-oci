@@ -5347,7 +5347,7 @@ winload(1742) が別世代 (≒8036) の ntoskrnl.exe を拒否している。
 
 ### Ubuntu emergency mode の修正と fstab の恒久対策（2026-11-20）
 
-- 実機（hostname `oci-win-vnic`, aarch64）は `--fresh-ubuntu` のレイアウト:
+- 実機（hostname `<host>`, aarch64）は `--fresh-ubuntu` のレイアウト:
   sda1=ESP(100M, vfat, PARTUUID `5933fc32-...`), sda2=Ubuntu(4G, ext4, UUID
   `28f50ee3-...`), sda3=Windows(45.9G, ntfs, PARTUUID `dc51ffec-...`)。
 - 緊急モードの原因は、step 6 が書き込んだ fstab の ESP UUID が step 12 の
@@ -6001,7 +6001,7 @@ OCI A1 の実機 `/dev/sda` で、次の一連の動作を確認した。
 ```text
 Linux version 7.0.0-30-generic ... #30-Ubuntu SMP PREEMPT_DYNAMIC
 ...
-ubuntu@oci-win-vnic:~/win11-arm64-oci$ uname -r
+ubuntu@<host>:~/win11-arm64-oci$ uname -r
 7.0.0-30-generic
 ```
 
