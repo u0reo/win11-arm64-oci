@@ -179,6 +179,8 @@ sudo env FROM_STEP=11 ./scripts/build.sh ... --yes
 
 ステップ1〜3の成果物（`build/media`、`build/oemdrv.iso` など）が
 `BUILD_DIR`（live では `/dev/shm/build`）に残っている必要があります。
+`pipeline/manual/*.cmd` を直して再開する場合は `REBUILD_OEMDRV=1` を付けて
+ください（`oemdrv.iso` を作り直すだけで、ディスクには触れません）。
 ステップ6だけを再実行する場合も、実行中の Ubuntu の netplan と
 `authorized_keys` が読める状態にしておいてください。
 

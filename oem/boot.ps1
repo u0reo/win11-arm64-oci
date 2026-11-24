@@ -71,11 +71,13 @@ try {
     & netsh.exe advfirewall set allprofiles state off 2>&1 | Out-File -Append -Encoding ascii $Log
     Log "services-configured"
 
-    # Keep the UEFI "Ubuntu" boot option healthy and first.  Windows Setup
-    # prepends its own Boot#### on first boot, and an Ubuntu entry that still
-    # carries the GPT GUID of an older image wins the order but cannot load
-    # its loader.  Repair the entry itself instead of only pushing {bootmgr}
-    # to the end; GRUB's own default is still Windows 11 (WORKLOG 22.54).
+    # Keep the UEFI "Ubuntu" boot option healthy and first when the image has
+    # recovery Ubuntu.  Windows Setup prepends its own Boot#### on first boot,
+    # and an Ubuntu entry that still carries the GPT GUID of an older image
+    # wins the order but cannot load its loader.  Repair the entry itself
+    # instead of only pushing {bootmgr} to the end; GRUB's own default is still
+    # Windows 11 (WORKLOG 22.54).  Windows-only images have no Ubuntu loader:
+    # the block below logs that and leaves the Windows boot order alone.
     $ubuntuId = $null
     try {
         $espLetter = $null
@@ -132,7 +134,7 @@ try {
                     Log ("ubuntu-firmware-first: " + $ubuntuId)
                 }
             } else {
-                Log ("ubuntu-loader-missing: " + $loader)
+                Log ("ubuntu-loader-absent: " + $loader + " (Windows-only image or incomplete Ubuntu)")
             }
             & mountvol.exe $espLetter /d 2>&1 | Out-File -Append -Encoding ascii $Log
         } else {
@@ -143,8 +145,8 @@ try {
     }
 
     if (-not $ubuntuId) {
-        # Fallback when the Ubuntu entry cannot be created/repaired: keep the
-        # old behaviour so the block-volume fallback (shim -> GRUB) still wins.
+        # No Ubuntu entry: keep Windows in the firmware order.  This is the
+        # normal case for a Windows-only image, which has no shim/GRUB fallback.
         try {
             & bcdedit.exe /set '{fwbootmgr}' displayorder '{bootmgr}' /addlast 2>&1 |
                 Out-File -Append -Encoding ascii $Log

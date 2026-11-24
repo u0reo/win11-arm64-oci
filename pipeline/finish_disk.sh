@@ -254,16 +254,20 @@ fi
 
 # The GRUB menu is read by GRUB's own FAT driver as well, so it has the same
 # 65536 limit.  finish_winpe.sh writes it after bcdboot, which can already
-# put it past the limit.
+# put it past the limit.  A Windows-only ESP has no GRUB loader or menu: a
+# missing menu file would look like cluster 999999 and trigger a compaction
+# that cannot preserve files which are not there.  Skip the check there.
 COMPACT=0
 [ "$START" -ge 65536 ] && COMPACT=1
-for rel in /EFI/ubuntu/grub.cfg /EFI/BOOT/grub.cfg; do
-    s=$(fat_start "$ESPDEV" "::$rel") || s=999999
-    if [ "$s" -ge 65536 ]; then
-        echo "  $rel starts at cluster $s (>= 65536)" >&2
-        COMPACT=1
-    fi
-done
+if sudo -n mtype -i "$ESPDEV" ::/EFI/ubuntu/grubaa64.efi >/dev/null 2>&1; then
+    for rel in /EFI/ubuntu/grub.cfg /EFI/BOOT/grub.cfg; do
+        s=$(fat_start "$ESPDEV" "::$rel") || s=999999
+        if [ "$s" -ge 65536 ]; then
+            echo "  $rel starts at cluster $s (>= 65536)" >&2
+            COMPACT=1
+        fi
+    done
+fi
 if sudo -n mtype -i "$ESPDEV" ::/EFI/ubuntu/grubenv >/dev/null 2>&1; then
     s=$(fat_start "$ESPDEV" "::/EFI/ubuntu/grubenv") || s=999999
     if [ "$s" -ge 65536 ]; then

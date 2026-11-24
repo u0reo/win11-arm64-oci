@@ -82,7 +82,7 @@ fi
 PKGS=(
     qemu-system-arm qemu-utils qemu-efi-aarch64
     wimtools xorriso gdisk dosfstools ntfs-3g mtools parted zstd
-    python3-hivex python3-pefile
+    python3-hivex python3-pefile python3-winrm python3-requests-ntlm
     curl
 )
 
@@ -100,12 +100,18 @@ if [ "$CHECK" = 1 ]; then
             ntfs-3g) bins=(mkntfs ntfsfix) ;;
             mtools) bins=(mcopy) ;;
             parted) bins=(partprobe) ;;
-            python3-hivex|python3-pefile|curl) bins=("$spec") ;;
+            python3-requests-ntlm) bins=(requests_ntlm) ;;
+            python3-hivex|python3-pefile|python3-winrm|curl) bins=("$spec") ;;
             *) bins=("$spec") ;;
         esac
         for b in "${bins[@]}"; do
-            if command -v "$b" >/dev/null 2>&1 ||
-               python3 -c "import ${b#python3-}" 2>/dev/null; then
+            found=0
+            command -v "$b" >/dev/null 2>&1 && found=1
+            python3 -c "import ${b#python3-}" 2>/dev/null && found=1
+            # qemu-efi-aarch64 is data, not a binary: check the firmware file.
+            [ "$b" = qemu-efi-aarch64 ] &&
+                [ -f /usr/share/AAVMF/AAVMF_CODE.no-secboot.fd ] && found=1
+            if [ "$found" = 1 ]; then
                 printf '  ok    %s\n' "$b"
             else
                 printf '  no    %s (%s)\n' "$b" "$spec"

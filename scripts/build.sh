@@ -51,6 +51,12 @@
 #
 # Pass the same --fresh-ubuntu flag you started with.
 #
+# manual_finish.cmd is baked into oemdrv.iso at step 3, so a resume from
+# FROM_STEP=7 keeps the old copy.  Set REBUILD_OEMDRV=1 to regenerate that
+# ISO without touching the disk when you changed pipeline/manual/*.cmd:
+#
+#   sudo env FROM_STEP=7 REBUILD_OEMDRV=1 ./scripts/build.sh ... --yes
+#
 # The target must not be the running root (except with --reuse-ubuntu).  Boot
 # the Ubuntu live ISO with `toram` first (scripts/prepare.sh).  Media that
 # still lives on the target disk is copied into RAM before anything is
@@ -92,6 +98,7 @@ WINRE_SIZE=${WINRE_SIZE:-1G}
 WINRE_SIZE_SET=0
 BOOT_MENU=${BOOT_MENU_TIMEOUT:-}
 FROM_STEP=${FROM_STEP:-0}
+REBUILD_OEMDRV=${REBUILD_OEMDRV:-0}
 BUILD_DIR=${BUILD_DIR:-}
 MIN_FREE_GB=${MIN_FREE_GB:-}
 SHM_SIZE=${SHM_SIZE:-100%}
@@ -518,6 +525,7 @@ export RECOVERY_SIZE REUSE_UBUNTU FRESH_UBUNTU
 export WINRE_PARTITION WINRE_SIZE
 export BOOT_MENU_TIMEOUT="$BOOT_MENU"
 export FROM_STEP
+export REBUILD_OEMDRV
 export SHM_SIZE
 [ -n "${FIRST_BOOT_UBUNTU:-}" ] && export FIRST_BOOT_UBUNTU
 [ -n "$BUILD_DIR" ] && export BUILD_DIR

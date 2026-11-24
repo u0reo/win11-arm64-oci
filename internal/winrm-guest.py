@@ -21,13 +21,10 @@ import argparse
 import os
 import sys
 
+import winrm
+
 
 def make_session(port: int, timeout: int):
-    try:
-        import winrm
-    except ImportError:
-        raise SystemExit("python3-winrm is not installed (run scripts/setup.sh)")
-
     user = os.environ.get("WIN_USERNAME", "")
     password = os.environ.get("WIN_PASSWORD", "")
     if not user or not password:

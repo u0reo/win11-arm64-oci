@@ -26,11 +26,14 @@ Services:
   WinRM 5985/tcp (Basic + unencrypted enabled for lab compatibility)
 
 Serial:
-  COM1 115200    GRUB menu at boot (Windows 11 default, Ubuntu recovery).
+  COM1 115200    With recovery Ubuntu: the GRUB menu at boot (Windows 11
+                 default, Ubuntu recovery), shown for --boot-menu SECONDS
+                 (default 1 s, 0 = off).
+                 Windows-only images have no GRUB; the firmware starts the
+                 Windows Boot Manager directly.
                  ARM64 Windows does not support EMS/SAC, so there is no
                  serial command prompt after Windows starts; use RDP or
-                 WinRM to repair Windows.  The menu is shown for
-                 --boot-menu SECONDS (default 1 s, 0 = off).
+                 WinRM to repair Windows.
 
 A scheduled task named "OEM Bootstrap" runs C:\OEM\bootstrap.cmd as SYSTEM
 at every start when Task Scheduler is included in the image.  The first

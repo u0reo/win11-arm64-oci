@@ -41,7 +41,11 @@ jobs:
           grep -q '<ComputerName>CI-WIN</ComputerName>' build/media/autounattend.xml
           grep -q 'ci-pass-123' build/media/autounattend.xml
           grep -q 'CIUser' build/media/oem/firstlogon.ps1
-          grep -q 'bcdedit.exe /ems' build/media/oem/specialize.ps1
+          if grep -Eq '^[[:space:]]*&[[:space:]]*bcdedit\.exe /(ems|emssettings)' build/media/oem/specialize.ps1; then
+            echo "EMS must stay disabled on ARM64" >&2
+            exit 1
+          fi
+          grep -q 'ems-skipped' build/media/oem/specialize.ps1
           grep -q 'BootMenu = 1' build/media/oem/specialize.ps1
 
       - name: render boot menu timeout

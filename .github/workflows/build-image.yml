@@ -125,5 +125,5 @@ jobs:
             echo "- image index: $IMAGE_INDEX"
             echo "- computer name: $COMPUTER_NAME"
             echo "- target: ${DISK:-build/win11-arm64.qcow2}"
-            echo "- boot menu: ${BOOT_MENU_TIMEOUT:-default}s (SAC/EMS always on)"
+            echo "- boot menu: ${BOOT_MENU_TIMEOUT:-default}s (ARM64: no EMS/SAC)"
           } >> "$GITHUB_STEP_SUMMARY"

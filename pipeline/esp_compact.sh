@@ -26,14 +26,15 @@ PATCHED=${2:?usage: $0 <esp-partition> <patched-bootmgfw>}
 # bootmgfw.efi is chainloaded by GRUB; the GRUB menu is read by GRUB itself;
 # BCD is read by bootmgfw and is small, so keeping it low costs nothing.
 # The ESP mixes "Boot" and "ubuntu", so match every path case-insensitively
-# and keep the spelling found on disk.
+# and keep the spelling found on disk.  The GRUB files are absent in a
+# Windows-only image and are treated as optional below.
 PRIORITY_WANT=(
     EFI/ubuntu/grub.cfg
     EFI/Boot/grub.cfg
     EFI/Microsoft/Boot/bootmgfw.efi
     EFI/Microsoft/Boot/BCD
-    # Optional diagnostics: GRUB must be able to write grubenv and read the
-    # debug copy, so keep both below the 65536-cluster limit as well.
+    # Optional: diagnostics and the GRUB menu.  GRUB must be able to write
+    # grubenv and read the debug copy, so keep both low when they exist.
     EFI/ubuntu/grubenv
     EFI/Microsoft/Boot/bootmgfw-dbg.efi
 )
@@ -108,8 +109,11 @@ for want in "${PRIORITY_WANT[@]}"; do
         rel=$want
         mkdir -p "$PRIO/$(dirname "$rel")"
     elif [ "${want,,}" = efi/ubuntu/grubenv ] ||
-         [ "${want,,}" = efi/microsoft/boot/bootmgfw-dbg.efi ]; then
-        # Diagnostics are optional; a build without them must still work.
+         [ "${want,,}" = efi/microsoft/boot/bootmgfw-dbg.efi ] ||
+         [ "${want,,}" = efi/ubuntu/grub.cfg ] ||
+         [ "${want,,}" = efi/boot/grub.cfg ]; then
+        # Diagnostics and the GRUB menu are optional; a Windows-only build
+        # has no GRUB files and must still compact successfully.
         continue
     else
         echo "esp-compact: $want is missing from the ESP" >&2

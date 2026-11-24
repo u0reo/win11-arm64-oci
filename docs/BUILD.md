@@ -19,10 +19,10 @@
 | 6 | 復旧用 Ubuntu を構築（`FRESH_UBUNTU=1`） | `pipeline/make_recovery_ubuntu.sh` |
 | 7 | `boot.wim` に自動実行コマンドを埋込 | `pipeline/make_manual_bootwim.sh` |
 | 8 | 起動用 FAT イメージ作成 | `pipeline/make_bootfat.sh` |
-| 9 | WinPE でドライバ + `bcdboot`、ESP を shim/GRUB に仕上げ（自動） | QEMU phase A + `pipeline/finish_winpe.sh` |
+| 9 | WinPE でドライバ + `bcdboot`、ESP にブートファイルを作成（自動。Ubuntu あれば shim/GRUB に仕上げ） | QEMU phase A + `pipeline/finish_winpe.sh` |
 | 10 | Windows 初回起動 + 準備完了待ち | QEMU phase B |
 | 11 | ACPI シャットダウン | `internal/qmp-powerdown.py` |
-| 12 | ESP ブートマネージャー検査 + 初回 Ubuntu マーカー | `pipeline/finish_disk.sh` / `pipeline/inspect_image.sh` |
+| 12 | ESP ブートマネージャー検査 + 初回 Ubuntu マーカー（Ubuntu なしではマーカーと復旧起動テストをスキップ） | `pipeline/finish_disk.sh` / `pipeline/inspect_image.sh` |
 | 13 | 圧縮（`PACKAGE=1`） | `internal/package-image.sh` |
 
 `DISK` を省略すると `build/win11-arm64.qcow2` に書き、`PACKAGE=1` のときだけ
@@ -120,6 +120,8 @@ GRUB の FAT ドライバは開始クラスタ 65536 以上のファイルを開
 65536 以上になった場合は、`pipeline/esp_compact.sh` が ESP を作り直し、
 GRUB が読むファイルを先頭クラスタに置きます（新しい FAT を一時イメージで
 作って検証してから書き戻すので、途中で失敗しても ESP は壊れません）。
+Windows のみの構成では GRUB メニュー自体が無いため、メニューの開始クラスタ
+検査は行わず、`esp_compact.sh` も GRUB ファイルが無いことを前提に動作します。
 
 ### なぜ 2 回 QEMU を起動するのか
 
@@ -139,13 +141,12 @@ HTTP を投げます。hostfwd は起動直後から TCP accept するため、
 TCP connect だけではなく HTTP 応答コードを見ます。
 
 ただし HTTP が返り始めても `firstlogon.ps1` / `boot.ps1` はまだ実行中です。
-既定 (`SETUP_READY_CHECK=1`) ではさらに WinRM 経由で
-`C:\OEM\done.txt` と `C:\OEM\firstlogon.done` の存在を確認し、
-**OEM セットアップが完走してから**準備完了とみなします。
-WinRM は Negotiate/NTLM を使うため `python3-winrm` と
-`WIN_USERNAME` / `WIN_PASSWORD` が必要です。
-認証情報が無い場合や `SETUP_READY_CHECK=0` の場合は、従来どおり
-HTTP 応答のみで完了とみなします。
+必ず WinRM 経由で `C:\OEM\done.txt` と `C:\OEM\firstlogon.done` の存在を
+確認し、**OEM セットアップが完走してから**準備完了とみなします。
+WinRM は Negotiate/NTLM を使うため `python3-winrm` /
+`python3-requests-ntlm` と `WIN_USERNAME` / `WIN_PASSWORD` が必要です。
+HTTP 応答だけでの完了判定は行いません（preflight で必須パッケージを検査し、
+不足していればビルドを開始しません）。
 
 ## シャットダウン
 

@@ -56,20 +56,19 @@ command -v cpio >/dev/null 2>&1 && ok "cpio" ||
 
 echo "== python modules =="
 python3 - <<'PY' || fail=1
-required = ["hivex", "pefile"]
-optional = ["winrm", "requests_ntlm"]
+import sys
+
+required = ["hivex", "pefile", "winrm", "requests_ntlm"]
+missing = []
 for m in required:
     try:
         __import__(m)
         print(f"  ok    {m}")
     except Exception:
-        print(f"  warn  {m} not installed (inspect_image.sh will skip some checks)")
-for m in optional:
-    try:
-        __import__(m)
-        print(f"  ok    {m}")
-    except Exception:
-        print(f"  warn  {m} not installed (WinRM setup-marker/shutdown checks disabled)")
+        print(f"  FAIL  {m} is required; install with scripts/setup-live.sh")
+        missing.append(m)
+if missing:
+    sys.exit(1)
 PY
 
 echo "== privileges =="

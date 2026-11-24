@@ -55,13 +55,11 @@
 #                        seconds to wait for the guest to power down before
 #                        exiting.  The VM is never killed; FROM_STEP=11
 #                        reconnects to it through build/logs/qemu-install.pid.
-#   SETUP_READY_CHECK=1  wait for C:\OEM\done.txt and firstlogon.done over
-#                        WinRM before declaring the guest ready.  An HTTP
-#                        response from WinRM alone is not enough: OEM setup
-#                        may still be running, and an ACPI powerdown sent
-#                        during setup is silently ignored by Windows.
-#                        Set to 0 to keep the old HTTP-only check.
 #   WINRM_TIMEOUT=120    per-request WinRM timeout (seconds).
+#                        Readiness always uses WinRM to check C:\OEM\done.txt
+#                        and firstlogon.done: an HTTP response from WinRM
+#                        alone is not enough, and an ACPI powerdown during
+#                        setup is silently ignored by Windows.
 #   POWERDOWN_GRACE=120  seconds to wait for an ACPI powerdown before trying
 #                        `shutdown /s /t 0 /f` over WinRM as a fallback.
 #   WIN_USERNAME / WIN_PASSWORD / COMPUTER_NAME   (render.py overrides)
@@ -109,7 +107,6 @@ export BOOT_MENU_TIMEOUT
 
 FROM_STEP=${FROM_STEP:-0}
 SHUTDOWN_TIMEOUT=${SHUTDOWN_TIMEOUT:-5400}
-SETUP_READY_CHECK=${SETUP_READY_CHECK:-1}
 WINRM_TIMEOUT=${WINRM_TIMEOUT:-120}
 POWERDOWN_GRACE=${POWERDOWN_GRACE:-120}
 for v in SHUTDOWN_TIMEOUT WINRM_TIMEOUT POWERDOWN_GRACE; do
@@ -217,7 +214,7 @@ if [ "$FROM_STEP" -le 2 ]; then
     "$HERE/stage-drivers.sh"
 fi
 
-if [ "$FROM_STEP" -le 3 ]; then
+if [ "$FROM_STEP" -le 3 ] || [ "${REBUILD_OEMDRV:-0}" = 1 ]; then
     step "3/13 build OEMDRV ISO"
     MEDIA="$BUILD/media" DRIVERS="$BUILD/drivers" DRIVERS_EXTRA="$BUILD/drivers-extra" \
         "$PIPE/make_oemdrv.sh" "$ISO" "$IMAGE_INDEX"
@@ -359,12 +356,6 @@ if [ "$FROM_STEP" -le 10 ]; then
 
         # The service can accept HTTP while firstlogon.ps1 / boot.ps1 are still
         # configuring the guest.  Do not power down until their markers exist.
-        if [ "$SETUP_READY_CHECK" != 1 ] ||
-           [ -z "${WIN_USERNAME:-}" ] || [ -z "${WIN_PASSWORD:-}" ]; then
-            echo "setup marker check disabled; using the HTTP response only"
-            ready=1
-            break
-        fi
         if out=$(timeout "$((WINRM_TIMEOUT + 10))" \
                  python3 "$HERE/winrm-guest.py" ready 2>&1); then
             rc=0
@@ -522,7 +513,11 @@ if [ "$FROM_STEP" -le 12 ]; then
     # written.  inspect_image.sh checks the identifiers; this boots the
     # final image so a regression in the boot path is caught too.
     if [ "${TEST_RECOVERY_BOOT:-1}" = 1 ]; then
-        "$PIPE/test_recovery_boot.sh" "$DISK"
+        if [ "${FRESH_UBUNTU:-0}" = 1 ] || [ "${REUSE_UBUNTU:-0}" = 1 ]; then
+            "$PIPE/test_recovery_boot.sh" "$DISK"
+        else
+            echo "  recovery boot test skipped (no Ubuntu in this build)"
+        fi
     fi
 fi
 

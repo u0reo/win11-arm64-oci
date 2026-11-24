@@ -153,9 +153,10 @@ sudo ./scripts/setup-live.sh --shm-size 16G
 
 入れるのは `qemu-system-arm` / `qemu-utils` / `qemu-efi-aarch64` /
 `wimtools` / `xorriso` / `gdisk` / `dosfstools` / `ntfs-3g` / `mtools` /
-`parted` / `zstd` / `python3-hivex` / `python3-pefile` / `curl` だけです。
-`python3-winrm` と `rpm2cpio`/`cpio` は任意（WinRM 確認、RPM 版 virtio-win
-を使うときだけ）。`debootstrap` は live ISO が無いときだけ要ります。
+`parted` / `zstd` / `python3-hivex` / `python3-pefile` /
+`python3-winrm` / `python3-requests-ntlm` / `curl` です。
+`rpm2cpio`/`cpio` は RPM 版 virtio-win を使うときだけ要ります。
+`debootstrap` は live ISO が無いときだけ要ります。
 
 `setup.sh` / `setup-live.sh` はともに、インストーラが残した
 `file:///cdrom` の apt ソースを無効化してから `apt-get update` します

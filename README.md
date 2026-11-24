@@ -138,9 +138,11 @@ sudo ./scripts/setup-live.sh          # 最小構成を入れて preflight
 
 最小構成は `qemu-system-arm` / `qemu-utils` / `qemu-efi-aarch64` /
 `wimtools` / `xorriso` / `gdisk` / `dosfstools` / `ntfs-3g` / `mtools` /
-`parted` / `zstd` / `python3-hivex` / `python3-pefile` / `curl` です。
-`python3-winrm`（WinRM 確認）と `rpm2cpio` / `cpio`（RPM 版 virtio-win）
-は任意なので入りません。必要なら別途 `apt-get install` してください。
+`parted` / `zstd` / `python3-hivex` / `python3-pefile` /
+`python3-winrm` / `python3-requests-ntlm` / `curl` です。
+WinRM は完了判定とシャットダウンに必須なので必ず入ります。
+`rpm2cpio` / `cpio`（RPM 版 virtio-win）は任意なので入りません。
+必要なら別途 `apt-get install` してください。
 
 どちらのスクリプトも、インストーラが残した `file:///cdrom` の apt ソースを
 （`cdrom.sources` → `cdrom.sources.disabled` にリネームして）無効化してから

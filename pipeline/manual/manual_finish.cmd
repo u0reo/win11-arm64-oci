@@ -35,17 +35,27 @@ echo exit
 diskpart /s "%TEMP%\list_disk.txt" > "%TEMP%\list_disk.log" 2>&1
 type "%TEMP%\list_disk.log" >> "%LOG%"
 
+rem wpeinit may have handed S: to a different volume.  Free the letter so
+rem the assign below cannot fail because S: is already taken.
+if exist S:\NUL mountvol S: /D > "%TEMP%\mountvol-release.log" 2>&1
+type "%TEMP%\mountvol-release.log" >> "%LOG%"
+
+rem "override" avoids the interactive "forcibly dismount" confirmation.  A
+rem scripted diskpart cannot answer it and the finish hangs forever.
 (
 echo select disk 0
 echo select partition %ESPPART%
-echo assign letter=S
+echo assign letter=S override
 echo exit
 ) > "%TEMP%\assign_esp.txt"
 diskpart /s "%TEMP%\assign_esp.txt" > "%TEMP%\assign_esp.log" 2>&1
 set DPRC=%errorlevel%
 type "%TEMP%\assign_esp.log" >> "%LOG%"
 >> "%LOG%" echo DISKPART rc=%DPRC%
-if exist S:\EFI goto espaok
+rem An ESP freshly built by host_apply.sh is an empty FAT32: there is no
+rem \EFI yet (bcdboot creates it below).  Test the drive itself, not a
+rem directory, or a Windows-only build is falsely reported as noesp.
+if exist S:\NUL goto espaok
 
 rem Fallback: mountvol /S mounts the EFI System partition.  Release a
 rem wrongly assigned S: first so that the mount can take the letter.
@@ -54,7 +64,7 @@ if exist S:\NUL mountvol S: /D > "%TEMP%\mountvol.log" 2>&1
 mountvol S: /S >> "%TEMP%\mountvol.log" 2>&1
 type "%TEMP%\mountvol.log" >> "%LOG%"
 :espaok
-if not exist S:\EFI goto noesp
+if not exist S:\NUL goto noesp
 >> "%LOG%" echo ESP_OK
 echo.
 
