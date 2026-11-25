@@ -21,7 +21,7 @@
 | 8 | 起動用 FAT イメージ作成 | `pipeline/make_bootfat.sh` |
 | 9 | WinPE でドライバ + `bcdboot`、ESP にブートファイルを作成（自動。Ubuntu あれば shim/GRUB に仕上げ） | QEMU phase A + `pipeline/finish_winpe.sh` |
 | 10 | Windows 初回起動 + 準備完了待ち | QEMU phase B |
-| 11 | ACPI シャットダウン | `internal/qmp-powerdown.py` |
+| 11 | WinRM シャットダウン（`shutdown.exe`、必要時のみ `/f`） | `internal/winrm-guest.py` |
 | 12 | ESP ブートマネージャー検査 + 初回 Ubuntu マーカー（Ubuntu なしではマーカーと復旧起動テストをスキップ） | `pipeline/finish_disk.sh` / `pipeline/inspect_image.sh` |
 | 13 | 圧縮（`PACKAGE=1`） | `internal/package-image.sh` |
 
@@ -150,15 +150,18 @@ HTTP 応答だけでの完了判定は行いません（preflight で必須パ�
 
 ## シャットダウン
 
-`system_powerdown` (ACPI) を QMP で送ります。
-**強制リセットは使いません。** 以前の作業で `system_reset` が
+WinRM から `shutdown.exe /s /t 0` を送ってゲスト自身にシャットダウン
+させます。**ACPI の電源ボタン要求（`system_powerdown`）は使いません。**
+OCI の ARM64 Windows では無視されることが多く、実績がないためです。
+**強制リセットも使いません。** 以前の作業で `system_reset` が
 SOFTWARE ハイブを壊したためです。
 
-Windows が電源ボタン要求を無視する場合があります。セットアップ中に
-要求を送ると特に起きやすいため、準備完了判定を上記のように改めました。
-それでも `POWERDOWN_GRACE`（既定 120 秒）以内にゲストが終了しない場合は、
-WinRM から `shutdown.exe /s /t 0 /f` を送ってゲスト自身にシャットダウン
-させます。これでもダメな場合はスクリプトはエラーで止まりますが、
+`/f` は最初は付けません。要求が受け付けられたにもかかわらずゲストが
+`SHUTDOWN_MAX_TRIES`（既定 5 回）落ちない場合だけ `shutdown /f` に
+切り替えます。接続エラーは「ゲストが先にシャットダウンを始めた」可能性が
+高いため回数に含めず、そのまま再送します。
+
+これでもダメな場合はスクリプトはエラーで止まりますが、
 **ゲストは強制終了しません。** QEMU はそのまま残るので、画面とログを確認して
 から次を実行してください。`build/logs/qemu-install.pid` に PID が残っており、
 `FROM_STEP=11` はその QEMU に再接続して待機を続けます（新しい QEMU は
@@ -168,8 +171,16 @@ WinRM から `shutdown.exe /s /t 0 /f` を送ってゲスト自身にシャッ�
 sudo env FROM_STEP=11 ./scripts/build.sh ... --yes
 ```
 
-待ち時間は `SHUTDOWN_TIMEOUT`（既定 5400 秒）、WinRM の要求ごとの
-タイムアウトは `WINRM_TIMEOUT`（既定 120 秒）で変更できます。
+全体の待ち時間は `SHUTDOWN_TIMEOUT`（既定 2700 秒）、再送間隔は
+`SHUTDOWN_RETRY_INTERVAL`（既定 15 秒）、1 回の要求のタイムアウトは
+`SHUTDOWN_ATTEMPT_TIMEOUT`（既定 60 秒）で変更できます。
+`/f` に切り替えるのは、 Graceful な要求が `SHUTDOWN_MAX_TRIES`
+（既定 5 回）受け付けられてまだ落ちない場合だけです。
+
+準備完了待ち `READY_TIMEOUT` は CPU 数に合わせて自動で決まります
+（既定 `14400 * 4 / SMP` 秒、3600〜28800 秒の範囲）。TCG では OOBE の
+時間が vCPU 数にほぼ反比例するためです。明示的に指定したい場合は
+環境変数で上書きできます。
 
 ## 手動フォールバック
 

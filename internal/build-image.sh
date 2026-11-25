@@ -51,17 +51,22 @@
 #   FROM_STEP=0          resume at step N, reusing the staging directory.
 #                        FROM_STEP=6 continues after host_apply.sh has
 #                        already wiped and populated the target.
-#   SHUTDOWN_TIMEOUT=5400
+#   READY_TIMEOUT        seconds to wait for the OEM setup markers.  Default:
+#                        14400 * 4 / SMP (clamped to 3600..28800), because TCG
+#                        OOBE time scales roughly inversely with vCPU count.
+#                        An HTTP response alone is not enough: firstlogon can
+#                        still be running and its credentials not usable yet.
+#                        Keep polling until the markers exist; never fall back
+#                        to HTTP-only readiness.
+#   SHUTDOWN_TIMEOUT=2700
 #                        seconds to wait for the guest to power down before
 #                        exiting.  The VM is never killed; FROM_STEP=11
 #                        reconnects to it through build/logs/qemu-install.pid.
-#   WINRM_TIMEOUT=120    per-request WinRM timeout (seconds).
-#                        Readiness always uses WinRM to check C:\OEM\done.txt
-#                        and firstlogon.done: an HTTP response from WinRM
-#                        alone is not enough, and an ACPI powerdown during
-#                        setup is silently ignored by Windows.
-#   POWERDOWN_GRACE=120  seconds to wait for an ACPI powerdown before trying
-#                        `shutdown /s /t 0 /f` over WinRM as a fallback.
+#   SHUTDOWN_RETRY_INTERVAL=15   seconds between WinRM shutdown requests.
+#   SHUTDOWN_ATTEMPT_TIMEOUT=60  per-request WinRM timeout (seconds).
+#   SHUTDOWN_MAX_TRIES=5         accepted graceful requests before retrying
+#                                with `shutdown /f`.
+#   WINRM_TIMEOUT=120    per-request WinRM timeout for readiness checks.
 #   WIN_USERNAME / WIN_PASSWORD / COMPUTER_NAME   (render.py overrides)
 #
 # On live (toram), BUILD_DIR defaults to /dev/shm/build and /dev/shm is
@@ -106,12 +111,24 @@ fi
 export BOOT_MENU_TIMEOUT
 
 FROM_STEP=${FROM_STEP:-0}
-SHUTDOWN_TIMEOUT=${SHUTDOWN_TIMEOUT:-5400}
+case "$SMP" in
+    ''|*[!0-9]*|0) echo "SMP must be a positive number of vCPUs" >&2; exit 2 ;;
+esac
+# TCG OOBE scales roughly inversely with the vCPU count: 4 CPUs needed about
+# 2.5 h in this lab, so keep ~1.5x headroom and clamp to a sane range.
+READY_DEFAULT=$(( 14400 * 4 / SMP ))
+if [ "$READY_DEFAULT" -lt 3600 ]; then READY_DEFAULT=3600; fi
+if [ "$READY_DEFAULT" -gt 28800 ]; then READY_DEFAULT=28800; fi
+READY_TIMEOUT=${READY_TIMEOUT:-$READY_DEFAULT}
+SHUTDOWN_TIMEOUT=${SHUTDOWN_TIMEOUT:-2700}
+SHUTDOWN_RETRY_INTERVAL=${SHUTDOWN_RETRY_INTERVAL:-15}
+SHUTDOWN_ATTEMPT_TIMEOUT=${SHUTDOWN_ATTEMPT_TIMEOUT:-60}
+SHUTDOWN_MAX_TRIES=${SHUTDOWN_MAX_TRIES:-5}
 WINRM_TIMEOUT=${WINRM_TIMEOUT:-120}
-POWERDOWN_GRACE=${POWERDOWN_GRACE:-120}
-for v in SHUTDOWN_TIMEOUT WINRM_TIMEOUT POWERDOWN_GRACE; do
+for v in READY_TIMEOUT SHUTDOWN_TIMEOUT SHUTDOWN_RETRY_INTERVAL \
+         SHUTDOWN_ATTEMPT_TIMEOUT SHUTDOWN_MAX_TRIES WINRM_TIMEOUT; do
     case "${!v}" in
-        ''|*[!0-9]*) echo "$v must be a number of seconds" >&2; exit 2 ;;
+        ''|*[!0-9]*) echo "$v must be a number" >&2; exit 2 ;;
     esac
 done
 case "$FROM_STEP" in
@@ -332,8 +349,7 @@ if [ "$FROM_STEP" -le 10 ]; then
     printf '%s\n' "$QEMU_PID" > "$BUILD/logs/qemu-install.pid"
 
     ready=0
-    deadline=$(( $(date +%s) + 9000 ))   # 150 minutes
-    marker_errors=0
+    deadline=$(( $(date +%s) + READY_TIMEOUT ))
     last_marker=''
     last_code=''
     while [ "$(date +%s)" -lt "$deadline" ]; do
@@ -362,23 +378,14 @@ if [ "$FROM_STEP" -le 10 ]; then
         else
             rc=$?
         fi
-        case "$rc" in
-            0)
-                echo "$out"
-                ready=1
-                break
-                ;;
-            2)
-                marker_errors=$((marker_errors + 1))
-                # A broken WinRM login must not hang the build forever.
-                if [ "$marker_errors" -ge 20 ]; then
-                    echo "WinRM marker probe keeps failing; falling back to the HTTP check" >&2
-                    echo "$out" >&2
-                    ready=1
-                    break
-                fi
-                ;;
-        esac
+        # A rejected login is normal while firstlogon.ps1 is still setting up
+        # the account.  Never fall back to the HTTP response: it only proves
+        # http.sys accepted a connection, not that setup finished.
+        if [ "$rc" = 0 ]; then
+            echo "$out"
+            ready=1
+            break
+        fi
         if [ "$out" != "$last_marker" ]; then
             echo "$out"
             last_marker=$out
@@ -392,7 +399,7 @@ if [ "$FROM_STEP" -le 10 ]; then
 fi
 
 if [ "$FROM_STEP" -le 11 ]; then
-    step "11/13 graceful shutdown over QMP"
+    step "11/13 graceful shutdown over WinRM"
     PIDFILE="$BUILD/logs/qemu-install.pid"
     # FROM_STEP=11 does not rerun step 10, so recover the PID that started
     # the Windows VM.  This lets a timed-out build keep waiting on the same
@@ -407,35 +414,55 @@ if [ "$FROM_STEP" -le 11 ]; then
             *) echo "pid $QEMU_PID does not use $DISK; refusing to wait on it" >&2
                exit 1 ;;
         esac
+        # A child that exited but was not reaped still answers kill -0.
+        qemu_running() {
+            [ -r "/proc/$QEMU_PID/stat" ] || return 1
+            [ "$(awk '{print $3}' "/proc/$QEMU_PID/stat" 2>/dev/null)" != Z ]
+        }
         echo "waiting for qemu pid=$QEMU_PID (up to ${SHUTDOWN_TIMEOUT}s)"
-        python3 "$HERE/qmp-powerdown.py" "$BUILD/install.qmp" --timeout 60
-
-        # Windows can ignore the ACPI power button.  Give it a short grace
-        # period, then ask the guest itself to shut down.  Never hard-reset.
-        grace_deadline=$(( $(date +%s) + POWERDOWN_GRACE ))
-        while [ "$(date +%s)" -lt "$grace_deadline" ]; do
-            kill -0 "$QEMU_PID" 2>/dev/null || break
-            sleep 5
-        done
-        if kill -0 "$QEMU_PID" 2>/dev/null &&
-           [ -n "${WIN_USERNAME:-}" ] && [ -n "${WIN_PASSWORD:-}" ]; then
-            echo "ACPI powerdown ignored after ${POWERDOWN_GRACE}s; trying WinRM shutdown"
-            if ! timeout "$((WINRM_TIMEOUT + 10))" \
-                    python3 "$HERE/winrm-guest.py" shutdown; then
-                echo "WinRM shutdown failed; continuing to wait without a hard reset" >&2
-            fi
-        fi
-
-        if ! timeout "$SHUTDOWN_TIMEOUT" tail --pid="$QEMU_PID" -f /dev/null; then
-            if ! kill -0 "$QEMU_PID" 2>/dev/null; then
-                :   # QEMU exited normally just after the power request.
+        shutdown_deadline=$(( $(date +%s) + SHUTDOWN_TIMEOUT ))
+        accepted=0
+        forced=0
+        while [ "$(date +%s)" -lt "$shutdown_deadline" ] && qemu_running; do
+            if [ -z "${WIN_USERNAME:-}" ] || [ -z "${WIN_PASSWORD:-}" ]; then
+                echo "WIN_USERNAME/WIN_PASSWORD are not set; cannot shut down over WinRM" >&2
             else
-                echo "guest did not power down within ${SHUTDOWN_TIMEOUT}s; refusing to hard-reset" >&2
-                echo "the VM was left running on purpose.  Check it, then rerun with" >&2
-                echo "  FROM_STEP=11 ... --yes" >&2
-                echo "to keep waiting without starting a second QEMU." >&2
-                exit 1
+                force_arg=""
+                [ "$forced" = 1 ] && force_arg="--force"
+                if out=$(timeout "$SHUTDOWN_ATTEMPT_TIMEOUT" \
+                         python3 "$HERE/winrm-guest.py" shutdown $force_arg 2>&1); then
+                    rc=0
+                else
+                    rc=$?
+                fi
+                if [ -n "$out" ]; then echo "$out"; fi
+                case "$rc" in
+                    0)
+                        if [ "$forced" = 0 ]; then
+                            accepted=$(( accepted + 1 ))
+                            echo "  graceful shutdown request $accepted/$SHUTDOWN_MAX_TRIES accepted"
+                            if [ "$accepted" -ge "$SHUTDOWN_MAX_TRIES" ]; then
+                                forced=1
+                                echo "  guest is still running; retrying with shutdown /f"
+                            fi
+                        fi
+                        ;;
+                    3)
+                        echo "  connection closed; the guest may already be powering down"
+                        ;;
+                    *)
+                        echo "  WinRM shutdown error (rc=$rc); retrying" >&2
+                        ;;
+                esac
             fi
+            sleep "$SHUTDOWN_RETRY_INTERVAL"
+        done
+        if qemu_running; then
+            echo "guest did not power down within ${SHUTDOWN_TIMEOUT}s; refusing to hard-reset" >&2
+            echo "the VM was left running on purpose.  Check it, then rerun with" >&2
+            echo "  FROM_STEP=11 ... --yes" >&2
+            echo "to keep waiting without starting a second QEMU." >&2
+            exit 1
         fi
         wait "$QEMU_PID" 2>/dev/null || true
         echo "guest powered down"

@@ -3,18 +3,23 @@
 
 The host-side HTTP probe on the WinRM port only proves that http.sys accepted
 a connection.  OEM firstlogon.ps1 / boot.ps1 keep running for several minutes
-after that, and an ACPI powerdown sent during setup is silently ignored by
-Windows (docs/BUILD.md).  Poll the OEM completion markers instead, and use
-WinRM as a shutdown fallback when the power button request is ignored.
+after that.  Poll the OEM completion markers instead, and shut the guest
+down through WinRM (docs/BUILD.md).
 
 Usage:
     WIN_USERNAME=... WIN_PASSWORD=... winrm-guest.py ready
-    WIN_USERNAME=... WIN_PASSWORD=... winrm-guest.py shutdown
+    WIN_USERNAME=... WIN_PASSWORD=... winrm-guest.py shutdown [--force]
 
 Exit codes for `ready`:
     0  SETUP_READY printed, setup finished
     1  markers not present yet (normal while setup is running)
     2  WinRM/auth/timeout error (caller may keep polling)
+
+Exit codes for `shutdown`:
+    0  request reached the guest (any response counts)
+    1  the guest rejected the command
+    2  auth/other WinRM error
+    3  connection error (often means the guest is already powering down)
 """
 
 import argparse
@@ -46,18 +51,26 @@ def main() -> int:
                         default=int(os.environ.get("WINRM_PORT", "15985")))
     parser.add_argument("--timeout", type=int,
                         default=int(os.environ.get("WINRM_TIMEOUT", "120")))
+    parser.add_argument("--force", action="store_true",
+                        help="add /f to shutdown.exe (force-close applications)")
     args = parser.parse_args()
 
     session = make_session(args.port, args.timeout)
 
     if args.action == "shutdown":
+        # Prefer a graceful shutdown.  The caller retries without /f first and
+        # only escalates when the guest stays up after several accepted requests.
+        cmd = "shutdown.exe /s /t 0 /f" if args.force else "shutdown.exe /s /t 0"
         try:
-            result = session.run_cmd("shutdown.exe /s /t 0 /f")
-            print(f"winrm: shutdown rc={result.status_code}")
+            result = session.run_cmd(cmd)
         except Exception as exc:
-            # The command may have been accepted before the response timed out.
-            print(f"winrm: shutdown sent (no response: {type(exc).__name__})")
-        return 0
+            name = type(exc).__name__
+            print(f"winrm: no shutdown response ({name})")
+            # A dropped connection is expected once the guest starts powering
+            # off; the caller must not count it as a failed request.
+            return 3 if "Connection" in name else 2
+        print(f"winrm: shutdown rc={result.status_code}")
+        return 0 if result.status_code == 0 else 1
 
     # boot.ps1 writes done.txt only after both listeners are up; firstlogon.ps1
     # writes firstlogon.done after boot.ps1 (and winre.ps1) have returned.
