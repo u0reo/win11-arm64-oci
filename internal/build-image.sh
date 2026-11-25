@@ -23,7 +23,7 @@
 #   IMAGE_INDEX=1        WIM index
 #   SIZE=50G             qcow2 virtual size (ignored for a block device)
 #   MEM=8192             guest RAM in MiB
-#   SMP=4                guest vCPUs
+#   SMP                  guest vCPUs (default: host nproc)
 #   FRESH_UBUNTU=1       erase the disk and create a new ESP, a recovery
 #                        system and Windows from scratch.  The recovery
 #                        system copies /etc/netplan/*.yaml and an
@@ -86,7 +86,7 @@ ISO=${ISO:?set ISO=/path/to/Win11_ARM64.iso}
 IMAGE_INDEX=${IMAGE_INDEX:-1}
 SIZE=${SIZE:-50G}
 MEM=${MEM:-8192}
-SMP=${SMP:-4}
+SMP=${SMP:-$(nproc 2>/dev/null || echo 1)}
 SHM_SIZE=${SHM_SIZE:-100%}
 WINRM_PORT=${WINRM_PORT:-15985}
 DISK=${DISK:-$ROOT/build/win11-arm64.qcow2}

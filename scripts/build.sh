@@ -88,7 +88,10 @@ VIRTIO_KIND=""
 DRIVERS=""
 IMAGE_INDEX=${IMAGE_INDEX:-1}
 MEM=${MEM:-6144}
-SMP=${SMP:-4}
+SMP=${SMP:-$(nproc 2>/dev/null || echo 1)}
+case "$SMP" in
+    ''|*[!0-9]*|0) echo "build: SMP must be a positive number of vCPUs" >&2; exit 2 ;;
+esac
 REUSE_UBUNTU=${REUSE_UBUNTU:-0}
 FRESH_UBUNTU=${FRESH_UBUNTU:-0}
 UBUNTU_SIZE_SET=0
