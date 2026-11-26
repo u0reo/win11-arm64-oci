@@ -1,0 +1,1929 @@
+diff --git a/4 b/4
+new file mode 100644
+index 0000000..df82f68
+--- /dev/null
++++ b/4
+@@ -0,0 +1,629 @@
++Build environment: Linux-7.0.0-42-generic-aarch64-with-glibc2.43
++SOURCE_DATE_EPOCH not set - using 1794085730
++Build start time: 06:08:50, Nov.08 2026
++
++WORKSPACE        = $HOME/edk2
++EDK_TOOLS_PATH   = $HOME/edk2/BaseTools
++CONF_PATH        = $HOME/edk2/Conf
++PYTHON_COMMAND   = python3
++
++
++Architecture(s)  = AARCH64
++Build target     = DEBUG
++Toolchain        = GCC
++
++Active Platform          = $HOME/edk2/ArmVirtPkg/ArmVirtQemu.dsc
++Building ... $HOME/edk2/MdePkg/Library/CompilerIntrinsicsLib/CompilerIntrinsicsLib.inf [AARCH64]
++Building ... $HOME/edk2/MdePkg/Library/UefiLib/UefiLib.inf [AARCH64]
++make: 'tbuild' に対して行うべき事はありません.
++make: 'tbuild' に対して行うべき事はありません.
++Building ... $HOME/edk2/MdePkg/Library/DynamicStackCookieEntryPointLib/UefiDriverEntryPoint.inf [AARCH64]
++make: 'tbuild' に対して行うべき事はありません.
++Building ... $HOME/edk2/MdePkg/Library/UefiDevicePathLibDevicePathProtocol/UefiDevicePathLibDevicePathProtocol.inf [AARCH64]
++make: 'tbuild' に対して行うべき事はありません.
++Building ... $HOME/edk2/MdePkg/Library/UefiRuntimeServicesTableLib/UefiRuntimeServicesTableLib.inf [AARCH64]
++make: 'tbuild' に対して行うべき事はありません.
++Building ... $HOME/edk2/MdePkg/Library/StackCheckLib/StackCheckLib.inf [AARCH64]
++make: 'tbuild' に対して行うべき事はありません.
++Building ... $HOME/edk2/MdePkg/Library/UefiMemoryAllocationLib/UefiMemoryAllocationLib.inf [AARCH64]
++make: 'tbuild' に対して行うべき事はありません.
++Building ... $HOME/edk2/MdePkg/Library/StackCheckFailureHookLibNull/StackCheckFailureHookLibNull.inf [AARCH64]
++make: 'tbuild' に対して行うべき事はありません.
++Building ... $HOME/edk2/MdePkg/Library/UefiBootServicesTableLib/UefiBootServicesTableLib.inf [AARCH64]
++make: 'tbuild' に対して行うべき事はありません.
++Building ... $HOME/edk2/ArmVirtPkg/Library/DebugLibFdtPL011Uart/DebugLibFdtPL011UartRam.inf [AARCH64]
++make: 'tbuild' に対して行うべき事はありません.
++Building ... $HOME/edk2/MdePkg/Library/BasePrintLib/BasePrintLib.inf [AARCH64]
++make: 'tbuild' に対して行うべき事はありません.
++Building ... $HOME/edk2/MdePkg/Library/BaseDebugPrintErrorLevelLib/BaseDebugPrintErrorLevelLib.inf [AARCH64]
++make: 'tbuild' に対して行うべき事はありません.
++Building ... $HOME/edk2/ArmVirtPkg/Library/ArmVirtDxeHobLib/ArmVirtDxeHobLib.inf [AARCH64]
++make: 'tbuild' に対して行うべき事はありません.
++Building ... $HOME/edk2/ArmPlatformPkg/Library/PL011UartLib/PL011UartLib.inf [AARCH64]
++make: 'tbuild' に対して行うべき事はありません.
++Building ... $HOME/edk2/OvmfPkg/Library/MemDebugLogLib/MemDebugLogLibNull.inf [AARCH64]
++make: 'tbuild' に対して行うべき事はありません.
++Building ... $HOME/edk2/MdePkg/Library/BaseIoLibIntrinsic/BaseIoLibIntrinsicArmVirt.inf [AARCH64]
++make: 'tbuild' に対して行うべき事はありません.
++Building ... $HOME/edk2/MdePkg/Library/RegisterFilterLibNull/RegisterFilterLibNull.inf [AARCH64]
++make: 'tbuild' に対して行うべき事はありません.
++Building ... $HOME/edk2/MdePkg/Library/BaseMemoryLibOptDxe/BaseMemoryLibOptDxe.inf [AARCH64]
++make: 'tbuild' に対して行うべき事はありません.
++Building ... $HOME/edk2/MdePkg/Library/DxePcdLib/DxePcdLib.inf [AARCH64]
++make: 'tbuild' に対して行うべき事はありません.
++Building ... $HOME/edk2/MdePkg/Library/BaseLib/BaseLib.inf [AARCH64]
++make: 'tbuild' に対して行うべき事はありません.
++Building ... $HOME/edk2/MdeModulePkg/Library/DxeSecurityManagementLib/DxeSecurityManagementLib.inf [AARCH64]
++make: 'tbuild' に対して行うべき事はありません.
++Building ... $HOME/edk2/EmbeddedPkg/Library/PlatformHasAcpiLib/PlatformHasAcpiLib.inf [AARCH64]
++make: 'tbuild' に対して行うべき事はありません.
++Building ... $HOME/edk2/OvmfPkg/Library/FdtNorFlashQemuLib/FdtNorFlashQemuLib.inf [AARCH64]
++make: 'tbuild' に対して行うべき事はありません.
++Building ... $HOME/edk2/OvmfPkg/Library/VirtNorFlashDeviceLib/VirtNorFlashDeviceLib.inf [AARCH64]
++make: 'tbuild' に対して行うべき事はありません.
++Building ... $HOME/edk2/MdeModulePkg/Library/LzmaCustomDecompressLib/LzmaCustomDecompressLib.inf [AARCH64]
++make: 'tbuild' に対して行うべき事はありません.
++Building ... $HOME/edk2/MdePkg/Library/PeiExtractGuidedSectionLib/PeiExtractGuidedSectionLib.inf [AARCH64]
++make: 'tbuild' に対して行うべき事はありません.
++Building ... $HOME/edk2/ArmPkg/Library/ArmPsciResetSystemLib/ArmPsciResetSystemLib.inf [AARCH64]
++make: 'tbuild' に対して行うべき事はありません.
++Building ... $HOME/edk2/ArmPkg/Library/ArmTrngLib/ArmTrngLib.inf [AARCH64]
++make: 'tbuild' に対して行うべき事はありません.
++Building ... $HOME/edk2/MdePkg/Library/BaseRngLib/BaseRngLib.inf [AARCH64]
++make: 'tbuild' に対して行うべき事はありません.
++Building ... $HOME/edk2/ArmVirtPkg/Library/ArmVirtMonitorLib/ArmVirtMonitorLib.inf [AARCH64]
++make: 'tbuild' に対して行うべき事はありません.
++Building ... $HOME/edk2/ArmPkg/Library/ArmHvcLib/ArmHvcLib.inf [AARCH64]
++make: 'tbuild' に対して行うべき事はありません.
++Building ... $HOME/edk2/MdePkg/Library/ArmSmcLib/ArmSmcLib.inf [AARCH64]
++make: 'tbuild' に対して行うべき事はありません.
++Building ... $HOME/edk2/MdeModulePkg/Library/BootMaintenanceManagerUiLib/BootMaintenanceManagerUiLib.inf [AARCH64]
++make: 'tbuild' に対して行うべき事はありません.
++Building ... $HOME/edk2/MdeModulePkg/Library/BootManagerUiLib/BootManagerUiLib.inf [AARCH64]
++make: 'tbuild' に対して行うべき事はありません.
++Building ... $HOME/edk2/MdeModulePkg/Library/DeviceManagerUiLib/DeviceManagerUiLib.inf [AARCH64]
++make: 'tbuild' に対して行うべき事はありません.
++Building ... $HOME/edk2/OvmfPkg/Library/VirtioMmioProbeLib/VirtioMmioProbeLib.inf [AARCH64]
++make: 'tbuild' に対して行うべき事はありません.
++Building ... $HOME/edk2/OvmfPkg/Library/VirtioMmioDeviceLib/VirtioMmioDeviceLib.inf [AARCH64]
++make: 'tbuild' に対して行うべき事はありません.
++Building ... $HOME/edk2/ArmVirtPkg/Library/ArmVirtPL031FdtClientLib/ArmVirtPL031FdtClientLib.inf [AARCH64]
++make: 'tbuild' に対して行うべき事はありません.
++Building ... $HOME/edk2/ArmPlatformPkg/Library/PL031RealTimeClockLib/PL031RealTimeClockLib.inf [AARCH64]
++make: 'tbuild' に対して行うべき事はありません.
++Building ... $HOME/edk2/ArmVirtPkg/Library/PlatformPeiLib/PlatformPeiLib.inf [AARCH64]
++make: 'tbuild' に対して行うべき事はありません.
++Building ... $HOME/edk2/OvmfPkg/Library/QemuFwCfgLib/QemuFwCfgMmioPeiLib.inf [AARCH64]
++make: 'tbuild' に対して行うべき事はありません.
++Building ... $HOME/edk2/EmbeddedPkg/Library/TimeBaseLib/TimeBaseLib.inf [AARCH64]
++make: 'tbuild' に対して行うべき事はありません.
++Building ... $HOME/edk2/MdeModulePkg/Library/BaseBmpSupportLib/BaseBmpSupportLib.inf [AARCH64]
++make: 'tbuild' に対して行うべき事はありません.
++Building ... $HOME/edk2/ArmVirtPkg/Library/ArmGicDepexLib/ArmGicV2DepexLib.inf [AARCH64]
++make: 'tbuild' に対して行うべき事はありません.
++Building ... $HOME/edk2/MdePkg/Library/UefiScsiLib/UefiScsiLib.inf [AARCH64]
++make: 'tbuild' に対して行うべき事はありません.
++Building ... $HOME/edk2/MdeModulePkg/Library/CustomizedDisplayLib/CustomizedDisplayLib.inf [AARCH64]
++make: 'tbuild' に対して行うべき事はありません.
++Building ... $HOME/edk2/OvmfPkg/Library/PxeBcPcdProducerLib/PxeBcPcdProducerLib.inf [AARCH64]
++make: 'tbuild' に対して行うべき事はありません.
++Building ... $HOME/edk2/NetworkPkg/Library/DxeIpIoLib/DxeIpIoLib.inf [AARCH64]
++make: 'tbuild' に対して行うべき事はありません.
++Building ... $HOME/edk2/MdeModulePkg/Library/DxeCapsuleLibNull/DxeCapsuleLibNull.inf [AARCH64]
++make: 'tbuild' に対して行うべき事はありません.
++Building ... $HOME/edk2/CryptoPkg/Library/BaseCryptLib/BaseCryptLib.inf [AARCH64]
++Building ... $HOME/edk2/CryptoPkg/Library/OpensslLib/OpensslLibCrypto.inf [AARCH64]
++make: 'tbuild' に対して行うべき事はありません.
++Building ... $HOME/edk2/CryptoPkg/Library/IntrinsicLib/IntrinsicLib.inf [AARCH64]
++make: 'tbuild' に対して行うべき事はありません.
++Building ... $HOME/edk2/MdePkg/Library/DxeRngLib/DxeRngLib.inf [AARCH64]
++make: 'tbuild' に対して行うべき事はありません.
++Building ... $HOME/edk2/ShellPkg/Library/UefiShellNetwork1CommandsLib/UefiShellNetwork1CommandsLib.inf [AARCH64]
++make: 'tbuild' に対して行うべき事はありません.
++Building ... $HOME/edk2/ShellPkg/Library/UefiShellInstall1CommandsLib/UefiShellInstall1CommandsLib.inf [AARCH64]
++make: 'tbuild' に対して行うべき事はありません.
++Building ... $HOME/edk2/ShellPkg/Library/UefiShellDebug1CommandsLib/UefiShellDebug1CommandsLib.inf [AARCH64]
++Building ... $HOME/edk2/ShellPkg/Library/UefiShellDriver1CommandsLib/UefiShellDriver1CommandsLib.inf [AARCH64]
++make: 'tbuild' に対して行うべき事はありません.
++make: 'tbuild' に対して行うべき事はありません.
++Building ... $HOME/edk2/ShellPkg/Library/UefiShellLevel3CommandsLib/UefiShellLevel3CommandsLib.inf [AARCH64]
++make: 'tbuild' に対して行うべき事はありません.
++Building ... $HOME/edk2/ShellPkg/Library/UefiShellLevel1CommandsLib/UefiShellLevel1CommandsLib.inf [AARCH64]
++make: 'tbuild' に対して行うべき事はありません.
++Building ... $HOME/edk2/ShellPkg/Library/UefiShellLevel2CommandsLib/UefiShellLevel2CommandsLib.inf [AARCH64]
++make: 'tbuild' に対して行うべき事はありません.
++Building ... $HOME/edk2/ShellPkg/Library/UefiShellBcfgCommandLib/UefiShellBcfgCommandLib.inf [AARCH64]
++make: 'tbuild' に対して行うべき事はありません.
++Building ... $HOME/edk2/ShellPkg/Library/UefiShellCommandLib/UefiShellCommandLib.inf [AARCH64]
++make: 'tbuild' に対して行うべき事はありません.
++Building ... $HOME/edk2/ShellPkg/Library/UefiHandleParsingLib/UefiHandleParsingLib.inf [AARCH64]
++make: 'tbuild' に対して行うべき事はありません.
++Building ... $HOME/edk2/MdeModulePkg/Library/FileExplorerLib/FileExplorerLib.inf [AARCH64]
++make: 'tbuild' に対して行うべき事はありません.
++Building ... $HOME/edk2/MdePkg/Library/BaseCpuLib/BaseCpuLib.inf [AARCH64]
++make: 'tbuild' に対して行うべき事はありません.
++Building ... $HOME/edk2/UefiCpuPkg/Library/ArmMmuLib/ArmMmuBaseLibCca.inf [AARCH64]
++make: 'tbuild' に対して行うべき事はありません.
++Building ... $HOME/edk2/OvmfPkg/Library/SmbiosVersionLib/DetectSmbiosVersionLib.inf [AARCH64]
++make: 'tbuild' に対して行うべき事はありません.
++Building ... $HOME/edk2/OvmfPkg/Library/AcpiPlatformLib/DxeAcpiPlatformLib.inf [AARCH64]
++make: 'tbuild' に対して行うべき事はありません.
++Building ... $HOME/edk2/OvmfPkg/Library/QemuFwCfgS3Lib/BaseQemuFwCfgS3LibNull.inf [AARCH64]
++make: 'tbuild' に対して行うべき事はありません.
++Building ... $HOME/edk2/OvmfPkg/Fdt/FdtPciHostBridgeLib/FdtPciHostBridgeLib.inf [AARCH64]
++make: 'tbuild' に対して行うべき事はありません.
++Building ... $HOME/edk2/OvmfPkg/Library/PciHostBridgeUtilityLib/PciHostBridgeUtilityLib.inf [AARCH64]
++make: 'tbuild' に対して行うべき事はありません.
++Building ... $HOME/edk2/OvmfPkg/Library/HardwareInfoLib/DxeHardwareInfoLib.inf [AARCH64]
++make: 'tbuild' に対して行うべき事はありません.
++Building ... $HOME/edk2/OvmfPkg/Library/UefiPciCapPciIoLib/UefiPciCapPciIoLib.inf [AARCH64]
++make: 'tbuild' に対して行うべき事はありません.
++Building ... $HOME/edk2/OvmfPkg/Library/BlobVerifierLibNull/BlobVerifierLibNull.inf [AARCH64]
++make: 'tbuild' に対して行うべき事はありません.
++Building ... $HOME/edk2/ArmVirtPkg/Library/ArmVirtTimerFdtClientLib/ArmVirtTimerFdtClientLib.inf [AARCH64]
++make: 'tbuild' に対して行うべき事はありません.
++Building ... $HOME/edk2/MdePkg/Library/PeiCoreEntryPoint/PeiCoreEntryPoint.inf [AARCH64]
++make: 'tbuild' に対して行うべき事はありません.
++Building ... $HOME/edk2/MdeModulePkg/Library/PeiPerformanceLib/PeiPerformanceLib.inf [AARCH64]
++make: 'tbuild' に対して行うべき事はありません.
++Building ... $HOME/edk2/ArmPkg/Library/ArmTransferListLib/ArmTransferListLib.inf [AARCH64]
++make: 'tbuild' に対して行うべき事はありません.
++Building ... $HOME/edk2/MdePkg/Library/StackCheckLibNull/StackCheckLibNull.inf [AARCH64]
++make: 'tbuild' に対して行うべき事はありません.
++Building ... $HOME/edk2/ArmVirtPkg/Library/FdtPL011SerialPortLib/EarlyFdtPL011SerialPortLib.inf [AARCH64]
++make: 'tbuild' に対して行うべき事はありません.
++Building ... $HOME/edk2/ArmPkg/Library/DebugAgentSymbolsBaseLib/DebugAgentSymbolsBaseLib.inf [AARCH64]
++make: 'tbuild' に対して行うべき事はありません.
++Building ... $HOME/edk2/MdePkg/Library/UefiUsbLib/UefiUsbLib.inf [AARCH64]
++make: 'tbuild' に対して行うべき事はありません.
++Building ... $HOME/edk2/OvmfPkg/Library/MapMmioLib/MapMmioLib.inf [AARCH64]
++make: 'tbuild' に対して行うべき事はありません.
++make: 'tbuild' に対して行うべき事はありません.
++Building ... $HOME/edk2/MdeModulePkg/Library/GptLib/GptLib.inf [AARCH64]
++make: 'tbuild' に対して行うべき事はありません.
++Building ... $HOME/edk2/OvmfPkg/Library/PlatformBootManagerLibLight/PlatformBootManagerLib.inf [AARCH64]
++make: 'tbuild' に対して行うべき事はありません.
++Building ... $HOME/edk2/MdeModulePkg/Library/BootLogoLib/BootLogoLib.inf [AARCH64]
++make: 'tbuild' に対して行うべき事はありません.
++Building ... $HOME/edk2/OvmfPkg/Library/PlatformBmPrintScLib/PlatformBmPrintScLib.inf [AARCH64]
++make: 'tbuild' に対して行うべき事はありません.
++Building ... $HOME/edk2/OvmfPkg/Library/QemuBootOrderLib/QemuBootOrderLib.inf [AARCH64]
++make: 'tbuild' に対して行うべき事はありません.
++Building ... $HOME/edk2/OvmfPkg/Library/GenericQemuLoadImageLib/GenericQemuLoadImageLib.inf [AARCH64]
++make: 'tbuild' に対して行うべき事はありません.
++Building ... $HOME/edk2/SecurityPkg/Library/PeiDxeTpmPlatformHierarchyLibNull/PeiDxeTpmPlatformHierarchyLib.inf [AARCH64]
++make: 'tbuild' に対して行うべき事はありません.
++Building ... $HOME/edk2/OvmfPkg/Library/PlatformBootManagerCommonLib/PlatformBootManagerCommonLib.inf [AARCH64]
++make: 'tbuild' に対して行うべき事はありません.
++Building ... $HOME/edk2/MdeModulePkg/Library/UefiBootManagerLib/UefiBootManagerLib.inf [AARCH64]
++make: 'tbuild' に対して行うべき事はありません.
++Building ... $HOME/edk2/MdeModulePkg/Library/DxePerformanceLib/DxePerformanceLib.inf [AARCH64]
++make: 'tbuild' に対して行うべき事はありません.
++Building ... $HOME/edk2/OvmfPkg/Library/VirtioLib/VirtioLib.inf [AARCH64]
++make: 'tbuild' に対して行うべき事はありません.
++Building ... $HOME/edk2/OvmfPkg/Library/UefiDriverEntryPointFwCfgOverrideLib/UefiDriverEntryPointFwCfgOverrideLib.inf [AARCH64]
++make: 'tbuild' に対して行うべき事はありません.
++Building ... $HOME/edk2/OvmfPkg/Library/QemuFwCfgSimpleParserLib/QemuFwCfgSimpleParserLib.inf [AARCH64]
++make: 'tbuild' に対して行うべき事はありません.
++Building ... $HOME/edk2/NetworkPkg/Library/DxeUdpIoLib/DxeUdpIoLib.inf [AARCH64]
++make: 'tbuild' に対して行うべき事はありません.
++Building ... $HOME/edk2/NetworkPkg/Library/DxeDpcLib/DxeDpcLib.inf [AARCH64]
++make: 'tbuild' に対して行うべき事はありません.
++Building ... $HOME/edk2/ArmVirtPkg/Library/ArmVirtMemoryInitPeiLib/ArmVirtMemoryInitPeiLib.inf [AARCH64]
++make: 'tbuild' に対して行うべき事はありません.
++Building ... $HOME/edk2/ArmVirtPkg/Library/ArmPlatformLibQemu/ArmPlatformLibQemu.inf [AARCH64]
++make: 'tbuild' に対して行うべき事はありません.
++Building ... $HOME/edk2/MdePkg/Library/PeimEntryPoint/PeimEntryPoint.inf [AARCH64]
++make: 'tbuild' に対して行うべき事はありません.
++Building ... $HOME/edk2/UefiCpuPkg/Library/ArmMmuLib/ArmMmuPeiLibCca.inf [AARCH64]
++make: 'tbuild' に対して行うべき事はありません.
++Building ... $HOME/edk2/ArmVirtPkg/Library/QemuVirtMemInfoLib/QemuVirtMemInfoPeiLib.inf [AARCH64]
++make: 'tbuild' に対して行うべき事はありません.
++Building ... $HOME/edk2/MdeModulePkg/Library/ArmCcaLibNull/ArmCcaLibNull.inf [AARCH64]
++make: 'tbuild' に対して行うべき事はありません.
++Building ... $HOME/edk2/ArmVirtPkg/Library/DebugLibFdtPL011Uart/DebugLibFdtPL011UartFlash.inf [AARCH64]
++make: 'tbuild' に対して行うべき事はありません.
++Building ... $HOME/edk2/MdePkg/Library/PeiHobLib/PeiHobLib.inf [AARCH64]
++make: 'tbuild' に対して行うべき事はありません.
++Building ... $HOME/edk2/MdePkg/Library/BasePcdLibNull/BasePcdLibNull.inf [AARCH64]
++make: 'tbuild' に対して行うべき事はありません.
++Building ... $HOME/edk2/MdePkg/Library/BaseFdtLib/BaseFdtLib.inf [AARCH64]
++make: 'tbuild' に対して行うべき事はありません.
++Building ... $HOME/edk2/OvmfPkg/Library/FdtSerialPortAddressLib/FdtSerialPortAddressLib.inf [AARCH64]
++make: 'tbuild' に対して行うべき事はありません.
++Building ... $HOME/edk2/MdePkg/Library/PeiMemoryAllocationLib/PeiMemoryAllocationLib.inf [AARCH64]
++make: 'tbuild' に対して行うべき事はありません.
++Building ... $HOME/edk2/MdePkg/Library/PeiServicesLib/PeiServicesLib.inf [AARCH64]
++make: 'tbuild' に対して行うべき事はありません.
++Building ... $HOME/edk2/ArmPkg/Library/PeiServicesTablePointerLib/PeiServicesTablePointerLib.inf [AARCH64]
++make: 'tbuild' に対して行うべき事はありません.
++Building ... $HOME/edk2/MdePkg/Library/DynamicStackCookieEntryPointLib/UefiApplicationEntryPoint.inf [AARCH64]
++make: 'tbuild' に対して行うべき事はありません.
++Building ... $HOME/edk2/MdeModulePkg/Library/DxeCrc32GuidedSectionExtractLib/DxeCrc32GuidedSectionExtractLib.inf [AARCH64]
++make: 'tbuild' に対して行うべき事はありません.
++Building ... $HOME/edk2/MdeModulePkg/Library/ImagePropertiesRecordLib/ImagePropertiesRecordLib.inf [AARCH64]
++make: 'tbuild' に対して行うべき事はありません.
++Building ... $HOME/edk2/UefiCpuPkg/Library/CpuExceptionHandlerLib/DxeCpuExceptionHandlerLib.inf [AARCH64]
++make: 'tbuild' に対して行うべき事はありません.
++Building ... $HOME/edk2/MdeModulePkg/Library/DebugAgentLibNull/DebugAgentLibNull.inf [AARCH64]
++make: 'tbuild' に対して行うべき事はありません.
++Building ... $HOME/edk2/MdePkg/Library/BasePeCoffLib/BasePeCoffLib.inf [AARCH64]
++make: 'tbuild' に対して行うべき事はありません.
++Building ... $HOME/edk2/MdeModulePkg/Library/DxeCorePerformanceLib/DxeCorePerformanceLib.inf [AARCH64]
++make: 'tbuild' に対して行うべき事はありません.
++Building ... $HOME/edk2/MdePkg/Library/BaseUefiDecompressLib/BaseUefiDecompressLib.inf [AARCH64]
++make: 'tbuild' に対して行うべき事はありません.
++Building ... $HOME/edk2/ArmPkg/Library/ArmCacheMaintenanceLib/ArmCacheMaintenanceLib.inf [AARCH64]
++make: 'tbuild' に対して行うべき事はありません.
++Building ... $HOME/edk2/MdePkg/Library/DxeExtractGuidedSectionLib/DxeExtractGuidedSectionLib.inf [AARCH64]
++make: 'tbuild' に対して行うべき事はありません.
++Building ... $HOME/edk2/ArmVirtPkg/Library/FdtPL011SerialPortLib/FdtPL011SerialPortLib.inf [AARCH64]
++make: 'tbuild' に対して行うべき事はありません.
++Building ... $HOME/edk2/ArmPkg/Library/DebugPeCoffExtraActionLib/DebugPeCoffExtraActionLib.inf [AARCH64]
++make: 'tbuild' に対して行うべき事はありません.
++Building ... $HOME/edk2/MdePkg/Library/BasePeCoffGetEntryPointLib/BasePeCoffGetEntryPointLib.inf [AARCH64]
++make: 'tbuild' に対して行うべき事はありません.
++Building ... $HOME/edk2/MdePkg/Library/DxeServicesLib/DxeServicesLib.inf [AARCH64]
++make: 'tbuild' に対して行うべき事はありません.
++Building ... $HOME/edk2/MdePkg/Library/UefiDevicePathLib/UefiDevicePathLib.inf [AARCH64]
++make: 'tbuild' に対して行うべき事はありません.
++Building ... $HOME/edk2/MdeModulePkg/Library/DxeCoreMemoryAllocationLib/DxeCoreMemoryAllocationLib.inf [AARCH64]
++make: 'tbuild' に対して行うべき事はありません.
++Building ... $HOME/edk2/MdePkg/Library/DxeCoreHobLib/DxeCoreHobLib.inf [AARCH64]
++make: 'tbuild' に対して行うべき事はありません.
++Building ... $HOME/edk2/MdePkg/Library/DynamicStackCookieEntryPointLib/DxeCoreEntryPoint.inf [AARCH64]
++make: 'tbuild' に対して行うべき事はありません.
++Building ... $HOME/edk2/OvmfPkg/Library/QemuFwCfgLib/QemuFwCfgMmioDxeLib.inf [AARCH64]
++make: 'tbuild' に対して行うべき事はありません.
++Building ... $HOME/edk2/MdeModulePkg/Library/FrameBufferBltLib/FrameBufferBltLib.inf [AARCH64]
++make: 'tbuild' に対して行うべき事はありません.
++Building ... $HOME/edk2/ArmVirtPkg/Library/ArmGicDepexLib/ArmGicV3DepexLib.inf [AARCH64]
++make: 'tbuild' に対して行うべき事はありません.
++Building ... $HOME/edk2/MdeModulePkg/Library/DxeReportStatusCodeLib/DxeReportStatusCodeLib.inf [AARCH64]
++make: 'tbuild' に対して行うべき事はありません.
++Building ... $HOME/edk2/EmbeddedPkg/Library/NvVarStoreFormattedLib/NvVarStoreFormattedLib.inf [AARCH64]
++make: 'tbuild' に対して行うべき事はありません.
++Building ... $HOME/edk2/MdeModulePkg/Library/VarCheckUefiLib/VarCheckUefiLib.inf [AARCH64]
++make: 'tbuild' に対して行うべき事はありません.
++Building ... $HOME/edk2/MdeModulePkg/Library/VariablePolicyHelperLib/VariablePolicyHelperLib.inf [AARCH64]
++make: 'tbuild' に対して行うべき事はありません.
++Building ... $HOME/edk2/MdeModulePkg/Library/VariablePolicyLib/VariablePolicyLibRuntimeDxe.inf [AARCH64]
++make: 'tbuild' に対して行うべき事はありません.
++Building ... $HOME/edk2/MdeModulePkg/Library/BaseVariableFlashInfoLib/BaseVariableFlashInfoLib.inf [AARCH64]
++make: 'tbuild' に対して行うべき事はありません.
++Building ... $HOME/edk2/MdeModulePkg/Library/AuthVariableLibNull/AuthVariableLibNull.inf [AARCH64]
++make: 'tbuild' に対して行うべき事はありません.
++Building ... $HOME/edk2/MdeModulePkg/Library/TpmMeasurementLibNull/TpmMeasurementLibNull.inf [AARCH64]
++make: 'tbuild' に対して行うべき事はありません.
++Building ... $HOME/edk2/MdePkg/Library/DxeServicesTableLib/DxeServicesTableLib.inf [AARCH64]
++make: 'tbuild' に対して行うべき事はありません.
++Building ... $HOME/edk2/MdePkg/Library/UefiRuntimeLib/UefiRuntimeLib.inf [AARCH64]
++make: 'tbuild' に対して行うべき事はありません.
++Building ... $HOME/edk2/MdePkg/Library/BaseSynchronizationLib/BaseSynchronizationLib.inf [AARCH64]
++make: 'tbuild' に対して行うべき事はありません.
++Building ... $HOME/edk2/MdeModulePkg/Library/VarCheckLib/VarCheckLib.inf [AARCH64]
++make: 'tbuild' に対して行うべき事はありません.
++Building ... $HOME/edk2/ArmPkg/Library/ArmArchTimerLib/ArmArchTimerLib.inf [AARCH64]
++make: 'tbuild' に対して行うべき事はありません.
++Building ... $HOME/edk2/ArmPkg/Library/ArmGenericTimerVirtCounterLib/ArmGenericTimerVirtCounterLib.inf [AARCH64]
++make: 'tbuild' に対して行うべき事はありません.
++Building ... $HOME/edk2/MdePkg/Library/ArmLib/ArmBaseLib.inf [AARCH64]
++make: 'tbuild' に対して行うべき事はありません.
++Building ... $HOME/edk2/ArmVirtPkg/Library/DebugLibFdtPL011Uart/DxeRuntimeDebugLibFdtPL011Uart.inf [AARCH64]
++make: 'tbuild' に対して行うべき事はありません.
++Building ... $HOME/edk2/MdePkg/Library/BaseMemoryLib/BaseMemoryLib.inf [AARCH64]
++make: 'tbuild' に対して行うべき事はありません.
++Building ... $HOME/edk2/OvmfPkg/Library/BasePciCapPciSegmentLib/BasePciCapPciSegmentLib.inf [AARCH64]
++make: 'tbuild' に対して行うべき事はありません.
++Building ... $HOME/edk2/OvmfPkg/Library/BasePciCapLib/BasePciCapLib.inf [AARCH64]
++make: 'tbuild' に対して行うべき事はありません.
++Building ... $HOME/edk2/MdePkg/Library/BasePciSegmentLibPci/BasePciSegmentLibPci.inf [AARCH64]
++make: 'tbuild' に対して行うべき事はありません.
++Building ... $HOME/edk2/MdePkg/Library/BaseOrderedCollectionRedBlackTreeLib/BaseOrderedCollectionRedBlackTreeLib.inf [AARCH64]
++make: 'tbuild' に対して行うべき事はありません.
++Building ... $HOME/edk2/MdePkg/Library/BasePciLibPciExpress/BasePciLibPciExpress.inf [AARCH64]
++make: 'tbuild' に対して行うべき事はありません.
++Building ... $HOME/edk2/OvmfPkg/Library/BaseCachingPciExpressLib/BaseCachingPciExpressLib.inf [AARCH64]
++make: 'tbuild' に対して行うべき事はありません.
++Building ... $HOME/edk2/OvmfPkg/Fdt/FdtPciPcdProducerLib/FdtPciPcdProducerLib.inf [AARCH64]
++make: 'tbuild' に対して行うべき事はありません.
++Building ... $HOME/edk2/ShellPkg/Library/UefiShellLib/UefiShellLib.inf [AARCH64]
++make: 'tbuild' に対して行うべき事はありません.
++Building ... $HOME/edk2/NetworkPkg/Library/DxeHttpLib/DxeHttpLib.inf [AARCH64]
++make: 'tbuild' に対して行うべき事はありません.
++Building ... $HOME/edk2/MdePkg/Library/UefiFileHandleLib/UefiFileHandleLib.inf [AARCH64]
++make: 'tbuild' に対して行うべき事はありません.
++Building ... $HOME/edk2/MdeModulePkg/Library/UefiHiiLib/UefiHiiLib.inf [AARCH64]
++make: 'tbuild' に対して行うべき事はありません.
++Building ... $HOME/edk2/MdeModulePkg/Library/UefiSortLib/UefiSortLib.inf [AARCH64]
++make: 'tbuild' に対して行うべき事はありません.
++Building ... $HOME/edk2/NetworkPkg/Library/DxeNetLib/DxeNetLib.inf [AARCH64]
++make: 'tbuild' に対して行うべき事はありません.
++Building ... $HOME/edk2/MdeModulePkg/Library/UefiHiiServicesLib/UefiHiiServicesLib.inf [AARCH64]
++make: 'tbuild' に対して行うべき事はありません.
++Building ... $HOME/edk2/MdePkg/Library/BaseSafeIntLib/BaseSafeIntLib.inf [AARCH64]
++make: 'tbuild' に対して行うべき事はありません.
++Building ... $HOME/edk2/MdePkg/Library/BaseReportStatusCodeLibNull/BaseReportStatusCodeLibNull.inf [AARCH64]
++make: 'tbuild' に対して行うべき事はありません.
++Building ... $HOME/edk2/NetworkPkg/MnpDxe/MnpDxe.inf [AARCH64]
++Building ... $HOME/edk2/OvmfPkg/VirtioNetDxe/VirtioNet.inf [AARCH64]
++make: 'tbuild' に対して行うべき事はありません.
++Building ... $HOME/edk2/MdeModulePkg/Universal/SecurityStubDxe/SecurityStubDxe.inf [AARCH64]
++make: 'tbuild' に対して行うべき事はありません.
++Building ... $HOME/edk2/MdeModulePkg/Universal/Acpi/AcpiTableDxe/AcpiTableDxe.inf [AARCH64]
++make: 'tbuild' に対して行うべき事はありません.
++Building ... $HOME/edk2/ArmPkg/Drivers/CpuPei/CpuPei.inf [AARCH64]
++make: 'tbuild' に対して行うべき事はありません.
++Building ... $HOME/edk2/OvmfPkg/VirtNorFlashDxe/VirtNorFlashDxe.inf [AARCH64]
++make: 'tbuild' に対して行うべき事はありません.
++Building ... $HOME/edk2/MdeModulePkg/Universal/Console/GraphicsConsoleDxe/GraphicsConsoleDxe.inf [AARCH64]
++make: 'tbuild' に対して行うべき事はありません.
++Building ... $HOME/edk2/NetworkPkg/Udp4Dxe/Udp4Dxe.inf [AARCH64]
++make: 'tbuild' に対して行うべき事はありません.
++Building ... $HOME/edk2/MdeModulePkg/Universal/DriverHealthManagerDxe/DriverHealthManagerDxe.inf [AARCH64]
++make: 'tbuild' に対して行うべき事はありません.
++Building ... $HOME/edk2/MdeModulePkg/Core/DxeIplPeim/DxeIpl.inf [AARCH64]
++Trim --Vfr-Uni-Offset -o $HOME/edk2/Build/ArmVirtQemu-AArch64/DEBUG_GCC/FV/Ffs/EBF8ED7C-0DD1-4787-84F1-F48D537DCACFDriverHealthManagerDxe/DriverHealthManagerDxe.offset --ModuleName=DriverHealthManagerDxe --DebugDir=$HOME/edk2/Build/ArmVirtQemu-AArch64/DEBUG_GCC/AARCH64/MdeModulePkg/Universal/DriverHealthManagerDxe/DriverHealthManagerDxe/DEBUG
++Building ... $HOME/edk2/MdeModulePkg/Universal/Metronome/Metronome.inf [AARCH64]
++make: 'tbuild' に対して行うべき事はありません.
++make: 'tbuild' に対して行うべき事はありません.
++Building ... $HOME/edk2/MdeModulePkg/Universal/ResetSystemRuntimeDxe/ResetSystemRuntimeDxe.inf [AARCH64]
++Building ... $HOME/edk2/ShellPkg/DynamicCommand/TftpDynamicCommand/TftpDynamicCommand.inf [AARCH64]
++make: 'tbuild' に対して行うべき事はありません.
++Building ... $HOME/edk2/NetworkPkg/VlanConfigDxe/VlanConfigDxe.inf [AARCH64]
++make: 'tbuild' に対して行うべき事はありません.
++Building ... $HOME/edk2/UefiCpuPkg/CpuMmio2Dxe/CpuMmio2Dxe.inf [AARCH64]
++Trim --Vfr-Uni-Offset -o $HOME/edk2/Build/ArmVirtQemu-AArch64/DEBUG_GCC/FV/Ffs/E4F61863-FE2C-4b56-A8F4-08519BC439DFVlanConfigDxe/VlanConfigDxe.offset --ModuleName=VlanConfigDxe --DebugDir=$HOME/edk2/Build/ArmVirtQemu-AArch64/DEBUG_GCC/AARCH64/NetworkPkg/VlanConfigDxe/VlanConfigDxe/DEBUG
++make: 'tbuild' に対して行うべき事はありません.
++Building ... $HOME/edk2/MdeModulePkg/Logo/LogoDxe.inf [AARCH64]
++make: 'tbuild' に対して行うべき事はありません.
++Building ... $HOME/edk2/NetworkPkg/DpcDxe/DpcDxe.inf [AARCH64]
++make: 'tbuild' に対して行うべき事はありません.
++Building ... $HOME/edk2/SecurityPkg/RandomNumberGenerator/RngDxe/RngDxe.inf [AARCH64]
++test -e $HOME/edk2/Build/ArmVirtQemu-AArch64/DEBUG_GCC/FV/Ffs/EBF8ED7C-0DD1-4787-84F1-F48D537DCACFDriverHealthManagerDxe/DriverHealthManagerDxe.offset && GenSec -s EFI_SECTION_RAW -o $HOME/edk2/Build/ArmVirtQemu-AArch64/DEBUG_GCC/FV/Ffs/EBF8ED7C-0DD1-4787-84F1-F48D537DCACFDriverHealthManagerDxe/DriverHealthManagerDxeOffset.raw $HOME/edk2/Build/ArmVirtQemu-AArch64/DEBUG_GCC/FV/Ffs/EBF8ED7C-0DD1-4787-84F1-F48D537DCACFDriverHealthManagerDxe/DriverHealthManagerDxe.offset
++make: [GNUmakefile:442: $HOME/edk2/Build/ArmVirtQemu-AArch64/DEBUG_GCC/FV/Ffs/EBF8ED7C-0DD1-4787-84F1-F48D537DCACFDriverHealthManagerDxe/DriverHealthManagerDxeOffset.raw] エラー 1 (無視されました)
++GenFfs -t EFI_FV_FILETYPE_DRIVER -g EBF8ED7C-0DD1-4787-84F1-F48D537DCACF -o $HOME/edk2/Build/ArmVirtQemu-AArch64/DEBUG_GCC/FV/Ffs/EBF8ED7C-0DD1-4787-84F1-F48D537DCACFDriverHealthManagerDxe/EBF8ED7C-0DD1-4787-84F1-F48D537DCACF.ffs -oi $HOME/edk2/Build/ArmVirtQemu-AArch64/DEBUG_GCC/FV/Ffs/EBF8ED7C-0DD1-4787-84F1-F48D537DCACFDriverHealthManagerDxe/EBF8ED7C-0DD1-4787-84F1-F48D537DCACFSEC1.1.dpx -oi $HOME/edk2/Build/ArmVirtQemu-AArch64/DEBUG_GCC/FV/Ffs/EBF8ED7C-0DD1-4787-84F1-F48D537DCACFDriverHealthManagerDxe/DriverHealthManagerDxeOffset.raw -oi $HOME/edk2/Build/ArmVirtQemu-AArch64/DEBUG_GCC/FV/Ffs/EBF8ED7C-0DD1-4787-84F1-F48D537DCACFDriverHealthManagerDxe/EBF8ED7C-0DD1-4787-84F1-F48D537DCACFSEC2.1.pe32 -oi $HOME/edk2/Build/ArmVirtQemu-AArch64/DEBUG_GCC/FV/Ffs/EBF8ED7C-0DD1-4787-84F1-F48D537DCACFDriverHealthManagerDxe/EBF8ED7C-0DD1-4787-84F1-F48D537DCACFSEC3.ui
++Building ... $HOME/edk2/MdeModulePkg/Universal/Console/TerminalDxe/TerminalDxe.inf [AARCH64]
++make: 'tbuild' に対して行うべき事はありません.
++Building ... $HOME/edk2/MdeModulePkg/Universal/ReportStatusCodeRouter/RuntimeDxe/ReportStatusCodeRouterRuntimeDxe.inf [AARCH64]
++make: 'tbuild' に対して行うべき事はありません.
++Building ... $HOME/edk2/NetworkPkg/ArpDxe/ArpDxe.inf [AARCH64]
++make: 'tbuild' に対して行うべき事はありません.
++Building ... $HOME/edk2/MdeModulePkg/Application/UiApp/UiApp.inf [AARCH64]
++make: 'tbuild' に対して行うべき事はありません.
++Building ... $HOME/edk2/MdeModulePkg/Universal/WatchdogTimerDxe/WatchdogTimer.inf [AARCH64]
++test -e $HOME/edk2/Build/ArmVirtQemu-AArch64/DEBUG_GCC/FV/Ffs/E4F61863-FE2C-4b56-A8F4-08519BC439DFVlanConfigDxe/VlanConfigDxe.offset && GenSec -s EFI_SECTION_RAW -o $HOME/edk2/Build/ArmVirtQemu-AArch64/DEBUG_GCC/FV/Ffs/E4F61863-FE2C-4b56-A8F4-08519BC439DFVlanConfigDxe/VlanConfigDxeOffset.raw $HOME/edk2/Build/ArmVirtQemu-AArch64/DEBUG_GCC/FV/Ffs/E4F61863-FE2C-4b56-A8F4-08519BC439DFVlanConfigDxe/VlanConfigDxe.offset
++make: [GNUmakefile:430: $HOME/edk2/Build/ArmVirtQemu-AArch64/DEBUG_GCC/FV/Ffs/E4F61863-FE2C-4b56-A8F4-08519BC439DFVlanConfigDxe/VlanConfigDxeOffset.raw] エラー 1 (無視されました)
++GenFfs -t EFI_FV_FILETYPE_DRIVER -g E4F61863-FE2C-4b56-A8F4-08519BC439DF -o $HOME/edk2/Build/ArmVirtQemu-AArch64/DEBUG_GCC/FV/Ffs/E4F61863-FE2C-4b56-A8F4-08519BC439DFVlanConfigDxe/E4F61863-FE2C-4b56-A8F4-08519BC439DF.ffs -oi $HOME/edk2/Build/ArmVirtQemu-AArch64/DEBUG_GCC/FV/Ffs/E4F61863-FE2C-4b56-A8F4-08519BC439DFVlanConfigDxe/E4F61863-FE2C-4b56-A8F4-08519BC439DFSEC1.1.dpx -oi $HOME/edk2/Build/ArmVirtQemu-AArch64/DEBUG_GCC/FV/Ffs/E4F61863-FE2C-4b56-A8F4-08519BC439DFVlanConfigDxe/VlanConfigDxeOffset.raw -oi $HOME/edk2/Build/ArmVirtQemu-AArch64/DEBUG_GCC/FV/Ffs/E4F61863-FE2C-4b56-A8F4-08519BC439DFVlanConfigDxe/E4F61863-FE2C-4b56-A8F4-08519BC439DFSEC2.1.pe32 -oi $HOME/edk2/Build/ArmVirtQemu-AArch64/DEBUG_GCC/FV/Ffs/E4F61863-FE2C-4b56-A8F4-08519BC439DFVlanConfigDxe/E4F61863-FE2C-4b56-A8F4-08519BC439DFSEC3.ui
++Trim --Vfr-Uni-Offset -o $HOME/edk2/Build/ArmVirtQemu-AArch64/DEBUG_GCC/FV/Ffs/462CAA21-7614-4503-836E-8AB6F4662331UiApp/UiApp.offset --ModuleName=UiApp --DebugDir=$HOME/edk2/Build/ArmVirtQemu-AArch64/DEBUG_GCC/AARCH64/MdeModulePkg/Application/UiApp/UiApp/DEBUG
++Building ... $HOME/edk2/OvmfPkg/Fdt/VirtioFdtDxe/VirtioFdtDxe.inf [AARCH64]
++make: 'tbuild' に対して行うべき事はありません.
++make: 'tbuild' に対して行うべき事はありません.
++Building ... $HOME/edk2/MdeModulePkg/Bus/Scsi/ScsiDiskDxe/ScsiDiskDxe.inf [AARCH64]
++Building ... $HOME/edk2/MdeModulePkg/Universal/Console/ConPlatformDxe/ConPlatformDxe.inf [AARCH64]
++make: 'tbuild' に対して行うべき事はありません.
++Building ... $HOME/edk2/EmbeddedPkg/RealTimeClockRuntimeDxe/RealTimeClockRuntimeDxe.inf [AARCH64]
++make: 'tbuild' に対して行うべき事はありません.
++Building ... $HOME/edk2/ArmPlatformPkg/PlatformPei/PlatformPeim.inf [AARCH64]
++make: 'tbuild' に対して行うべき事はありません.
++Building ... $HOME/edk2/MdeModulePkg/Universal/Disk/UdfDxe/UdfDxe.inf [AARCH64]
++make: 'tbuild' に対して行うべき事はありません.
++Building ... $HOME/edk2/MdeModulePkg/Universal/PCD/Dxe/Pcd.inf [AARCH64]
++make: 'tbuild' に対して行うべき事はありません.
++Building ... $HOME/edk2/OvmfPkg/VirtioFsDxe/VirtioFsDxe.inf [AARCH64]
++make: 'tbuild' に対して行うべき事はありません.
++test -e $HOME/edk2/Build/ArmVirtQemu-AArch64/DEBUG_GCC/FV/Ffs/462CAA21-7614-4503-836E-8AB6F4662331UiApp/UiApp.offset && GenSec -s EFI_SECTION_RAW -o $HOME/edk2/Build/ArmVirtQemu-AArch64/DEBUG_GCC/FV/Ffs/462CAA21-7614-4503-836E-8AB6F4662331UiApp/UiAppOffset.raw $HOME/edk2/Build/ArmVirtQemu-AArch64/DEBUG_GCC/FV/Ffs/462CAA21-7614-4503-836E-8AB6F4662331UiApp/UiApp.offset
++make: [GNUmakefile:459: $HOME/edk2/Build/ArmVirtQemu-AArch64/DEBUG_GCC/FV/Ffs/462CAA21-7614-4503-836E-8AB6F4662331UiApp/UiAppOffset.raw] エラー 1 (無視されました)
++GenFfs -t EFI_FV_FILETYPE_APPLICATION -g 462CAA21-7614-4503-836E-8AB6F4662331 -o $HOME/edk2/Build/ArmVirtQemu-AArch64/DEBUG_GCC/FV/Ffs/462CAA21-7614-4503-836E-8AB6F4662331UiApp/462CAA21-7614-4503-836E-8AB6F4662331.ffs -oi $HOME/edk2/Build/ArmVirtQemu-AArch64/DEBUG_GCC/FV/Ffs/462CAA21-7614-4503-836E-8AB6F4662331UiApp/462CAA21-7614-4503-836E-8AB6F4662331SEC1.ui -oi $HOME/edk2/Build/ArmVirtQemu-AArch64/DEBUG_GCC/FV/Ffs/462CAA21-7614-4503-836E-8AB6F4662331UiApp/UiAppOffset.raw -oi $HOME/edk2/Build/ArmVirtQemu-AArch64/DEBUG_GCC/FV/Ffs/462CAA21-7614-4503-836E-8AB6F4662331UiApp/462CAA21-7614-4503-836E-8AB6F4662331SEC2.1.pe32
++Building ... $HOME/edk2/MdeModulePkg/Universal/Acpi/BootGraphicsResourceTableDxe/BootGraphicsResourceTableDxe.inf [AARCH64]
++make: 'tbuild' に対して行うべき事はありません.
++make: 'tbuild' に対して行うべき事はありません.
++Building ... $HOME/edk2/ArmPkg/Drivers/ArmGicDxe/ArmGicV2Dxe.inf [AARCH64]
++Building ... $HOME/edk2/OvmfPkg/Fdt/HighMemDxe/HighMemDxe.inf [AARCH64]
++make: 'tbuild' に対して行うべき事はありません.
++Building ... $HOME/edk2/MdeModulePkg/Bus/Scsi/ScsiBusDxe/ScsiBusDxe.inf [AARCH64]
++make: 'tbuild' に対して行うべき事はありません.
++Building ... $HOME/edk2/MdeModulePkg/Universal/SerialDxe/SerialDxe.inf [AARCH64]
++make: 'tbuild' に対して行うべき事はありません.
++make: 'tbuild' に対して行うべき事はありません.
++Building ... $HOME/edk2/OvmfPkg/VirtioBlkDxe/VirtioBlk.inf [AARCH64]
++make: 'tbuild' に対して行うべき事はありません.
++Building ... $HOME/edk2/OvmfPkg/VirtioRngDxe/VirtioRng.inf [AARCH64]
++make: 'tbuild' に対して行うべき事はありません.
++Building ... $HOME/edk2/MdeModulePkg/Universal/DisplayEngineDxe/DisplayEngineDxe.inf [AARCH64]
++Building ... $HOME/edk2/NetworkPkg/UefiPxeBcDxe/UefiPxeBcDxe.inf [AARCH64]
++Trim --Vfr-Uni-Offset -o $HOME/edk2/Build/ArmVirtQemu-AArch64/DEBUG_GCC/FV/Ffs/E660EA85-058E-4b55-A54B-F02F83A24707DisplayEngine/DisplayEngine.offset --ModuleName=DisplayEngine --DebugDir=$HOME/edk2/Build/ArmVirtQemu-AArch64/DEBUG_GCC/AARCH64/MdeModulePkg/Universal/DisplayEngineDxe/DisplayEngineDxe/DEBUG
++Building ... $HOME/edk2/NetworkPkg/Mtftp4Dxe/Mtftp4Dxe.inf [AARCH64]
++make: 'tbuild' に対して行うべき事はありません.
++Building ... $HOME/edk2/OvmfPkg/VirtioInputDxe/VirtioInput.inf [AARCH64]
++make: 'tbuild' に対して行うべき事はありません.
++Building ... $HOME/edk2/OvmfPkg/VirtioSerialDxe/VirtioSerial.inf [AARCH64]
++make: 'tbuild' に対して行うべき事はありません.
++Building ... $HOME/edk2/MdeModulePkg/Universal/HiiDatabaseDxe/HiiDatabaseDxe.inf [AARCH64]
++make: 'tbuild' に対して行うべき事はありません.
++Building ... $HOME/edk2/OvmfPkg/VirtioGpuDxe/VirtioGpu.inf [AARCH64]
++make: 'tbuild' に対して行うべき事はありません.
++Building ... $HOME/edk2/MdeModulePkg/Universal/Disk/UnicodeCollation/EnglishDxe/EnglishDxe.inf [AARCH64]
++make: 'tbuild' に対して行うべき事はありません.
++make: 'tbuild' に対して行うべき事はありません.
++Building ... $HOME/edk2/NetworkPkg/TcpDxe/TcpDxe.inf [AARCH64]
++Building ... $HOME/edk2/OvmfPkg/SmbiosPlatformDxe/SmbiosPlatformDxe.inf [AARCH64]
++make: 'tbuild' に対して行うべき事はありません.
++test -e $HOME/edk2/Build/ArmVirtQemu-AArch64/DEBUG_GCC/FV/Ffs/E660EA85-058E-4b55-A54B-F02F83A24707DisplayEngine/DisplayEngine.offset && GenSec -s EFI_SECTION_RAW -o $HOME/edk2/Build/ArmVirtQemu-AArch64/DEBUG_GCC/FV/Ffs/E660EA85-058E-4b55-A54B-F02F83A24707DisplayEngine/DisplayEngineOffset.raw $HOME/edk2/Build/ArmVirtQemu-AArch64/DEBUG_GCC/FV/Ffs/E660EA85-058E-4b55-A54B-F02F83A24707DisplayEngine/DisplayEngine.offset
++make: [GNUmakefile:425: $HOME/edk2/Build/ArmVirtQemu-AArch64/DEBUG_GCC/FV/Ffs/E660EA85-058E-4b55-A54B-F02F83A24707DisplayEngine/DisplayEngineOffset.raw] エラー 1 (無視されました)
++GenFfs -t EFI_FV_FILETYPE_DRIVER -g E660EA85-058E-4b55-A54B-F02F83A24707 -o $HOME/edk2/Build/ArmVirtQemu-AArch64/DEBUG_GCC/FV/Ffs/E660EA85-058E-4b55-A54B-F02F83A24707DisplayEngine/E660EA85-058E-4b55-A54B-F02F83A24707.ffs -oi $HOME/edk2/Build/ArmVirtQemu-AArch64/DEBUG_GCC/FV/Ffs/E660EA85-058E-4b55-A54B-F02F83A24707DisplayEngine/E660EA85-058E-4b55-A54B-F02F83A24707SEC1.1.dpx -oi $HOME/edk2/Build/ArmVirtQemu-AArch64/DEBUG_GCC/FV/Ffs/E660EA85-058E-4b55-A54B-F02F83A24707DisplayEngine/DisplayEngineOffset.raw -oi $HOME/edk2/Build/ArmVirtQemu-AArch64/DEBUG_GCC/FV/Ffs/E660EA85-058E-4b55-A54B-F02F83A24707DisplayEngine/E660EA85-058E-4b55-A54B-F02F83A24707SEC2.1.pe32 -oi $HOME/edk2/Build/ArmVirtQemu-AArch64/DEBUG_GCC/FV/Ffs/E660EA85-058E-4b55-A54B-F02F83A24707DisplayEngine/E660EA85-058E-4b55-A54B-F02F83A24707SEC3.ui
++Building ... $HOME/edk2/MdeModulePkg/Universal/CapsuleRuntimeDxe/CapsuleRuntimeDxe.inf [AARCH64]
++make: 'tbuild' に対して行うべき事はありません.
++Building ... $HOME/edk2/SecurityPkg/Hash2DxeCrypto/Hash2DxeCrypto.inf [AARCH64]
++make: 'tbuild' に対して行うべき事はありません.
++Building ... $HOME/edk2/ShellPkg/Application/Shell/Shell.inf [AARCH64]
++make: 'tbuild' に対して行うべき事はありません.
++Building ... $HOME/edk2/MdeModulePkg/Universal/Disk/RamDiskDxe/RamDiskDxe.inf [AARCH64]
++Trim --Vfr-Uni-Offset -o $HOME/edk2/Build/ArmVirtQemu-AArch64/DEBUG_GCC/FV/Ffs/7C04A583-9E3E-4f1c-AD65-E05268D0B4D1Shell/Shell.offset --ModuleName=Shell --DebugDir=$HOME/edk2/Build/ArmVirtQemu-AArch64/DEBUG_GCC/AARCH64/ShellPkg/Application/Shell/Shell/DEBUG
++Building ... $HOME/edk2/OvmfPkg/LinuxInitrdDynamicShellCommand/LinuxInitrdDynamicShellCommand.inf [AARCH64]
++Trim --Vfr-Uni-Offset -o $HOME/edk2/Build/ArmVirtQemu-AArch64/DEBUG_GCC/FV/Ffs/28A03FF4-12B3-4305-A417-BB1A4F94081ERamDiskDxe/RamDiskDxe.offset --ModuleName=RamDiskDxe --DebugDir=$HOME/edk2/Build/ArmVirtQemu-AArch64/DEBUG_GCC/AARCH64/MdeModulePkg/Universal/Disk/RamDiskDxe/RamDiskDxe/DEBUG
++Building ... $HOME/edk2/ArmPkg/Drivers/CpuDxe/CpuDxe.inf [AARCH64]
++make: 'tbuild' に対して行うべき事はありません.
++Building ... $HOME/edk2/MdeModulePkg/Universal/SmbiosDxe/SmbiosDxe.inf [AARCH64]
++make: 'tbuild' に対して行うべき事はありません.
++Building ... $HOME/edk2/OvmfPkg/AcpiPlatformDxe/AcpiPlatformDxe.inf [AARCH64]
++make: 'tbuild' に対して行うべき事はありません.
++Building ... $HOME/edk2/OvmfPkg/PlatformHasAcpiDtDxe/PlatformHasAcpiDtDxe.inf [AARCH64]
++make: 'tbuild' に対して行うべき事はありません.
++make: 'tbuild' に対して行うべき事はありません.
++Building ... $HOME/edk2/MdeModulePkg/Bus/Pci/PciHostBridgeDxe/PciHostBridgeDxe.inf [AARCH64]
++Building ... $HOME/edk2/OvmfPkg/Virtio10Dxe/Virtio10.inf [AARCH64]
++make: 'tbuild' に対して行うべき事はありません.
++Building ... $HOME/edk2/OvmfPkg/QemuKernelLoaderFsDxe/QemuKernelLoaderFsDxe.inf [AARCH64]
++make: 'tbuild' に対して行うべき事はありません.
++Building ... $HOME/edk2/EmbeddedPkg/Drivers/FdtClientDxe/FdtClientDxe.inf [AARCH64]
++make: 'tbuild' に対して行うべき事はありません.
++test -e $HOME/edk2/Build/ArmVirtQemu-AArch64/DEBUG_GCC/FV/Ffs/7C04A583-9E3E-4f1c-AD65-E05268D0B4D1Shell/Shell.offset && GenSec -s EFI_SECTION_RAW -o $HOME/edk2/Build/ArmVirtQemu-AArch64/DEBUG_GCC/FV/Ffs/7C04A583-9E3E-4f1c-AD65-E05268D0B4D1Shell/ShellOffset.raw $HOME/edk2/Build/ArmVirtQemu-AArch64/DEBUG_GCC/FV/Ffs/7C04A583-9E3E-4f1c-AD65-E05268D0B4D1Shell/Shell.offset
++make: [GNUmakefile:495: $HOME/edk2/Build/ArmVirtQemu-AArch64/DEBUG_GCC/FV/Ffs/7C04A583-9E3E-4f1c-AD65-E05268D0B4D1Shell/ShellOffset.raw] エラー 1 (無視されました)
++GenFfs -t EFI_FV_FILETYPE_APPLICATION -g 7C04A583-9E3E-4f1c-AD65-E05268D0B4D1 -o $HOME/edk2/Build/ArmVirtQemu-AArch64/DEBUG_GCC/FV/Ffs/7C04A583-9E3E-4f1c-AD65-E05268D0B4D1Shell/7C04A583-9E3E-4f1c-AD65-E05268D0B4D1.ffs -oi $HOME/edk2/Build/ArmVirtQemu-AArch64/DEBUG_GCC/FV/Ffs/7C04A583-9E3E-4f1c-AD65-E05268D0B4D1Shell/7C04A583-9E3E-4f1c-AD65-E05268D0B4D1SEC1.ui -oi $HOME/edk2/Build/ArmVirtQemu-AArch64/DEBUG_GCC/FV/Ffs/7C04A583-9E3E-4f1c-AD65-E05268D0B4D1Shell/ShellOffset.raw -oi $HOME/edk2/Build/ArmVirtQemu-AArch64/DEBUG_GCC/FV/Ffs/7C04A583-9E3E-4f1c-AD65-E05268D0B4D1Shell/7C04A583-9E3E-4f1c-AD65-E05268D0B4D1SEC2.1.pe32
++make: 'tbuild' に対して行うべき事はありません.
++Building ... $HOME/edk2/MdeModulePkg/Universal/Console/ConSplitterDxe/ConSplitterDxe.inf [AARCH64]
++test -e $HOME/edk2/Build/ArmVirtQemu-AArch64/DEBUG_GCC/FV/Ffs/28A03FF4-12B3-4305-A417-BB1A4F94081ERamDiskDxe/RamDiskDxe.offset && GenSec -s EFI_SECTION_RAW -o $HOME/edk2/Build/ArmVirtQemu-AArch64/DEBUG_GCC/FV/Ffs/28A03FF4-12B3-4305-A417-BB1A4F94081ERamDiskDxe/RamDiskDxeOffset.raw $HOME/edk2/Build/ArmVirtQemu-AArch64/DEBUG_GCC/FV/Ffs/28A03FF4-12B3-4305-A417-BB1A4F94081ERamDiskDxe/RamDiskDxe.offset
++make: [GNUmakefile:469: $HOME/edk2/Build/ArmVirtQemu-AArch64/DEBUG_GCC/FV/Ffs/28A03FF4-12B3-4305-A417-BB1A4F94081ERamDiskDxe/RamDiskDxeOffset.raw] エラー 1 (無視されました)
++GenFfs -t EFI_FV_FILETYPE_DRIVER -g 28A03FF4-12B3-4305-A417-BB1A4F94081E -o $HOME/edk2/Build/ArmVirtQemu-AArch64/DEBUG_GCC/FV/Ffs/28A03FF4-12B3-4305-A417-BB1A4F94081ERamDiskDxe/28A03FF4-12B3-4305-A417-BB1A4F94081E.ffs -oi $HOME/edk2/Build/ArmVirtQemu-AArch64/DEBUG_GCC/FV/Ffs/28A03FF4-12B3-4305-A417-BB1A4F94081ERamDiskDxe/28A03FF4-12B3-4305-A417-BB1A4F94081ESEC1.1.dpx -oi $HOME/edk2/Build/ArmVirtQemu-AArch64/DEBUG_GCC/FV/Ffs/28A03FF4-12B3-4305-A417-BB1A4F94081ERamDiskDxe/RamDiskDxeOffset.raw -oi $HOME/edk2/Build/ArmVirtQemu-AArch64/DEBUG_GCC/FV/Ffs/28A03FF4-12B3-4305-A417-BB1A4F94081ERamDiskDxe/28A03FF4-12B3-4305-A417-BB1A4F94081ESEC2.1.pe32 -oi $HOME/edk2/Build/ArmVirtQemu-AArch64/DEBUG_GCC/FV/Ffs/28A03FF4-12B3-4305-A417-BB1A4F94081ERamDiskDxe/28A03FF4-12B3-4305-A417-BB1A4F94081ESEC3.ui -oi $HOME/edk2/Build/ArmVirtQemu-AArch64/DEBUG_GCC/FV/Ffs/28A03FF4-12B3-4305-A417-BB1A4F94081ERamDiskDxe/28A03FF4-12B3-4305-A417-BB1A4F94081ESEC5.1.raw
++Building ... $HOME/edk2/ArmPkg/Drivers/TimerDxe/TimerDxe.inf [AARCH64]
++make: 'tbuild' に対して行うべき事はありません.
++Building ... $HOME/edk2/MdeModulePkg/Universal/DevicePathDxe/DevicePathDxe.inf [AARCH64]
++make: 'tbuild' に対して行うべき事はありません.
++make: 'tbuild' に対して行うべき事はありません.
++Building ... $HOME/edk2/MdeModulePkg/Bus/Usb/UsbBusDxe/UsbBusDxe.inf [AARCH64]
++Building ... $HOME/edk2/MdeModulePkg/Core/Pei/PeiMain.inf [AARCH64]
++make: 'tbuild' に対して行うべき事はありません.
++Building ... $HOME/edk2/ArmPlatformPkg/Sec/Sec.inf [AARCH64]
++make: 'tbuild' に対して行うべき事はありません.
++Building ... $HOME/edk2/NetworkPkg/Ip4Dxe/Ip4Dxe.inf [AARCH64]
++make: 'tbuild' に対して行うべき事はありません.
++Building ... $HOME/edk2/MdeModulePkg/Bus/Pci/XhciDxe/XhciDxe.inf [AARCH64]
++Trim --Vfr-Uni-Offset -o $HOME/edk2/Build/ArmVirtQemu-AArch64/DEBUG_GCC/FV/Ffs/9FB1A1F3-3B71-4324-B39A-745CBB015FFFIp4Dxe/Ip4Dxe.offset --ModuleName=Ip4Dxe --DebugDir=$HOME/edk2/Build/ArmVirtQemu-AArch64/DEBUG_GCC/AARCH64/NetworkPkg/Ip4Dxe/Ip4Dxe/DEBUG
++Building ... $HOME/edk2/MdeModulePkg/Bus/Pci/EhciDxe/EhciDxe.inf [AARCH64]
++make: 'tbuild' に対して行うべき事はありません.
++Building ... $HOME/edk2/MdeModulePkg/Bus/Usb/UsbKbDxe/UsbKbDxe.inf [AARCH64]
++make: 'tbuild' に対して行うべき事はありません.
++Building ... $HOME/edk2/ArmVirtPkg/Library/ArmVirtGicPlatformDxe/ArmVirtGicPlatformDxe.inf [AARCH64]
++make: 'tbuild' に対して行うべき事はありません.
++Building ... $HOME/edk2/MdeModulePkg/Universal/Disk/PartitionDxe/PartitionDxe.inf [AARCH64]
++make: 'tbuild' に対して行うべき事はありません.
++Building ... $HOME/edk2/MdeModulePkg/Universal/BdsDxe/BdsDxe.inf [AARCH64]
++make: 'tbuild' に対して行うべき事はありません.
++Building ... $HOME/edk2/OemPkg/WlTest/WlTest.inf [AARCH64]
++make: 'tbuild' に対して行うべき事はありません.
++make: 'tbuild' に対して行うべき事はありません.
++Building ... $HOME/edk2/MdeModulePkg/Universal/MonotonicCounterRuntimeDxe/MonotonicCounterRuntimeDxe.inf [AARCH64]
++make: 'tbuild' に対して行うべき事はありません.
++Building ... $HOME/edk2/MdeModulePkg/Universal/Disk/DiskIoDxe/DiskIoDxe.inf [AARCH64]
++test -e $HOME/edk2/Build/ArmVirtQemu-AArch64/DEBUG_GCC/FV/Ffs/9FB1A1F3-3B71-4324-B39A-745CBB015FFFIp4Dxe/Ip4Dxe.offset && GenSec -s EFI_SECTION_RAW -o $HOME/edk2/Build/ArmVirtQemu-AArch64/DEBUG_GCC/FV/Ffs/9FB1A1F3-3B71-4324-B39A-745CBB015FFFIp4Dxe/Ip4DxeOffset.raw $HOME/edk2/Build/ArmVirtQemu-AArch64/DEBUG_GCC/FV/Ffs/9FB1A1F3-3B71-4324-B39A-745CBB015FFFIp4Dxe/Ip4Dxe.offset
++make: [GNUmakefile:506: $HOME/edk2/Build/ArmVirtQemu-AArch64/DEBUG_GCC/FV/Ffs/9FB1A1F3-3B71-4324-B39A-745CBB015FFFIp4Dxe/Ip4DxeOffset.raw] エラー 1 (無視されました)
++make: 'tbuild' に対して行うべき事はありません.
++GenFfs -t EFI_FV_FILETYPE_DRIVER -g 9FB1A1F3-3B71-4324-B39A-745CBB015FFF -o $HOME/edk2/Build/ArmVirtQemu-AArch64/DEBUG_GCC/FV/Ffs/9FB1A1F3-3B71-4324-B39A-745CBB015FFFIp4Dxe/9FB1A1F3-3B71-4324-B39A-745CBB015FFF.ffs -oi $HOME/edk2/Build/ArmVirtQemu-AArch64/DEBUG_GCC/FV/Ffs/9FB1A1F3-3B71-4324-B39A-745CBB015FFFIp4Dxe/9FB1A1F3-3B71-4324-B39A-745CBB015FFFSEC1.1.dpx -oi $HOME/edk2/Build/ArmVirtQemu-AArch64/DEBUG_GCC/FV/Ffs/9FB1A1F3-3B71-4324-B39A-745CBB015FFFIp4Dxe/Ip4DxeOffset.raw -oi $HOME/edk2/Build/ArmVirtQemu-AArch64/DEBUG_GCC/FV/Ffs/9FB1A1F3-3B71-4324-B39A-745CBB015FFFIp4Dxe/9FB1A1F3-3B71-4324-B39A-745CBB015FFFSEC2.1.pe32 -oi $HOME/edk2/Build/ArmVirtQemu-AArch64/DEBUG_GCC/FV/Ffs/9FB1A1F3-3B71-4324-B39A-745CBB015FFFIp4Dxe/9FB1A1F3-3B71-4324-B39A-745CBB015FFFSEC3.ui
++Building ... $HOME/edk2/MdeModulePkg/Bus/Pci/PciBusDxe/PciBusDxe.inf [AARCH64]
++Building ... $HOME/edk2/MdeModulePkg/Application/BootManagerMenuApp/BootManagerMenuApp.inf [AARCH64]
++make: 'tbuild' に対して行うべき事はありません.
++Building ... $HOME/edk2/OvmfPkg/VirtioScsiDxe/VirtioScsi.inf [AARCH64]
++Trim --Vfr-Uni-Offset -o $HOME/edk2/Build/ArmVirtQemu-AArch64/DEBUG_GCC/FV/Ffs/EEC25BDC-67F2-4D95-B1D5-F81B2039D11DBootManagerMenuApp/BootManagerMenuApp.offset --ModuleName=BootManagerMenuApp --DebugDir=$HOME/edk2/Build/ArmVirtQemu-AArch64/DEBUG_GCC/AARCH64/MdeModulePkg/Application/BootManagerMenuApp/BootManagerMenuApp/DEBUG
++make: 'tbuild' に対して行うべき事はありません.
++Building ... $HOME/edk2/MdeModulePkg/Bus/Usb/UsbMassStorageDxe/UsbMassStorageDxe.inf [AARCH64]
++Building ... $HOME/edk2/MdeModulePkg/Bus/Pci/NvmExpressDxe/NvmExpressDxe.inf [AARCH64]
++make: 'tbuild' に対して行うべき事はありません.
++Building ... $HOME/edk2/NetworkPkg/Dhcp4Dxe/Dhcp4Dxe.inf [AARCH64]
++make: 'tbuild' に対して行うべき事はありません.
++Building ... $HOME/edk2/FatPkg/EnhancedFatDxe/Fat.inf [AARCH64]
++make: 'tbuild' に対して行うべき事はありません.
++Building ... $HOME/edk2/OvmfPkg/PlatformDxe/Platform.inf [AARCH64]
++make: 'tbuild' に対して行うべき事はありません.
++Building ... $HOME/edk2/ArmVirtPkg/MemoryInitPei/MemoryInitPeim.inf [AARCH64]
++Trim --Vfr-Uni-Offset -o $HOME/edk2/Build/ArmVirtQemu-AArch64/DEBUG_GCC/FV/Ffs/D9DCC5DF-4007-435E-9098-8970935504B2PlatformDxe/PlatformDxe.offset --ModuleName=PlatformDxe --DebugDir=$HOME/edk2/Build/ArmVirtQemu-AArch64/DEBUG_GCC/AARCH64/OvmfPkg/PlatformDxe/Platform/DEBUG
++Building ... $HOME/edk2/ShellPkg/DynamicCommand/VariablePolicyDynamicCommand/VariablePolicyDynamicCommand.inf [AARCH64]
++make: 'tbuild' に対して行うべき事はありません.
++Building ... $HOME/edk2/MdeModulePkg/Core/RuntimeDxe/RuntimeDxe.inf [AARCH64]
++make: 'tbuild' に対して行うべき事はありません.
++test -e $HOME/edk2/Build/ArmVirtQemu-AArch64/DEBUG_GCC/FV/Ffs/EEC25BDC-67F2-4D95-B1D5-F81B2039D11DBootManagerMenuApp/BootManagerMenuApp.offset && GenSec -s EFI_SECTION_RAW -o $HOME/edk2/Build/ArmVirtQemu-AArch64/DEBUG_GCC/FV/Ffs/EEC25BDC-67F2-4D95-B1D5-F81B2039D11DBootManagerMenuApp/BootManagerMenuAppOffset.raw $HOME/edk2/Build/ArmVirtQemu-AArch64/DEBUG_GCC/FV/Ffs/EEC25BDC-67F2-4D95-B1D5-F81B2039D11DBootManagerMenuApp/BootManagerMenuApp.offset
++make: [GNUmakefile:418: $HOME/edk2/Build/ArmVirtQemu-AArch64/DEBUG_GCC/FV/Ffs/EEC25BDC-67F2-4D95-B1D5-F81B2039D11DBootManagerMenuApp/BootManagerMenuAppOffset.raw] エラー 1 (無視されました)
++GenFfs -t EFI_FV_FILETYPE_APPLICATION -g EEC25BDC-67F2-4D95-B1D5-F81B2039D11D -o $HOME/edk2/Build/ArmVirtQemu-AArch64/DEBUG_GCC/FV/Ffs/EEC25BDC-67F2-4D95-B1D5-F81B2039D11DBootManagerMenuApp/EEC25BDC-67F2-4D95-B1D5-F81B2039D11D.ffs -oi $HOME/edk2/Build/ArmVirtQemu-AArch64/DEBUG_GCC/FV/Ffs/EEC25BDC-67F2-4D95-B1D5-F81B2039D11DBootManagerMenuApp/EEC25BDC-67F2-4D95-B1D5-F81B2039D11DSEC1.ui -oi $HOME/edk2/Build/ArmVirtQemu-AArch64/DEBUG_GCC/FV/Ffs/EEC25BDC-67F2-4D95-B1D5-F81B2039D11DBootManagerMenuApp/BootManagerMenuAppOffset.raw -oi $HOME/edk2/Build/ArmVirtQemu-AArch64/DEBUG_GCC/FV/Ffs/EEC25BDC-67F2-4D95-B1D5-F81B2039D11DBootManagerMenuApp/EEC25BDC-67F2-4D95-B1D5-F81B2039D11DSEC2.1.pe32
++Building ... $HOME/edk2/MdeModulePkg/Universal/SetupBrowserDxe/SetupBrowserDxe.inf [AARCH64]
++make: 'tbuild' に対して行うべき事はありません.
++Building ... $HOME/edk2/OemPkg/RdChkApp/RdChkApp.inf [AARCH64]
++make: 'tbuild' に対して行うべき事はありません.
++"gcc" -MMD -MF $HOME/edk2/Build/ArmVirtQemu-AArch64/DEBUG_GCC/AARCH64/OemPkg/RdChkApp/RdChkApp/OUTPUT/RdChkApp.obj.deps  -g -Os -fshort-wchar -fno-builtin -fno-strict-aliasing -Wall -Werror -Wno-array-bounds -include AutoGen.h -fno-common -fstack-protector -ffunction-sections -fdata-sections -DSTRING_ARRAY_NAME=RdChkAppStrings -g -Os -fshort-wchar -fno-builtin -fno-strict-aliasing -Wall -Werror -Wno-array-bounds -include AutoGen.h -fno-common -fstack-protector -mlittle-endian -fno-short-enums -fverbose-asm -funsigned-char -ffunction-sections -fdata-sections -Wno-address -fno-asynchronous-unwind-tables -fno-unwind-tables -fno-pic -fno-pie -ffixed-x18 -mstack-protector-guard=global -mcmodel=small -flto -DDISABLE_NEW_DEPRECATED_INTERFACES -c -o $HOME/edk2/Build/ArmVirtQemu-AArch64/DEBUG_GCC/AARCH64/OemPkg/RdChkApp/RdChkApp/OUTPUT/./RdChkApp.obj -I$HOME/edk2/OemPkg/RdChkApp -I$HOME/edk2/Build/ArmVirtQemu-AArch64/DEBUG_GCC/AARCH64/OemPkg/RdChkApp/RdChkApp/DEBUG -I$HOME/edk2/MdePkg -I$HOME/edk2/MdePkg/Include -I$HOME/edk2/MdePkg/Test/UnitTest/Include -I$HOME/edk2/MdePkg/Test/Mock/Include -I$HOME/edk2/MdePkg/Library/MipiSysTLib/mipisyst/library/include -I$HOME/edk2/MdePkg/Include/AArch64 -I$HOME/edk2/OemPkg -I$HOME/edk2/OemPkg/Include $HOME/edk2/OemPkg/RdChkApp/RdChkApp.c
++Building ... $HOME/edk2/MdeModulePkg/Core/Dxe/DxeMain.inf [AARCH64]
++Building ... $HOME/edk2/OvmfPkg/QemuRamfbDxe/QemuRamfbDxe.inf [AARCH64]
++make: 'tbuild' に対して行うべき事はありません.
++Building ... $HOME/edk2/ArmPkg/Drivers/ArmGicDxe/ArmGicDxe.inf [AARCH64]
++make: 'tbuild' に対して行うべき事はありません.
++make: 'tbuild' に対して行うべき事はありません.
++test -e $HOME/edk2/Build/ArmVirtQemu-AArch64/DEBUG_GCC/FV/Ffs/D9DCC5DF-4007-435E-9098-8970935504B2PlatformDxe/PlatformDxe.offset && GenSec -s EFI_SECTION_RAW -o $HOME/edk2/Build/ArmVirtQemu-AArch64/DEBUG_GCC/FV/Ffs/D9DCC5DF-4007-435E-9098-8970935504B2PlatformDxe/PlatformDxeOffset.raw $HOME/edk2/Build/ArmVirtQemu-AArch64/DEBUG_GCC/FV/Ffs/D9DCC5DF-4007-435E-9098-8970935504B2PlatformDxe/PlatformDxe.offset
++make: [GNUmakefile:420: $HOME/edk2/Build/ArmVirtQemu-AArch64/DEBUG_GCC/FV/Ffs/D9DCC5DF-4007-435E-9098-8970935504B2PlatformDxe/PlatformDxeOffset.raw] エラー 1 (無視されました)
++GenFfs -t EFI_FV_FILETYPE_DRIVER -g D9DCC5DF-4007-435E-9098-8970935504B2 -o $HOME/edk2/Build/ArmVirtQemu-AArch64/DEBUG_GCC/FV/Ffs/D9DCC5DF-4007-435E-9098-8970935504B2PlatformDxe/D9DCC5DF-4007-435E-9098-8970935504B2.ffs -oi $HOME/edk2/Build/ArmVirtQemu-AArch64/DEBUG_GCC/FV/Ffs/D9DCC5DF-4007-435E-9098-8970935504B2PlatformDxe/D9DCC5DF-4007-435E-9098-8970935504B2SEC1.1.dpx -oi $HOME/edk2/Build/ArmVirtQemu-AArch64/DEBUG_GCC/FV/Ffs/D9DCC5DF-4007-435E-9098-8970935504B2PlatformDxe/PlatformDxeOffset.raw -oi $HOME/edk2/Build/ArmVirtQemu-AArch64/DEBUG_GCC/FV/Ffs/D9DCC5DF-4007-435E-9098-8970935504B2PlatformDxe/D9DCC5DF-4007-435E-9098-8970935504B2SEC2.1.pe32 -oi $HOME/edk2/Build/ArmVirtQemu-AArch64/DEBUG_GCC/FV/Ffs/D9DCC5DF-4007-435E-9098-8970935504B2PlatformDxe/D9DCC5DF-4007-435E-9098-8970935504B2SEC3.ui
++Building ... $HOME/edk2/MdeModulePkg/Universal/FaultTolerantWriteDxe/FaultTolerantWriteDxe.inf [AARCH64]
++Building ... $HOME/edk2/MdeModulePkg/Universal/Variable/RuntimeDxe/VariableRuntimeDxe.inf [AARCH64]
++make: 'tbuild' に対して行うべき事はありません.
++Building ... $HOME/edk2/OvmfPkg/PciHotPlugInitDxe/PciHotPlugInit.inf [AARCH64]
++make: 'tbuild' に対して行うべき事はありません.
++Building ... $HOME/edk2/ShellPkg/DynamicCommand/HttpDynamicCommand/HttpDynamicCommand.inf [AARCH64]
++make: 'tbuild' に対して行うべき事はありません.
++Building ... $HOME/edk2/MdeModulePkg/Bus/Pci/UhciDxe/UhciDxe.inf [AARCH64]
++make: 'tbuild' に対して行うべき事はありません.
++Building ... $HOME/edk2/OvmfPkg/VirtioPciDeviceDxe/VirtioPciDeviceDxe.inf [AARCH64]
++make: 'tbuild' に対して行うべき事はありません.
++make: 'tbuild' に対して行うべき事はありません.
++rm -f $HOME/edk2/Build/ArmVirtQemu-AArch64/DEBUG_GCC/AARCH64/OemPkg/RdChkApp/RdChkApp/OUTPUT/RdChkApp.lib
++"gcc-ar" cr $HOME/edk2/Build/ArmVirtQemu-AArch64/DEBUG_GCC/AARCH64/OemPkg/RdChkApp/RdChkApp/OUTPUT/RdChkApp.lib  @$HOME/edk2/Build/ArmVirtQemu-AArch64/DEBUG_GCC/AARCH64/OemPkg/RdChkApp/RdChkApp/OUTPUT/object_files.lst
++"gcc" -o $HOME/edk2/Build/ArmVirtQemu-AArch64/DEBUG_GCC/AARCH64/OemPkg/RdChkApp/RdChkApp/DEBUG/RdChkApp.dll -Wl,--emit-relocs -nostdlib -Wl,--gc-sections -u _ModuleEntryPoint -Wl,-e,_ModuleEntryPoint,-Map,$HOME/edk2/Build/ArmVirtQemu-AArch64/DEBUG_GCC/AARCH64/OemPkg/RdChkApp/RdChkApp/DEBUG/RdChkApp.map -z common-page-size=0x1000 -Wl,--fatal-warnings -Wl,-z,noexecstack -Wl,-z,notext -flto -Os -L$HOME/edk2/BaseTools/Bin/GccLto -llto-aarch64 -Wl,-plugin-opt=-pass-through=-llto-aarch64 -Wno-lto-type-mismatch -z common-page-size=0x1000 -z common-page-size=0x1000 -Wl,--start-group,@$HOME/edk2/Build/ArmVirtQemu-AArch64/DEBUG_GCC/AARCH64/OemPkg/RdChkApp/RdChkApp/OUTPUT/static_library_files.lst,--end-group  -g -Os -fshort-wchar -fno-builtin -fno-strict-aliasing -Wall -Werror -Wno-array-bounds -include AutoGen.h -fno-common -fstack-protector -ffunction-sections -fdata-sections -DSTRING_ARRAY_NAME=RdChkAppStrings -g -Os -fshort-wchar -fno-builtin -fno-strict-aliasing -Wall -Werror -Wno-array-bounds -include AutoGen.h -fno-common -fstack-protector -mlittle-endian -fno-short-enums -fverbose-asm -funsigned-char -ffunction-sections -fdata-sections -Wno-address -fno-asynchronous-unwind-tables -fno-unwind-tables -fno-pic -fno-pie -ffixed-x18 -mstack-protector-guard=global -mcmodel=small -flto -DDISABLE_NEW_DEPRECATED_INTERFACES -Wl,--script=$HOME/edk2/BaseTools/Scripts/GccBase.lds -Wl,--defsym=PECOFF_HEADER_SIZE=0x228 -Wno-error
++"echo" objcopy not needed for $HOME/edk2/Build/ArmVirtQemu-AArch64/DEBUG_GCC/AARCH64/OemPkg/RdChkApp/RdChkApp/DEBUG/RdChkApp.dll
++objcopy not needed for $HOME/edk2/Build/ArmVirtQemu-AArch64/DEBUG_GCC/AARCH64/OemPkg/RdChkApp/RdChkApp/DEBUG/RdChkApp.dll
++cp -p -f $HOME/edk2/Build/ArmVirtQemu-AArch64/DEBUG_GCC/AARCH64/OemPkg/RdChkApp/RdChkApp/DEBUG/RdChkApp.dll $HOME/edk2/Build/ArmVirtQemu-AArch64/DEBUG_GCC/AARCH64/OemPkg/RdChkApp/RdChkApp/DEBUG/RdChkApp.debug
++"echo" --strip-unneeded -R .eh_frame $HOME/edk2/Build/ArmVirtQemu-AArch64/DEBUG_GCC/AARCH64/OemPkg/RdChkApp/RdChkApp/DEBUG/RdChkApp.dll
++--strip-unneeded -R .eh_frame $HOME/edk2/Build/ArmVirtQemu-AArch64/DEBUG_GCC/AARCH64/OemPkg/RdChkApp/RdChkApp/DEBUG/RdChkApp.dll
++"echo" --add-gnu-debuglink="$HOME/edk2/Build/ArmVirtQemu-AArch64/DEBUG_GCC/AARCH64/OemPkg/RdChkApp/RdChkApp/DEBUG/RdChkApp.debug" $HOME/edk2/Build/ArmVirtQemu-AArch64/DEBUG_GCC/AARCH64/OemPkg/RdChkApp/RdChkApp/DEBUG/RdChkApp.dll
++--add-gnu-debuglink=$HOME/edk2/Build/ArmVirtQemu-AArch64/DEBUG_GCC/AARCH64/OemPkg/RdChkApp/RdChkApp/DEBUG/RdChkApp.debug $HOME/edk2/Build/ArmVirtQemu-AArch64/DEBUG_GCC/AARCH64/OemPkg/RdChkApp/RdChkApp/DEBUG/RdChkApp.dll
++cp -p -f $HOME/edk2/Build/ArmVirtQemu-AArch64/DEBUG_GCC/AARCH64/OemPkg/RdChkApp/RdChkApp/DEBUG/RdChkApp.debug $HOME/edk2/Build/ArmVirtQemu-AArch64/DEBUG_GCC/AARCH64/RdChkApp.debug
++"GenFw" -e UEFI_APPLICATION -o $HOME/edk2/Build/ArmVirtQemu-AArch64/DEBUG_GCC/AARCH64/OemPkg/RdChkApp/RdChkApp/OUTPUT/RdChkApp.efi $HOME/edk2/Build/ArmVirtQemu-AArch64/DEBUG_GCC/AARCH64/OemPkg/RdChkApp/RdChkApp/DEBUG/RdChkApp.dll
++cp -p -f $HOME/edk2/Build/ArmVirtQemu-AArch64/DEBUG_GCC/AARCH64/OemPkg/RdChkApp/RdChkApp/OUTPUT/RdChkApp.efi $HOME/edk2/Build/ArmVirtQemu-AArch64/DEBUG_GCC/AARCH64/OemPkg/RdChkApp/RdChkApp/DEBUG
++cp -p -f $HOME/edk2/Build/ArmVirtQemu-AArch64/DEBUG_GCC/AARCH64/OemPkg/RdChkApp/RdChkApp/OUTPUT/RdChkApp.efi $HOME/edk2/Build/ArmVirtQemu-AArch64/DEBUG_GCC/AARCH64/RdChkApp.efi
++cp -p -f $HOME/edk2/Build/ArmVirtQemu-AArch64/DEBUG_GCC/AARCH64/OemPkg/RdChkApp/RdChkApp/DEBUG/*.map $HOME/edk2/Build/ArmVirtQemu-AArch64/DEBUG_GCC/AARCH64/OemPkg/RdChkApp/RdChkApp/OUTPUT
++cp -p -f $HOME/edk2/Build/ArmVirtQemu-AArch64/DEBUG_GCC/AARCH64/OemPkg/RdChkApp/RdChkApp/DEBUG/*.pdb $HOME/edk2/Build/ArmVirtQemu-AArch64/DEBUG_GCC/AARCH64/OemPkg/RdChkApp/RdChkApp/OUTPUT
++cp: '$HOME/edk2/Build/ArmVirtQemu-AArch64/DEBUG_GCC/AARCH64/OemPkg/RdChkApp/RdChkApp/DEBUG/*.pdb' を stat できません: そのようなファイルやディレクトリはありません
++make: [GNUmakefile:377: $HOME/edk2/Build/ArmVirtQemu-AArch64/DEBUG_GCC/AARCH64/OemPkg/RdChkApp/RdChkApp/OUTPUT/RdChkApp.efi] エラー 1 (無視されました)
++
++Fd File Name:QEMU_EFI ($HOME/edk2/Build/ArmVirtQemu-AArch64/DEBUG_GCC/FV/QEMU_EFI.fd)
++
++Generate Region at Offset 0x0
++   Region Size = 0x1000
++   Region Name = DATA
++
++Generate Region at Offset 0x1000
++   Region Size = 0x2FF000
++   Region Name = FV
++
++Generating FVMAIN_COMPACT FV
++
++Generating FVMAIN FV
++
++Fd File Name:QEMU_VARS ($HOME/edk2/Build/ArmVirtQemu-AArch64/DEBUG_GCC/FV/QEMU_VARS.fd)
++
++Generate Region at Offset 0x0
++   Region Size = 0x40000
++   Region Name = DATA
++
++Generate Region at Offset 0x40000
++   Region Size = 0x40000
++   Region Name = DATA
++
++Generate Region at Offset 0x80000
++   Region Size = 0x40000
++   Region Name = None
++
++GUID cross reference file can be found at $HOME/edk2/Build/ArmVirtQemu-AArch64/DEBUG_GCC/FV/Guid.xref
++
++FV Space Information
++FVMAIN [99%Full] 6799872 (0x67c200) total, 6799864 (0x67c1f8) used, 8 (0x8) free
++FVMAIN_COMPACT [39%Full] 3141632 (0x2ff000) total, 1239384 (0x12e958) used, 1902248 (0x1d06a8) free
++
++- Done -
++Build end time: 06:08:59, Nov.08 2026
++Build total time: 00:00:09
++
+diff --git a/ArmVirtPkg/ArmVirtQemu.dsc b/ArmVirtPkg/ArmVirtQemu.dsc
+index 7306d8a..b3f3e49 100644
+--- a/ArmVirtPkg/ArmVirtQemu.dsc
++++ b/ArmVirtPkg/ArmVirtQemu.dsc
+@@ -439,3 +439,14 @@
+     <LibraryClasses>
+       NULL|OvmfPkg/Fdt/FdtPciPcdProducerLib/FdtPciPcdProducerLib.inf
+   }
++
++[Packages]
++  OemPkg/OemPkg.dec
++
++[Components.AARCH64]
++  OemPkg/RdChkApp/RdChkApp.inf
++
++[Packages]
++  MdePkg/MdePkg.dec
++[Components.AARCH64]
++  OemPkg/WlTest/WlTest.inf
+diff --git a/OemPkg/OemPkg.dec b/OemPkg/OemPkg.dec
+new file mode 100644
+index 0000000..bf3db3f
+--- /dev/null
++++ b/OemPkg/OemPkg.dec
+@@ -0,0 +1,16 @@
++## @file
++#  OEM diagnostic application package (local, not upstream).
++#  Copyright (c) 2026. SPDX-License-Identifier: BSD-2-Clause-Patent
++##
++[Defines]
++  INF_VERSION    = 0x00010005
++  PACKAGE_NAME   = OemPkg
++  PACKAGE_GUID   = 4A6F0B8E-2C5D-4A93-B7E1-6D8C3F510A29
++  PACKAGE_VERSION = 0.1
++
++[Includes]
++  Include
++
++[LibraryClasses]
++
++[Protocols]
+diff --git a/OemPkg/RdChkApp/RdChkApp.c b/OemPkg/RdChkApp/RdChkApp.c
+new file mode 100644
+index 0000000..02d6969
+--- /dev/null
++++ b/OemPkg/RdChkApp/RdChkApp.c
+@@ -0,0 +1,978 @@
++/* EDK2 port of work/diag/rdchk.c (gnu-efi recipe is unusable on AARCH64). */
++#include <Uefi.h>
++#include <Library/UefiApplicationEntryPoint.h>
++#include <Library/UefiBootServicesTableLib.h>
++#include <Library/UefiLib.h>
++#include <Library/BaseMemoryLib.h>
++#include <Library/MemoryAllocationLib.h>
++#include <Library/TimerLib.h>
++#include <Library/DevicePathLib.h>
++#include <Protocol/SerialIo.h>
++#include <Protocol/SimpleFileSystem.h>
++#include <Guid/FileInfo.h>
++#include <Guid/FileSystemInfo.h>
++
++/*
++ * rdchk.c - NTFS SimpleFileSystem の「読み出し」経路を徹底検証する EFI アプリ
++ *
++ * 背景: v5 で fs2(NTFS) に対する if exist / echo > file は成功したが、
++ *       load winload.efi は "not an image"。ただし winload.efi は
++ *       Subsystem=16 なので EDK2 LoadImage がそもそも弾く（= read の証拠にならない）。
++ *       そこで「同一ファイルを FAT と NTFS の両方から読む」対照実験を行い、
++ *       offset/サイズ別の Read 成否・取得バイト数・FNV ハッシュ・LoadImage
++ *       の正確な EFI_STATUS をコンソールとログファイルに出す。
++ *
++ * 出力先: ConOut / SerialIo / \<FS root>\rdchk.log (FS 全て)
++ */
++
++#define TAG        "RDCHK6"
++#define BIGBUF     (4u * 1024u * 1024u)
++#define CHUNK      65536u
++#define FNV_PRIME  0x00000100000001B3ULL
++#define FNV_INIT   0xCBF29CE484222325ULL
++
++static EFI_HANDLE                    g_image;
++static EFI_SYSTEM_TABLE             *g_st;
++static EFI_BOOT_SERVICES            *g_bs;
++static EFI_SIMPLE_TEXT_OUTPUT_PROTOCOL *g_conout;
++static EFI_SIMPLE_TEXT_OUTPUT_PROTOCOL *g_serout;
++static EFI_FILE_HANDLE               g_logA = NULL;
++static EFI_FILE_HANDLE               g_logB = NULL;
++static UINT8                        *g_buf;          /* BIGBUF 読み捨て */
++static UINT64                        g_ntfs_reads_fail;
++static UINT64                        g_ntfs_bytes_read;
++static UINT64                        g_ntfs_seek_rej;
++static UINT64                        g_ntfs_new_fail;
++static UINT64                        g_ntfs_eofshort;
++
++/* ---- 出力 helpers (diag.c と同じ思想) --------------------------------- */
++static void log_raw (const char *s) {
++  UINTN n;
++  if (g_logA) {
++    n = 0; while (s[n]) n++;
++    if (EFI_ERROR (g_logA->Write (g_logA, &n, (VOID *)s))) g_logA = NULL;
++  }
++  if (g_logB) {
++    n = 0; while (s[n]) n++;
++    if (EFI_ERROR (g_logB->Write (g_logB, &n, (VOID *)s))) g_logB = NULL;
++  }
++}
++
++static void say (const char *s) {
++  CHAR16 b[512];
++  int i = 0;
++  log_raw (s);
++  for (; s[i] && i < 511; i++) b[i] = (CHAR16)(UINT8)s[i];
++  b[i] = 0;
++  if (g_conout && g_conout->OutputString) g_conout->OutputString (g_conout, b);
++  if (g_serout && g_serout->OutputString) g_serout->OutputString (g_serout, b);
++}
++
++static void nl (void) { say ("\n"); }
++
++static void say_w (CHAR16 *w) {
++  char  b[64];
++  int   i = 0;
++  if (!w) { say ("(null)"); return; }
++  for (; i < 62 && w[i]; i++) b[i] = (char)(CHAR8)(w[i] & 0x7F);
++  b[i] = 0;
++  say (b);
++}
++
++static void hexval (UINT64 v, int digits) {
++  static const char H[] = "0123456789ABCDEF";
++  char b[20];
++  int i;
++  b[0] = '0'; b[1] = 'x';
++  for (i = 0; i < digits; i++) b[2 + i] = H[(v >> ((digits - 1 - i) * 4)) & 0xF];
++  b[2 + digits] = 0;
++  say (b);
++}
++
++static void hex64 (UINT64 v) { hexval (v, 16); }
++
++static void say_dec (UINT64 v) {
++  char t[24];
++  int i = 0, j;
++  if (!v) { say ("0"); return; }
++  while (v && i < 23) { t[i++] = (char)('0' + (v % 10)); v /= 10; }
++  for (j = 0; j < i / 2; j++) { char c = t[j]; t[j] = t[i-1-j]; t[i-1-j] = c; }
++  t[i] = 0;
++  say (t);
++}
++
++static UINT64 now_ms (void)
++{
++  UINT64  f = GetPerformanceCounterProperties (NULL, NULL);
++
++  if (!f) {
++    f = 1000000ULL;
++  }
++  return GetPerformanceCounter () * 1000ULL / f;
++}
++
++static const char *st_name (EFI_STATUS st) {
++  if (st == EFI_SUCCESS)           return "OK";
++  if (st == 0x8000000000000002ULL) return "NOTFOUND";
++  if (st == 0x8000000000000003ULL) return "INVALARG";
++  if (st == 0x800000000000000AULL) return "UNSUP";
++  if (st == 0x8000000000000007ULL) return "DEVERR";
++  if (st == 0x800000000000000BULL) return "BADBUF";
++  if (st == 0x8000000000000009ULL) return "NOBUFFER";
++  if (st == 0x8000000000000004ULL) return "NOMAP";
++  if (st == 0x8000000000000005ULL) return "TIMEOUT";
++  if (st == 0x800000000000000EULL) return "DENIED";
++  if (st == 0x8000000000000017ULL) return "TOOSMALL";
++  if (st == 0x800000000000000DULL) return "NOPERM";
++  if (st == 0x800000000000001BULL) return "WPROT";
++  return "ERR";
++}
++
++static void say_st (const char *label, EFI_STATUS st) {
++  if (label && *label) { say (" "); say (label); say ("="); }
++  if (st == EFI_SUCCESS) { say ("OK"); return; }
++  say (st_name (st));
++  say (":");
++  hexval ((UINT64)st, 16);
++}
++
++/* ---- FS 探索 ---------------------------------------------------------- */
++typedef struct {
++  EFI_HANDLE               h;
++  EFI_FILE_IO_INTERFACE   *fio;
++  EFI_FILE_HANDLE          root;
++  int                      esp;   /* \EFI\Microsoft\Boot\BCD が開ける */
++  int                      win;   /* \V5A.TXT が開ける (NTFS 音量) */
++} FS;
++
++static FS g_fs[8];
++static int g_nfs;
++
++static int fs_open (FS *f, CHAR16 *path, EFI_FILE_HANDLE *out) {
++  EFI_STATUS st;
++  if (!f->root) return 0;
++  st = f->root->Open (f->root, out, path, EFI_FILE_MODE_READ, 0);
++  if (EFI_ERROR (st)) { *out = NULL; return 0; }
++  return 1;
++}
++
++static void enum_fs (void) {
++  EFI_STATUS  st;
++  EFI_HANDLE *hb = NULL;
++  UINTN       n = 0, i;
++
++  st = g_bs->LocateHandleBuffer (ByProtocol,
++                                &gEfiSimpleFileSystemProtocolGuid,
++                                NULL, &n, &hb);
++  say ("[fs] LocateHandleBuffer -> ");
++  say_st ("st", st);
++  say (" n=");
++  say_dec (n);
++  nl ();
++  if (EFI_ERROR (st)) return;
++  for (i = 0; i < n && g_nfs < 8; i++) {
++    FS            *f = &g_fs[g_nfs];
++    EFI_FILE_HANDLE  t = NULL;
++    EFI_FILE_SYSTEM_INFO *si;
++    UINTN           sz = 512;
++
++    f->h = hb[i];
++    f->root = NULL;
++    f->esp = f->win = 0;
++    st = g_bs->HandleProtocol (hb[i], &gEfiSimpleFileSystemProtocolGuid,
++                              (VOID **)&f->fio);
++    if (EFI_ERROR (st) || !f->fio) continue;
++    st = f->fio->OpenVolume (f->fio, &f->root);
++    if (EFI_ERROR (st)) { f->root = NULL; continue; }
++    g_nfs++;
++
++    say ("[fs] #");
++    say_dec (g_nfs - 1);
++    say ("h=");
++    hexval ((UINT64)(UINTN)hb[i], 8);
++    si = (EFI_FILE_SYSTEM_INFO *)(g_buf);
++    if (!f->root->GetInfo (f->root, &gEfiFileSystemInfoGuid, &sz, si)) {
++      say (" ro=");
++      say_dec (si->ReadOnly);
++      say (" bs=");
++      say_dec (si->BlockSize);
++      say (" size=");
++      say_dec (si->VolumeSize);
++      say (" free=");
++      say_dec (si->FreeSpace);
++      say (" lbl=");
++      {
++        char lb[40];
++        int k;
++        for (k = 0; k < 20 && si->VolumeLabel[k]; k++)
++          lb[k] = (char)si->VolumeLabel[k];
++        if (!k) { lb[0] = '-'; k = 1; }
++        lb[k] = 0;
++        say (lb);
++      }
++    }
++    nl ();
++    if (fs_open (f, L"\\EFI\\Microsoft\\Boot\\BCD", &t)) {
++      f->esp = 1;
++      t->Close (t);
++      say ("      ESP-OK (BCD)\n");
++    }
++    if (fs_open (f, L"\\V5A.TXT", &t)) {
++      f->win = 1;
++      t->Close (t);
++      say ("      WIN-OK (V5A.TXT)\n");
++    }
++  }
++  g_bs->FreePool (hb);
++  say ("[fs] found ");
++  say_dec (g_nfs);
++  say (" file systems\n");
++}
++
++static FS *find_fs (int esp) {
++  int i;
++  for (i = 0; i < g_nfs; i++)
++    if (esp ? g_fs[i].esp : g_fs[i].win) return &g_fs[i];
++  return NULL;
++}
++
++/* ---- ハッシュ ---------------------------------------------------------- */
++static UINT64 fnv (UINT64 h, UINT8 *p, UINTN n) {
++  UINTN i;
++  for (i = 0; i < n; i++) { h ^= p[i]; h *= FNV_PRIME; }
++  return h;
++}
++
++static void print_head (UINT8 *p, UINTN n) {
++  UINTN i;
++  if (n > 16) n = 16;
++  for (i = 0; i < n; i++) hexval (p[i], 2);
++}
++
++/* ---- 1 ファイル読取テスト --------------------------------------------- */
++static void test_file (FS *fs, const char *tag, CHAR16 *path,
++                       UINT64 expect_size) {
++  EFI_STATUS      st;
++  EFI_FILE_HANDLE f = NULL;
++  EFI_FILE_INFO  *fi;
++  UINTN           sz;
++  UINT64          fsize, h;
++  UINTN           got;
++  int             iswin = fs->win;
++
++  UINT64 t0 = now_ms ();
++  say ("--- ");
++  say (iswin ? "NTFS " : "FAT  ");
++  say (tag);
++  say (" ---\n");
++
++  st = fs->root->Open (fs->root, &f, path, EFI_FILE_MODE_READ, 0);
++  say ("  open -> ");
++  say_st ("st", st);
++  if (EFI_ERROR (st)) { nl (); return; }
++
++  sz = 512;
++  fi = (EFI_FILE_INFO *)g_buf;
++  st = f->GetInfo (f, &gEfiFileInfoGuid, &sz, fi);
++  say ("  getinfo -> ");
++  say_st ("st", st);
++  nl ();
++  if (st == EFI_BUFFER_TOO_SMALL) {
++    sz = 512;
++    st = f->GetInfo (f, &gEfiFileInfoGuid, &sz, fi);
++    say ("  getinfo2 -> ");
++    say_st ("st", st);
++    nl ();
++  }
++  fsize = 0;
++  if (!EFI_ERROR (st)) {
++    fsize = fi->FileSize;
++    say ("  FileSize=");
++    say_dec (fi->FileSize);
++    say (" Phys=");
++    say_dec (fi->PhysicalSize);
++    say (" Attr=");
++    hexval (fi->Attribute, 16);
++    say (" expect=");
++    say_dec (expect_size);
++    if (expect_size && fsize != expect_size) say (" <<SIZE-MISMATCH>>");
++    nl ();
++  }
++  if (!fsize) fsize = expect_size;
++
++  /* offset/サイズマトリクス */
++  {
++    UINT64 o[16], l[16];
++    int    np = 0, i;
++    o[np] = 0;        l[np++] = 2;
++    o[np] = 0;        l[np++] = 4;
++    o[np] = 0;        l[np++] = 8;
++    o[np] = 0;        l[np++] = 16;
++    o[np] = 0;        l[np++] = 64;
++    o[np] = 0;        l[np++] = 256;
++    o[np] = 0;        l[np++] = 4096;
++    o[np] = 0;        l[np++] = CHUNK;
++    o[np] = 1;        l[np++] = 16;
++    o[np] = 511;      l[np++] = 16;
++    o[np] = 512;      l[np++] = 16;
++    o[np] = 513;      l[np++] = 16;
++    o[np] = 4095;     l[np++] = 2;
++    o[np] = fsize - 16 > 16 ? fsize - 16 : 0;  l[np++] = 16;
++    o[np] = fsize - 1;  l[np++] = 1;
++    o[np] = fsize;      l[np++] = 64;
++    for (i = 0; i < np; i++) {
++      UINTN want2 = (UINTN)l[i];
++      st = f->SetPosition (f, o[i]);
++      if (EFI_ERROR (st)) {
++        say ("  seek off=");
++        hexval (o[i], 8);
++        say (" -> ");
++        say_st ("st", st);
++        nl ();
++        if (iswin && o[i] < fsize) g_ntfs_reads_fail++;
++        else if (iswin) g_ntfs_seek_rej++;
++        continue;
++      }
++      got = want2;
++      st = f->Read (f, &got, g_buf);
++      say ("  rd off=");
++      hexval (o[i], 8);
++      say (" len=");
++      say_dec (want2);
++      say (" -> ");
++      say_st ("st", st);
++      say (" got=");
++      say_dec (got);
++      if (!EFI_ERROR (st) && got) {
++        say (" h=");
++        hex64 (fnv (FNV_INIT, g_buf, got));
++        say (" b=");
++        print_head (g_buf, got);
++      }
++      nl ();
++      if (iswin && EFI_ERROR (st) && o[i] < fsize) g_ntfs_reads_fail++;
++      else if (iswin && o[i] + want2 <= fsize && got != want2) g_ntfs_reads_fail++;
++      else if (iswin && got != want2) g_ntfs_eofshort++;
++      if (iswin) g_ntfs_bytes_read += got;
++    }
++  }
++
++  /* 逐次ストリーム読取 (64KiB chunk) */
++  if (fsize && fsize < BIGBUF) {
++    UINT64 total = 0;
++    h = FNV_INIT;
++    f->SetPosition (f, 0);
++    st = EFI_SUCCESS;
++    while (total < fsize) {
++      got = (UINTN)(fsize - total);
++      if (got > CHUNK) got = CHUNK;
++      st = f->Read (f, &got, g_buf);
++      if (EFI_ERROR (st)) break;
++      if (!got) { say ("  seq short-read got=0 @"); say_dec (total); nl (); break; }
++      h = fnv (h, g_buf, got);
++      total += got;
++    }
++    say ("  seq64k st=");
++    say_st ("st", st);
++    say (" total=");
++    say_dec (total);
++    say (" h=");
++    hex64 (h);
++    nl ();
++    if (iswin) { g_ntfs_bytes_read += total;
++      if (EFI_ERROR (st) || total != fsize) g_ntfs_reads_fail++; }
++  }
++
++  /* 一発読み (LoadImage と同じ挙動) */
++  if (fsize && fsize < BIGBUF) {
++    got = (UINTN)fsize;
++    f->SetPosition (f, 0);
++    st = f->Read (f, &got, g_buf);
++    say ("  one big st=");
++    say_st ("st", st);
++    say (" got=");
++    say_dec (got);
++    say (" h=");
++    if (!EFI_ERROR (st)) hex64 (fnv (FNV_INIT, g_buf, got));
++    nl ();
++    if (iswin && (EFI_ERROR (st) || got != fsize)) g_ntfs_reads_fail++;
++  }
++
++  say ("  ms=");
++  say_dec (now_ms () - t0);
++  nl ();
++  f->Close (f);
++  (void)st;
++}
++
++/* ---- ディレクトリ列挙（bootmgr と同じ Read ループ） ---------------- */
++static void test_dir (FS *fs, const char *tag, CHAR16 *path) {
++  EFI_STATUS       st;
++  EFI_FILE_HANDLE  d = NULL;
++  UINTN            sz, i, nn, cnt = 0;
++  UINT64           h = FNV_INIT;
++  EFI_FILE_INFO   *e;
++
++  UINT64 t0 = now_ms ();
++  say ("--- DIR ");
++  say (fs->win ? "NTFS " : "FAT  ");
++  say (tag);
++  say (" ");
++  say_w (path);
++  say (" ---");
++  nl ();
++  st = fs->root->Open (fs->root, &d, path, EFI_FILE_MODE_READ, 0);
++  say ("  open -> ");
++  say_st ("st", st);
++  nl ();
++  if (EFI_ERROR (st)) return;
++  sz = 512;
++  st = d->GetInfo (d, &gEfiFileInfoGuid, &sz, (VOID *)g_buf);
++  say ("  getinfo -> ");
++  say_st ("st", st);
++  nl ();
++  for (;;) {
++    sz = 4096;
++    st = d->Read (d, &sz, (VOID *)g_buf);
++    if (EFI_ERROR (st)) {
++      say ("  rd-err ");
++      say_st ("st", st);
++      nl ();
++      if (fs->win) g_ntfs_reads_fail++;
++      break;
++    }
++    if (!sz) break;
++    i = 0;
++    while (i + SIZE_OF_EFI_FILE_INFO <= sz) {
++      e = (EFI_FILE_INFO *)(VOID *)(g_buf + i);
++      if (e->Size < SIZE_OF_EFI_FILE_INFO || i + e->Size > sz) {
++        say ("  bad-entry Size=");
++        say_dec (e->Size);
++        say (" rem=");
++        say_dec (sz - i);
++        nl ();
++        if (fs->win) g_ntfs_reads_fail++;
++        break;
++      }
++      nn = (UINTN)(e->Size - SIZE_OF_EFI_FILE_INFO);
++
++      if (i + SIZE_OF_EFI_FILE_INFO + nn > sz) nn = sz - i - SIZE_OF_EFI_FILE_INFO;
++      cnt++;
++      h = fnv (h, (UINT8 *)e->FileName, nn);
++      if (cnt <= 8) {
++        say ("   e=");
++        say_w (e->FileName);
++        say (" size=");
++        say_dec (e->FileSize);
++        say (" attr=");
++        hexval (e->Attribute, 8);
++        nl ();
++      }
++      i += (UINTN)e->Size;
++    }
++    if (cnt > 4000) { say ("  (truncated)"); nl (); break; }
++  }
++  say ("  dir cnt=");
++  say_dec (cnt);
++  say (" nameH=");
++  hex64 (h);
++  nl ();
++  say ("  dir-ms=");
++  say_dec (now_ms () - t0);
++  nl ();
++  d->Close (d);
++}
++
++
++/* ---- LoadImage プローク (デバイス路径経由 = bootmgr/shell と同じ経路) -- */
++static void probe_load (FS *fs, const char *tag, CHAR16 *path) {
++  EFI_STATUS       st;
++  EFI_HANDLE       img = NULL;
++  EFI_DEVICE_PATH *dp;
++
++  say ("  [load] ");
++  say (fs->win ? "NTFS " : "FAT  ");
++  say (tag);
++  dp = FileDevicePath (fs->h, path);
++  if (!dp) { say (" dp=NULL\n"); return; }
++  st = g_bs->LoadImage (FALSE, g_image, dp, NULL, 0, &img);
++  say (" -> ");
++  say_st ("st", st);
++  nl ();
++  if (!EFI_ERROR (st) && img) g_bs->UnloadImage (img);
++  if (fs->win && st == EFI_SUCCESS) g_ntfs_reads_fail |= 0; /* info only */
++}
++
++/* ---- ログファイル開放 ----------------------------------------------- */
++static void open_logs (void) {
++  EFI_STATUS  st;
++  EFI_HANDLE *hb = NULL;
++  UINTN       n = 0, i, k = 0;
++  CHAR16      nm[] = L"\\rdchk.log";
++
++  st = g_bs->LocateHandleBuffer (ByProtocol,
++                                &gEfiSimpleFileSystemProtocolGuid,
++                                NULL, &n, &hb);
++  say ("[OL n]");
++  if (EFI_ERROR (st)) return;
++  say_dec (n);
++  for (i = 0; i < n && k < 2; i++) {
++    EFI_FILE_IO_INTERFACE *fio = NULL;
++    EFI_FILE_HANDLE        root = NULL, del = NULL, logf = NULL;
++
++    if (EFI_ERROR (g_bs->HandleProtocol (hb[i],
++            &gEfiSimpleFileSystemProtocolGuid, (VOID **)&fio))) continue;
++    say ("[OLh]");
++    if (EFI_ERROR (fio->OpenVolume (fio, &root))) continue;
++    {
++      static CHAR16 fib[260];
++      UINTN         ssz = sizeof (fib);
++      UINTN         ro  = 1;
++      st = root->GetInfo (root, &gEfiFileSystemInfoGuid, &ssz, (VOID *)fib);
++      if (!EFI_ERROR (st)) ro = ((EFI_FILE_SYSTEM_INFO *)fib)->ReadOnly;
++      say ("[OLro]");
++      say_dec (ro);
++      nl ();
++      if (ro) { root->Close (root); continue; }
++    }
++    {
++      EFI_FILE_HANDLE  chk = NULL;
++      static CHAR16    wp[] = L"\\Windows\\System32\\config\\SOFTWARE";
++      if (!root->Open (root, &chk, wp, EFI_FILE_MODE_READ, 0)) {
++        chk->Close (chk);
++        root->Close (root);   /* never write a log onto a Windows volume */
++        continue;
++      }
++    }
++
++
++    /* 既存あれば消す（切り詰め代替） */
++    if (!root->Open (root, &del, nm, EFI_FILE_MODE_READ, 0)) {
++      del->Delete (del);  /* closes handle internally; never Close after */
++    }
++    st = root->Open (root, &logf, nm,
++                     EFI_FILE_MODE_READ | EFI_FILE_MODE_WRITE |
++                     EFI_FILE_MODE_CREATE, 0);
++    if (EFI_ERROR (st)) { root->Close (root); continue; }
++    say ("[OLo]");
++    if (k == 0) g_logA = logf; else g_logB = logf;
++    k++;
++  }
++  g_bs->FreePool (hb);
++}
++
++static void close_logs (void) {
++  if (g_logA) { g_logA->Close (g_logA); g_logA = NULL; }
++  if (g_logB) { g_logB->Close (g_logB); g_logB = NULL; }
++}
++
++/* ---- main ------------------------------------------------------------ */
++static UINT64 g_ntfs_miss;
++
++static struct {
++  CHAR16  *path;
++  int     dir;
++} g_newtests[] = {
++  { L"\\Windows\\System32\\config\\SOFTWARE", 0 },
++  { L"\\Windows\\System32\\config\\SECURITY", 0 },
++  { L"\\Windows\\System32\\config\\DEFAULT", 0 },
++  { L"\\Windows\\System32\\config\\SAM", 0 },
++  { L"\\Windows\\System32\\ntoskrnl.exe", 0 },
++  { L"\\Windows\\System32\\ci.dll", 0 },
++  { L"\\Windows\\System32\\clipsp.dll", 0 },
++  { L"\\Windows\\System32\\drivers\\tcpip.sys", 0 },
++  { L"\\Windows\\System32\\drivers\\ACPI.sys", 0 },
++  { L"\\Windows\\System32\\drivers\\Classpnp.sys", 0 },
++  { L"\\Windows\\System32\\drivers\\volmgrx.sys", 0 },
++  { L"\\Windows\\System32\\winevt\\Logs\\System.evtx", 0 },
++  { L"\\frag\\big0.bin", 0 },
++  { L"\\frag\\big2.bin", 0 },
++  { L"\\sparse.bin", 0 },
++  { L"\\hardlink-SYSTEM", 0 },
++  { L"\\sym-hal.dll", 0 },
++  { L"\\pagefile.sys", 0 },
++  { L"\\deep\\L00\\L01\\L02\\L03\\L04\\L05\\L06\\L07\\L08\\L09\\L10\\L11\\L12"
++     L"\\L13\\L14\\L15\\L16\\L17\\L18\\L19\\L20\\L21\\L22\\L23\\L24"
++     L"\\deepfile.bin", 0 },
++  { L"\\Windows\\System32\\winevt", 1 },
++  { L"\\Windows\\WinSxS", 1 },
++  { L"\\Windows\\System32\\drivers", 1 },
++  { L"\\Windows\\System32\\config", 1 },
++  { L"\\Windows", 1 },
++  { L"\\Windows\\Installer", 1 },
++  { L"\\Windows\\System32\\DriverStore\\FileRepository", 1 },
++  { L"\\Windows\\Microsoft.NET\\Framework64\\v4.0.30319", 1 },
++  { L"\\Program Files", 1 },
++  { L"\\Program Files\\Common Files", 1 },
++  { L"$Recycle.Bin", 1 },
++  { L"\\System Volume Information", 1 },
++  { L"\\Windows\\Boot", 1 },
++};
++
++#define NEWCAP  (32u * 1024u * 1024u)
++
++static void new_test (FS *fs)
++{
++  EFI_STATUS       st;
++  EFI_FILE_HANDLE  h = NULL;
++  UINTN            k, off, got;
++  UINT64           t0, xr, h0, hl, tot, n;
++
++  if (!fs) {
++    return;
++  }
++  say ("--- NEWTEST BEGIN ---");
++  nl ();
++  t0 = now_ms ();
++  for (k = 0; k < (sizeof (g_newtests) / sizeof (g_newtests[0])); k++) {
++    if (g_newtests[k].dir) {
++      test_dir (fs, "new", g_newtests[k].path);
++      continue;
++    }
++    st = fs->root->Open (fs->root, &h, g_newtests[k].path,
++                         EFI_FILE_MODE_READ, 0);
++    if (st == EFI_NOT_FOUND) {
++      say ("  miss #");
++      say_dec (k);
++      say_w (L" ");
++      say_w (g_newtests[k].path);
++      nl ();
++      g_ntfs_miss++;
++      continue;
++    }
++    if (EFI_ERROR (st)) {
++      say ("  FERR #");
++      say_dec (k);
++      say (" ");
++      say_st ("st", st);
++      nl ();
++      g_ntfs_new_fail++;
++      continue;
++    }
++    xr = 0; h0 = 0; hl = 0; n = 0; tot = 0;
++    for (off = 0; off < NEWCAP; off += CHUNK * 8u) {
++      st = h->SetPosition (h, off);
++      if (EFI_ERROR (st)) {
++        break;
++      }
++      got = CHUNK;
++      st = h->Read (h, &got, g_buf);
++      if (EFI_ERROR (st)) {
++        say ("  RDERR #");
++        say_dec (k);
++        say (" off=");
++        hexval (off, 8);
++        say (" ");
++        say_st ("st", st);
++        nl ();
++        g_ntfs_new_fail++;
++        break;
++      }
++      if (got == 0) {
++        break;
++      }
++      {
++        UINT64  c = fnv (FNV_INIT, g_buf, got);
++
++        if (n == 0) {
++          h0 = c;
++        }
++        hl = c;
++        xr ^= c;
++      }
++      tot += got;
++      n++;
++      if (got < CHUNK) {
++        break;
++      }
++    }
++    h->Close (h);
++    h = NULL;
++    say ("  F#");
++    say_dec (k);
++    say_w (L" ");
++    say_w (g_newtests[k].path);
++    say (" n=");
++    say_dec (n);
++    say (" bytes=");
++    say_dec (tot);
++    say (" xor=");
++    hex64 (xr);
++    say (" h0=");
++    hex64 (h0);
++    say (" hl=");
++    hex64 (hl);
++    say (" ms=");
++    say_dec (now_ms () - t0);
++    nl ();
++  }
++  say ("--- NEWTEST END fail=");
++  say_dec (g_ntfs_new_fail);
++  say (" miss=");
++  say_dec (g_ntfs_miss);
++  say (" ms=");
++  say_dec (now_ms () - t0);
++  nl ();
++}
++
++/* ---- winload BlImgGetPEImageSize 再現テスト --------------------------- */
++static UINT64 g_shape_fail;
++
++static void shape_read (EFI_FILE_HANDLE f, const char *tag, UINT64 off,
++                        UINTN len, UINT8 *buf) {
++  EFI_STATUS st;
++  UINTN      got = len;
++
++  st = f->SetPosition (f, off);
++  if (EFI_ERROR (st)) {
++    say ("  "); say (tag); say (" off="); hexval (off, 8);
++    say (" seek -> "); say_st ("st", st); nl ();
++    g_shape_fail++;
++    return;
++  }
++  st = f->Read (f, &got, buf);
++  say ("  "); say (tag);
++  say (" off="); hexval (off, 8);
++  say (" len="); say_dec (len);
++  say (" buf="); hexval ((UINT64)(UINTN)buf, 16);
++  say (" -> "); say_st ("st", st);
++  say (" got="); say_dec (got);
++  if (!EFI_ERROR (st) && got) { say (" b="); print_head (buf, got); }
++  nl ();
++  if (EFI_ERROR (st) || got != len) g_shape_fail++;
++}
++
++static void test_read_shapes (FS *fs) {
++  static const struct { CHAR16 *path; const char *name; } t[] = {
++    { L"\\Windows\\System32\\ntoskrnl.exe", "ntoskrnl" },
++    { L"\\Windows\\System32\\winload.efi",  "winload" },
++    { L"\\Windows\\System32\\config\\SYSTEM", "SYSTEM" },
++  };
++  UINT8  raw[8192 + 512];
++  UINT8 *stk16  = raw + 0x40;   /* 16B aligned, not 512B */
++  UINT8 *stk512 = (UINT8 *)(((UINTN)raw + 511) & ~(UINTN)511);
++  int    k;
++
++  for (k = 0; k < (int)(sizeof (t) / sizeof (t[0])); k++) {
++    EFI_FILE_HANDLE f = NULL;
++    EFI_FILE_INFO  *fi;
++    UINT64          fsize = 0;
++    UINTN           sz = 1024;
++    EFI_STATUS      st;
++
++    st = fs->root->Open (fs->root, &f, t[k].path, EFI_FILE_MODE_READ, 0);
++    say ("--- SHAPE "); say (t[k].name); say (" ---"); nl ();
++    say ("  open -> "); say_st ("st", st); nl ();
++    if (EFI_ERROR (st)) { g_shape_fail++; continue; }
++    fi = (EFI_FILE_INFO *)g_buf;
++    if (!EFI_ERROR (f->GetInfo (f, &gEfiFileInfoGuid, &sz, fi))) {
++      fsize = fi->FileSize;
++      say ("  size="); say_dec (fsize); nl ();
++    }
++    shape_read (f, "stk16-1k",   0, 1024, stk16);
++    shape_read (f, "stk512-1k",  0, 1024, stk512);
++    shape_read (f, "pool-1k",    0, 1024, g_buf);
++    shape_read (f, "pool+1-1k",  0, 1024, g_buf + 1);
++    shape_read (f, "stk16-512",  0, 512,  stk16);
++    shape_read (f, "stk16-2k",   0, 2048, stk16);
++    shape_read (f, "stk16-4k",   0, 4096, stk16);
++    shape_read (f, "stk16-8k",   0, 8192, stk16);
++    shape_read (f, "stk16-1k@4k",   0x1000, 1024, stk16);
++    shape_read (f, "stk16-1k@64k",  0x10000, 1024, stk16);
++    if (fsize > 0x2000)
++      shape_read (f, "stk16-1k@tail", fsize - 0x800, 1024, stk16);
++    f->Close (f);
++  }
++  say ("### SHAPE fail="); say_dec (g_shape_fail); nl ();
++}
++
++/* ---- 大サイズ単一 Read テスト (winload ImgpLoadPEImage 再現) ---------- */
++static void big_read_one (FS *fs, CHAR16 *path, const char *name,
++                          UINTN bufsz, UINT64 off) {
++  EFI_FILE_HANDLE f = NULL;
++  EFI_STATUS      st;
++  UINT8          *buf = NULL;
++  UINTN           got;
++
++  st = fs->root->Open (fs->root, &f, path, EFI_FILE_MODE_READ, 0);
++  say ("  BIG "); say (name);
++  say (" off="); hexval (off, 8);
++  say (" len="); say_dec (bufsz);
++  say (" open="); say_st ("st", st);
++  if (EFI_ERROR (st)) { nl (); return; }
++  st = g_bs->AllocatePool (EfiLoaderData, bufsz, (VOID **)&buf);
++  if (EFI_ERROR (st) || buf == NULL) {
++    say (" pool="); say_st ("st", st); nl ();
++    f->Close (f);
++    return;
++  }
++  st = f->SetPosition (f, off);
++  got = bufsz;
++  if (!EFI_ERROR (st)) st = f->Read (f, &got, buf);
++  say (" st="); say_st ("st", st);
++  say (" got="); say_dec (got);
++  if (!EFI_ERROR (st) && got) {
++    say (" fnv="); hex64 (fnv (FNV_INIT, buf, got));
++    say (" head="); print_head (buf, got);
++  }
++  nl ();
++  g_bs->FreePool (buf);
++  f->Close (f);
++}
++
++static void big_read_seq (FS *fs, CHAR16 *path, const char *name,
++                          UINTN bufsz) {
++  EFI_FILE_HANDLE f = NULL;
++  EFI_FILE_INFO  *fi;
++  EFI_STATUS      st;
++  UINT8          *buf = NULL;
++  UINTN           got, want, sz;
++  UINT64          fsize = 0, total = 0, h = FNV_INIT;
++
++  st = fs->root->Open (fs->root, &f, path, EFI_FILE_MODE_READ, 0);
++  say ("  SEQ "); say (name); say (" chunk="); say_dec (bufsz);
++  say (" open="); say_st ("st", st);
++  if (EFI_ERROR (st)) { nl (); return; }
++  fi = (EFI_FILE_INFO *)g_buf;
++  sz = 1024;
++  if (!EFI_ERROR (f->GetInfo (f, &gEfiFileInfoGuid, &sz, fi))) fsize = fi->FileSize;
++  st = g_bs->AllocatePool (EfiLoaderData, bufsz, (VOID **)&buf);
++  if (EFI_ERROR (st) || buf == NULL) {
++    say (" pool="); say_st ("st", st); nl ();
++    f->Close (f);
++    return;
++  }
++  st = f->SetPosition (f, 0);
++  while (!EFI_ERROR (st) && total < fsize) {
++    want = (fsize - total > bufsz) ? bufsz : (UINTN)(fsize - total);
++    got = want;
++    st = f->Read (f, &got, buf);
++    if (EFI_ERROR (st) || got != want) {
++      say (" FAIL at "); hexval (total, 8);
++      say (" want="); say_dec (want);
++      say (" got="); say_dec (got);
++      say (" st="); say_st ("st", st);
++      break;
++    }
++    h = fnv (h, buf, got);
++    total += got;
++  }
++  say (" total="); say_dec (total);
++  say (" fnv="); hex64 (h);
++  say (" st="); say_st ("st", st);
++  nl ();
++  g_bs->FreePool (buf);
++  f->Close (f);
++}
++
++static void test_big_reads (FS *fs) {
++  UINTN nsz = 11486624, wsz = 3156408;
++
++  say ("--- BIGREAD BEGIN ---"); nl ();
++  big_read_one (fs, L"\\Windows\\System32\\ntoskrnl.exe", "ntos-full", nsz, 0);
++  big_read_one (fs, L"\\Windows\\System32\\ntoskrnl.exe", "ntos-1M", 1024*1024, 0);
++  big_read_one (fs, L"\\Windows\\System32\\ntoskrnl.exe", "ntos-2M", 2*1024*1024, 0);
++  big_read_one (fs, L"\\Windows\\System32\\ntoskrnl.exe", "ntos-4M", 4*1024*1024, 0);
++  big_read_one (fs, L"\\Windows\\System32\\ntoskrnl.exe", "ntos-8M", 8*1024*1024, 0);
++  big_read_one (fs, L"\\Windows\\System32\\winload.efi", "wl-full", wsz, 0);
++  big_read_one (fs, L"\\Windows\\System32\\winload.efi", "wl-1M", 1024*1024, 0);
++  big_read_one (fs, L"\\Windows\\System32\\winload.efi", "wl-2M", 2*1024*1024, 0);
++  big_read_one (fs, L"\\Windows\\System32\\apisetschema.dll", "schema", 183208, 0);
++  big_read_seq (fs, L"\\Windows\\System32\\ntoskrnl.exe", "ntos-1M", 1024*1024);
++  big_read_seq (fs, L"\\Windows\\System32\\ntoskrnl.exe", "ntos-64K", 65536);
++  say ("--- BIGREAD END ---"); nl ();
++}
++
++EFI_STATUS EFIAPI RdChkMain (EFI_HANDLE ImageHandle,
++                            EFI_SYSTEM_TABLE *SystemTable) {
++  EFI_STATUS  st;
++  EFI_HANDLE *hs = NULL;
++  UINTN       n = 0;
++  FS         *fesp, *fwin;
++
++  g_image  = ImageHandle;
++  g_st     = SystemTable;
++  g_bs     = g_st->BootServices;
++  g_conout = g_st->ConOut;
++  say ("[S1]");
++
++  /* シリアルテキストアウト（あれば） */
++  if (!EFI_ERROR (g_bs->LocateHandleBuffer (ByProtocol,
++          &gEfiSerialIoProtocolGuid, NULL, &n, &hs)) && n) {
++    g_bs->HandleProtocol (hs[0], &gEfiSimpleTextOutProtocolGuid,
++                          (VOID **)&g_serout);
++    g_bs->FreePool (hs);
++  }
++  say ("[S2]");
++
++  say ("### ");
++  say (TAG);
++  say (" BEGIN\n");
++  open_logs ();
++  say ("[S3]");
++  g_buf = NULL;
++  st = g_bs->AllocatePool (EfiLoaderData, BIGBUF, (VOID **)&g_buf);
++  say ("[pool ");
++  say_st ("st", st);
++  say (" size=4MB ptr=");
++  hexval ((UINT64)(UINTN)g_buf, 16);
++  say ("]\n");
++  if (EFI_ERROR (st) || !g_buf) { close_logs (); return st; }
++
++  enum_fs ();
++  fesp = find_fs (1);
++  fwin = find_fs (0);
++  say ("[fs] esp=");
++  hexval ((UINT64)(UINTN)fesp, 8);
++  say (" win=");
++  hexval ((UINT64)(UINTN)fwin, 8);
++  nl ();
++
++  if (fesp) {
++    test_file (fesp, "rdchk.efi",  L"\\rdchk.efi", 0);
++    test_file (fesp, "ntfs_aa64",  L"\\EFI\\NTFS\\ntfs_aa64.efi", 188416);
++    probe_load (fesp, "rdchk.efi",  L"\\rdchk.efi");
++    probe_load (fesp, "bootmgfw",   L"\\EFI\\Microsoft\\Boot\\bootmgfw.efi");
++    test_file (fesp, "bootmgfw", L"\\EFI\\Microsoft\\Boot\\bootmgfw.efi", 2622784);
++    test_file (fesp, "BCD",      L"\\EFI\\Microsoft\\Boot\\BCD", 0);
++    test_dir  (fesp, "bootdir",  L"\\EFI\\Microsoft\\Boot");
++    test_dir  (fesp, "root",     L"\\");
++  }
++  if (fwin) {
++    new_test (fwin);
++    test_read_shapes (fwin);
++    test_big_reads (fwin);
++    test_file (fwin, "V5A.TXT", L"\\V5A.TXT", 40);
++    test_file (fwin, "rdchk.efi", L"\\rdchk.efi", 0);
++    test_file (fwin, "hal.dll", L"\\Windows\\System32\\hal.dll", 17216);
++    test_file (fwin, "winload.efi", L"\\Windows\\System32\\winload.efi",
++               2947320);
++    probe_load (fwin, "rdchk.efi", L"\\rdchk.efi");
++    probe_load (fwin, "hal.dll",   L"\\Windows\\System32\\hal.dll");
++    probe_load (fwin, "winload",   L"\\Windows\\System32\\winload.efi");
++    test_file (fwin, "SYSTEM-hive", L"\\Windows\\System32\\config\\SYSTEM", 0);
++    test_dir  (fwin, "root",  L"\\");
++    test_dir  (fwin, "sys32", L"\\Windows\\System32");
++  }
++
++  say ("### ");
++  say (TAG);
++  say (" NTFS-read-fail=");
++  say_dec (g_ntfs_reads_fail);
++  say (" NTFS-bytes=");
++  say_dec (g_ntfs_bytes_read);
++  say (" seek-rej="); say_dec (g_ntfs_seek_rej);
++  say (" eofshort="); say_dec (g_ntfs_eofshort);
++  nl ();
++  say (" new-fail="); say_dec (g_ntfs_new_fail);
++  say (" miss="); say_dec (g_ntfs_miss);
++  if (!fwin) say ("### VERDICT NTFS-FS-NOT-FOUND\n");
++  else if (g_ntfs_reads_fail) say ("### VERDICT NTFS-READ-BROKEN\n");
++  else say ("### VERDICT NTFS-READ-ALL-OK\n");
++  say ("### ");
++  say (TAG);
++  say (" END\n");
++  g_bs->Stall (3000000);      /* 3s: 画面保持 */
++  close_logs ();
++  return EFI_SUCCESS;
++}
+diff --git a/OemPkg/RdChkApp/RdChkApp.inf b/OemPkg/RdChkApp/RdChkApp.inf
+new file mode 100644
+index 0000000..926f854
+--- /dev/null
++++ b/OemPkg/RdChkApp/RdChkApp.inf
+@@ -0,0 +1,38 @@
++## @file
++#  NTFS/ESP read-path diagnostic app.
++#  Copyright (c) 2026. SPDX-License-Identifier: BSD-2-Clause-Patent
++##
++[Defines]
++  INF_VERSION    = 0x00010005
++  BASE_NAME      = RdChkApp
++  FILE_GUID      = A7C31E54-9D2B-4E7F-8C61-0B5F4D9A2E77
++  MODULE_TYPE    = UEFI_APPLICATION
++  VERSION_STRING = 1.0
++  ENTRY_POINT    = RdChkMain
++
++[Sources]
++  RdChkApp.c
++
++[Packages]
++  MdePkg/MdePkg.dec
++
++[LibraryClasses]
++  UefiApplicationEntryPoint
++  UefiBootServicesTableLib
++  UefiLib
++  BaseLib
++  BaseMemoryLib
++  MemoryAllocationLib
++  DevicePathLib
++  DebugLib
++  TimerLib
++
++[Protocols]
++  gEfiSimpleFileSystemProtocolGuid
++  gEfiSerialIoProtocolGuid
++  gEfiLoadedImageProtocolGuid
++  gEfiDevicePathProtocolGuid
++
++[Guids]
++  gEfiFileInfoGuid
++  gEfiFileSystemInfoGuid
+diff --git a/OemPkg/WlTest/WlTest.c b/OemPkg/WlTest/WlTest.c
+new file mode 100644
+index 0000000..20e0c64
+--- /dev/null
++++ b/OemPkg/WlTest/WlTest.c
+@@ -0,0 +1,157 @@
++/* Direct BS->LoadImage probe for winload.efi */
++#include <Uefi.h>
++#include <Library/UefiApplicationEntryPoint.h>
++#include <Library/UefiBootServicesTableLib.h>
++#include <Library/UefiLib.h>
++#include <Library/BaseLib.h>
++#include <Library/PrintLib.h>
++#include <Library/DebugLib.h>
++#include <Library/MemoryAllocationLib.h>
++#include <Protocol/SimpleFileSystem.h>
++#include <Protocol/LoadedImage.h>
++
++static EFI_FILE_HANDLE  g_log;
++
++static void put (const char *s)
++{
++  UINTN   n;
++  CHAR16  b[300];
++  int     i;
++
++  if (g_log) {
++    n = 0;
++    while (s[n]) {
++      n++;
++    }
++    g_log->Write (g_log, &n, (VOID *)s);
++  }
++  for (i = 0; s[i] != 0 && i < 290; i++) {
++    b[i] = (UINT16)(UINT8)s[i];
++  }
++  b[i] = 0;
++  Print (L"%s", b);
++  DebugPrint (DEBUG_ERROR, "WLT-ECHO: %a\n", s);
++}
++
++static void rep (const char *tag, EFI_STATUS o, EFI_STATUS rd,
++                 EFI_STATUS ld, UINTN sz)
++{
++  char  b[160];
++
++  AsciiSPrint (b, sizeof (b), "WLT %a o=%r rd=%r ld=%r sz=%x\n",
++               tag, o, rd, ld, sz);
++  put (b);
++}
++
++static void tryf (EFI_FILE_HANDLE vol, CHAR16 *p, const char *tag)
++{
++  EFI_FILE_HANDLE     f = NULL;
++  EFI_STATUS          o, rd, ld;
++  UINTN               sz;
++  VOID                *buf;
++  EFI_HANDLE          img;
++  EFI_LOADED_IMAGE    *li;
++
++  rd = EFI_NOT_READY;
++  ld = EFI_NOT_READY;
++  o = vol->Open (vol, &f, p, EFI_FILE_MODE_READ, 0);
++  if (EFI_ERROR (o)) {
++    rep (tag, o, rd, ld, 0);
++    return;
++  }
++  buf = AllocatePool (0x1800000);
++  if (buf == NULL) {
++    f->Close (f);
++    rep (tag, o, rd, ld, 0);
++    return;
++  }
++  sz = 0x1800000;
++  rd = f->Read (f, &sz, buf);
++  f->Close (f);
++  if (!EFI_ERROR (rd)) {
++    li = NULL;
++    gBS->HandleProtocol (gImageHandle,
++                         &gEfiLoadedImageProtocolGuid, (VOID **)&li);
++    img = NULL;
++    if (li != NULL) {
++      ld = gBS->LoadImage (FALSE, gImageHandle, li->FilePath,
++                           buf, sz, &img);
++    } else {
++      ld = EFI_UNSUPPORTED;
++    }
++  }
++  rep (tag, o, rd, ld, sz);
++  FreePool (buf);
++}
++
++static void openlog (EFI_FILE_HANDLE vol)
++{
++  CHAR16          nm[] = L"\\wltest.log";
++  EFI_FILE_HANDLE del = NULL;
++
++  if (g_log != NULL) {
++    return;
++  }
++  if (!vol->Open (vol, &del, nm, EFI_FILE_MODE_READ, 0)) {
++    del->Delete (del);
++  }
++  if (EFI_ERROR (vol->Open (vol, &g_log, nm,
++          EFI_FILE_MODE_READ | EFI_FILE_MODE_WRITE |
++          EFI_FILE_MODE_CREATE, 0))) {
++    g_log = NULL;
++  }
++}
++
++EFI_STATUS
++EFIAPI
++WlTestMain (
++  IN EFI_HANDLE        ImageHandle,
++  IN EFI_SYSTEM_TABLE  *SystemTable
++  )
++{
++  EFI_STATUS               st;
++  EFI_HANDLE               *hb;
++  UINTN                    n, i;
++  EFI_FILE_IO_INTERFACE    *fio;
++  EFI_FILE_HANDLE          vol;
++
++  put ("WLT BEGIN 20261026A\n");
++  hb = NULL;
++  n = 0;
++  st = gBS->LocateHandleBuffer (ByProtocol,
++         &gEfiSimpleFileSystemProtocolGuid, NULL, &n, &hb);
++  {
++    char  b[80];
++    AsciiSPrint (b, sizeof (b), "WLT lh=%r n=%d\n", st, (int)n);
++    put (b);
++  }
++  if (EFI_ERROR (st)) {
++    return 0;
++  }
++  for (i = 0; i < n; i++) {
++    char  b[80];
++    fio = NULL;
++    vol = NULL;
++    AsciiSPrint (b, sizeof (b), "WLT fs %d\n", (int)i);
++    put (b);
++    st = gBS->HandleProtocol (hb[i],
++           &gEfiSimpleFileSystemProtocolGuid, (VOID **)&fio);
++    if (EFI_ERROR (st)) {
++      continue;
++    }
++    st = fio->OpenVolume (fio, &vol);
++    if (EFI_ERROR (st)) {
++      continue;
++    }
++    openlog (vol);
++    tryf (vol, L"\\Windows\\System32\\winload.efi", "W");
++    tryf (vol, L"\\EFI\\Microsoft\\Boot\\bootmgfw.efi", "C");
++    vol->Close (vol);
++  }
++  put ("WLT END\n");
++  if (g_log) {
++    g_log->Close (g_log);
++  }
++  gBS->Stall (2000000);
++  return 0;
++}
+diff --git a/OemPkg/WlTest/WlTest.inf b/OemPkg/WlTest/WlTest.inf
+new file mode 100644
+index 0000000..c6452fc
+--- /dev/null
++++ b/OemPkg/WlTest/WlTest.inf
+@@ -0,0 +1,29 @@
++## @file
++#  Direct BS->LoadImage probe for winload.efi.
++##
++[Defines]
++  INF_VERSION    = 0x00010005
++  BASE_NAME      = WlTest
++  FILE_GUID      = B4E19D36-7F2A-4C58-9E0D-3A6B81C5F412
++  MODULE_TYPE    = UEFI_APPLICATION
++  VERSION_STRING = 1.0
++  ENTRY_POINT    = WlTestMain
++
++[Sources]
++  WlTest.c
++
++[Packages]
++  MdePkg/MdePkg.dec
++
++[LibraryClasses]
++  UefiApplicationEntryPoint
++  UefiBootServicesTableLib
++  UefiLib
++  BaseLib
++  BaseMemoryLib
++  MemoryAllocationLib
++  DebugLib
++
++[Protocols]
++  gEfiSimpleFileSystemProtocolGuid
++  gEfiLoadedImageProtocolGuid
+diff --git a/WlTestPkg/Application/WlTest/WlTest.inf b/WlTestPkg/Application/WlTest/WlTest.inf
+new file mode 100644
+index 0000000..d91bf54
+--- /dev/null
++++ b/WlTestPkg/Application/WlTest/WlTest.inf
+@@ -0,0 +1,21 @@
++[Defines]
++  BASE_NAME            = WlTest
++  MODULE_TYPE          = UEFI_APPLICATION
++  VERSION_STRING       = 1.0
++  ENTRY_POINT          = UefiMain
++
++[Sources]
++  WlTest.c
++
++[Packages]
++  MdePkg/MdePkg.dec
++
++[LibraryClasses]
++  UefiApplicationEntryPoint
++  UefiBootServicesTableLib
++  DebugLib
++  MemoryAllocationLib
++
++[Protocols]
++  gEfiSimpleFileSystemProtocolGuid
++  gEfiLoadedImageProtocolGuid
