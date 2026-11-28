@@ -157,7 +157,7 @@ if [ "$WANT_SSH" = 1 ]; then
     DS_ARG="ds=nocloud"
 fi
 
-CMDLINE="toram ip=dhcp console=ttyAMA0,115200"
+CMDLINE="toram noprompt ip=dhcp console=ttyAMA0,115200"
 [ -n "$DS_ARG" ] && CMDLINE="$CMDLINE $DS_ARG"
 
 entry() {

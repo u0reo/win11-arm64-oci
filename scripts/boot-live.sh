@@ -136,7 +136,7 @@ if [ "$MODE" = standard ]; then
     GRUB_CUSTOM=${GRUB_CUSTOM:-/etc/grub.d/40_custom}
     GRUB_CFG=${GRUB_CFG:-/boot/grub/grub.cfg}
 
-    CMDLINE="toram ip=dhcp console=ttyAMA0,115200"
+    CMDLINE="toram noprompt ip=dhcp console=ttyAMA0,115200"
     [ "$SSH" = 1 ] && CMDLINE="$CMDLINE ds=nocloud"
 
     entry() {

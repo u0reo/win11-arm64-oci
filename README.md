@@ -412,9 +412,11 @@ sudo ./scripts/build.sh --fresh-ubuntu --winre-partition --disk /dev/sdb \
 
 - **ステージ2-A**: B を停止し、ボリュームを A のブートボリュームとして
   再接続して A を起動します。
-- **ステージ2-B**: live から `sudo reboot -f` します。通常の `reboot` は
-  シャットダウン中のコンソール入力待ちで停止することがあります。`-f` は
-  サービスの停止を待たずに即座に再起動します。
+- **ステージ2-B**: live から `sudo reboot` します。`boot-live.sh` は live の起動
+  引数に `noprompt` を付けるので、casper の「Please remove the installation
+  medium, then press ENTER」待ちは発生しません（`toram` では
+  `cat: /sys/block/shm/removable: No such file or directory` も出ますが無害です）。
+  何らかのサービス待ちで止まるようなら `sudo reboot -f` を使ってください。
 
 起動後:
 

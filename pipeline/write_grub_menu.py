@@ -178,7 +178,7 @@ def live_entry(iso_path: str, label: str, seed: bool) -> tuple[str, str]:
     rel = path[len(mnt):] or "/"
     if not rel.startswith("/"):
         rel = "/" + rel
-    cmdline = ("toram ip=dhcp console=ttyAMA0,115200" +
+    cmdline = ("toram noprompt ip=dhcp console=ttyAMA0,115200" +
                (" ds=nocloud" if seed else ""))
     text = f"""menuentry "{label}" {{
     insmod part_gpt
