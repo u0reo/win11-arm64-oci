@@ -14,9 +14,9 @@
 #   sudo ./scripts/build.sh --disk /dev/sda ...
 #
 # The live system keeps the build in RAM: setup.sh remounts /dev/shm at
-# SHM_SIZE (default 100% of RAM), stages in /dev/shm/build and expects the
-# Windows ISO and virtio-win in /dev/shm/iso.  With --ssh, the cloud-init
-# seed also performs the /dev/shm setup at boot.
+# 100% of RAM, stages in /dev/shm/build and expects the Windows ISO and
+# virtio-win in /dev/shm/iso.  With --ssh, the cloud-init seed written by
+# scripts/live-seed.sh also performs the /dev/shm setup at boot.
 #
 # build.sh copies the Windows ISO and virtio-win into /dev/shm/iso if they
 # are still on /dev/sda.  The live ISO itself must already be in RAM (toram).
@@ -25,8 +25,9 @@
 # ESP, or leave it out for Windows only.  The recovery system copies only
 # /etc/netplan/*.yaml and authorized_keys from the running live system.
 #
-# --ssh        write a cloud-init seed (user-data + meta-data) to the ESP and
-#             label the ESP `CIDATA`.  The live session then creates the user
+# --ssh        write a cloud-init seed via scripts/live-seed.sh (user-data +
+#             meta-data on the ESP, labelled `CIDATA`).  The live session then
+#             creates the user
 #             `ubuntu` (passwordless sudo, /bin/bash) with the authorized_keys
 #             of this machine, and starts sshd.  Needs --write.  The Ubuntu
 #             Server live ISO already contains cloud-init and openssh-server;
@@ -44,10 +45,6 @@
 #             `update-grub` can add or remove entries without breaking it.
 #             The previous file is saved to
 #             /etc/default/grub.win11-arm64-oci.bak.  Needs --write.
-# --seed-only write only the cloud-init seed and set the ESP label to CIDATA,
-#             then exit.  Use with --ssh --write.  For the recovery Ubuntu,
-#             which has no update-grub/grub-reboot, use scripts/prepare-live.sh
-#             instead (it also writes the ESP's own grub.cfg).
 # --id ID     id of the menu entry (default win11-live-toram).  It is also the
 #             value of GRUB_DEFAULT, so it must not start with a digit.
 #
@@ -56,8 +53,6 @@
 set -euo pipefail
 
 HERE=$(cd "$(dirname "$0")" && pwd)
-# shellcheck source=../internal/live.sh
-. "$HERE/../internal/live.sh"
 
 ISO_ARG=${1:-}
 NAME=""
@@ -65,8 +60,6 @@ WRITE=0
 WANT_SSH=0
 WANT_DEFAULT=0
 WANT_ONCE=0
-SEED_ONLY=0
-SHM_SIZE=${SHM_SIZE:-100%}
 ID=${ID:-win11-live-toram}
 GRUB_CUSTOM=${GRUB_CUSTOM:-/etc/grub.d/40_custom}
 GRUB_CFG=${GRUB_CFG:-/boot/grub/grub.cfg}
@@ -93,16 +86,10 @@ while [ $# -gt 0 ]; do
         --ssh) WANT_SSH=1; shift ;;
         --default) WANT_DEFAULT=1; shift ;;
         --once) WANT_ONCE=1; shift ;;
-        --seed-only) SEED_ONLY=1; shift ;;
         -h|--help) usage 0 ;;
         *) echo "prepare: unknown argument: $1" >&2; usage 1 ;;
     esac
 done
-
-valid_shm_size "$SHM_SIZE" || {
-    echo "prepare: SHM_SIZE must be 100%, 16G, 1024, ..." >&2
-    exit 1
-}
 
 # GRUB ids are alphanumeric, '_' and '-', and must not start with a digit.
 case "$ID" in
@@ -121,11 +108,6 @@ if [ "$WANT_DEFAULT" = 1 ] || [ "$WANT_ONCE" = 1 ]; then
         exit 1
     }
 fi
-if [ "$SEED_ONLY" = 1 ] && [ "$WANT_SSH" != 1 ]; then
-    echo "prepare: --seed-only needs --ssh" >&2
-    exit 1
-fi
-
 [ -f "$ISO_ARG" ] || { echo "prepare: missing $ISO_ARG" >&2; exit 1; }
 ISO=$(realpath -e "$ISO_ARG")
 MNT=$(findmnt -no TARGET --target "$ISO" 2>/dev/null || true)
@@ -171,92 +153,8 @@ fi
 DS_ARG=""
 if [ "$WANT_SSH" = 1 ]; then
     [ "$WRITE" = 1 ] || { echo "prepare: --ssh needs --write" >&2; exit 1; }
-    ESP=$(findmnt -no SOURCE --target "$ESP_MNT" 2>/dev/null || true)
-    ESPDIR=$(findmnt -no TARGET --target "$ESP_MNT" 2>/dev/null || true)
-    ESPDIR=$(realpath -e "$ESPDIR" 2>/dev/null || true)
-    ESP_WANT=$(realpath -e "$ESP_MNT" 2>/dev/null || true)
-    [ -n "$ESP" ] && [ -n "$ESPDIR" ] && [ "$ESPDIR" = "$ESP_WANT" ] || {
-        echo "prepare: $ESP_MNT is not mounted; mount the ESP first" >&2
-        exit 1
-    }
-    KEYS=""
-    # Keep only "type base64 [comment]".  authorized_keys lines may carry
-    # options, and Ubuntu cloud images guard the root key with a command=
-    # option.  Passing that to ssh_authorized_keys would run the guard for the
-    # live user instead of starting a shell.
-    add_keys() {
-        [ -f "$1" ] || return 0
-        KEYS+=$(awk '
-            NF && $1 !~ /^#/ {
-                for (i = 1; i < NF; i++) {
-                    if ($i ~ /^(ssh-(rsa|dss|ed25519)|ecdsa-sha2-[^,]+|sk-[^,]+)$/ &&
-                        length($(i + 1)) > 40) {
-                        line = $i
-                        for (j = i + 1; j <= NF; j++) line = line " " $j
-                        print line
-                        break
-                    }
-                }
-            }' "$1")$'\n'
-    }
-    if [ -n "${SUDO_USER:-}" ] && [ "$SUDO_USER" != root ]; then
-        add_keys "/home/$SUDO_USER/.ssh/authorized_keys"
-    fi
-    add_keys /root/.ssh/authorized_keys
-    for f in /home/*/.ssh/authorized_keys; do
-        [ -e "$f" ] && add_keys "$f"
-    done
-    KEYS=$(printf '%s' "$KEYS" | awk 'NF && !seen[$0]++')
-    [ -n "$KEYS" ] || {
-        echo "prepare: no authorized_keys found in /home/*/.ssh or /root/.ssh" >&2
-        exit 1
-    }
-
-    {
-        echo "#cloud-config"
-        echo "ssh_pwauth: false"
-        # The Server live ISO's default user is 'installer', whose shell runs
-        # the installer UI.  Create a normal login user for SSH instead.
-        echo "users:"
-        echo "  - default"
-        echo "  - name: ubuntu"
-        echo "    gecos: Ubuntu"
-        echo "    groups: [adm, sudo]"
-        echo "    shell: /bin/bash"
-        echo '    sudo: "ALL=(ALL) NOPASSWD:ALL"'
-        echo "    ssh_authorized_keys:"
-        printf '%s\n' "$KEYS" | sed 's/^/      - /'
-        echo "runcmd:"
-        echo "  - systemctl enable --now ssh"
-        # Do this before the build starts.  The live system has to keep the
-        # ISO, staging files and QEMU guest in RAM at the same time.
-        echo "  - sh -c 'mkdir -p /dev/shm/iso /dev/shm/build && chmod 1777 /dev/shm/iso /dev/shm/build'"
-        echo "  - sh -c 'mount -o remount,size=$SHM_SIZE /dev/shm || true'"
-    } | $SUDO tee "$ESPDIR/user-data" >/dev/null
-    printf 'instance-id: win11-arm64-oci-live\nlocal-hostname: win11-live\n' |
-        $SUDO tee "$ESPDIR/meta-data" >/dev/null
-
-    # cloud-init's NoCloud datasource auto-detects a vfat filesystem labelled
-    # CIDATA.  A block device path is not a valid seedfrom URI, so relabel the
-    # ESP instead of passing ds=nocloud;s=...
-    OLD_LABEL=$($SUDO fatlabel "$ESP" 2>/dev/null) || {
-        echo "prepare: fatlabel failed for $ESP (install dosfstools)" >&2
-        exit 1
-    }
-    if [ "$OLD_LABEL" != CIDATA ]; then
-        printf '%s\n' "${OLD_LABEL:-}" | $SUDO tee "$ESPDIR/win11-arm64-oci-esp-label" >/dev/null
-        $SUDO fatlabel "$ESP" CIDATA
-        echo "prepare: labelled the ESP CIDATA (was '${OLD_LABEL:-none}')"
-        echo "  restore later with: sudo fatlabel $ESP '${OLD_LABEL:-}'"
-    fi
-
+    $SUDO "$HERE/live-seed.sh" --esp "$ESP_MNT"
     DS_ARG="ds=nocloud"
-    echo "prepare: wrote $ESPDIR/user-data and meta-data (ssh keys: $(printf '%s\n' "$KEYS" | wc -l))"
-fi
-
-if [ "$SEED_ONLY" = 1 ]; then
-    echo "prepare: seed only; GRUB config untouched"
-    exit 0
 fi
 
 CMDLINE="toram ip=dhcp console=ttyAMA0,115200"

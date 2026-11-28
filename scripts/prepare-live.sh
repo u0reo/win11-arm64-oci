@@ -5,8 +5,8 @@
 # Why not `scripts/prepare.sh --write --once`?  That script relies on
 # /etc/grub.d/40_custom, update-grub and grub-reboot.  The recovery Ubuntu
 # has none of them, and the GRUB that actually runs reads \EFI\ubuntu\grub.cfg
-# on the ESP.  This script writes the seed via prepare.sh --seed-only and
-# then regenerates the ESP's own menu with write_grub_menu.py.
+# on the ESP.  This script writes the seed via scripts/live-seed.sh and then
+# regenerates the ESP's own menu with write_grub_menu.py.
 #
 #   sudo ./scripts/prepare-live.sh [ISO] [--timeout SECONDS] [--no-first-boot]
 #
@@ -61,7 +61,7 @@ ROOTDEV=$(findmnt -no SOURCE / 2>/dev/null || true)
 [ -n "$ROOTDEV" ] || { echo "prepare-live: cannot find the root device" >&2; exit 1; }
 
 echo "== cloud-init seed (ESP -> CIDATA) =="
-"$HERE/prepare.sh" "$ISO" --write --ssh --seed-only
+$SUDO "$HERE/live-seed.sh"
 
 echo "== ESP GRUB menu =="
 CMD=(python3 "$HERE/../pipeline/write_grub_menu.py" "$ESP" / "$ROOTDEV"

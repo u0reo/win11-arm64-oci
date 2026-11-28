@@ -80,10 +80,10 @@ sudo chmod 440 /etc/sudoers.d/win11-builder
 
 ### ISO の配置
 
-runner 上に ISO を置き、Variables にパスを設定します。ISO の入手方法は
-README の [ステージ1](../README.md#ステージ1-準備) と
+runner 上に ISO を置き、Variables にパスを設定します。Windows ISO と
+virtio-win の入手方法は README の
 [ステージ3](../README.md#ステージ3-windows-iso-と-virtio-win) を参照して
-ください。
+ください（live ISO は runner では不要です）。
 
 ```bash
 sudo mkdir -p /srv/iso

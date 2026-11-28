@@ -18,7 +18,7 @@ OCI の Ubuntu を一時的なビルド機にし、ブートボリュームの�
 
 | ステージ | やること | 詳細 |
 |---|---|---|
-| [ステージ1](#ステージ1-準備) | 前提を確認し、Ubuntu live ISO を入手する | — |
+| [ステージ1](#ステージ1-準備) | 前提を確認する | — |
 | [ステージ2-A](#ステージ2-a-ボリュームを付け替える) | 2 インスタンスでビルドする（付け替え） | [docs/OCI.md](docs/OCI.md#ステージ2-a-ボリュームを付け替える) |
 | [ステージ2-B](#ステージ2-b-live-を-toram-で起動する) | 1 インスタンスで完結する（live `toram`） | [docs/OCI.md](docs/OCI.md#ステージ2-b-live-を-toram-で起動する) |
 | [ステージ3](#ステージ3-windows-iso-と-virtio-win) | Windows ISO と virtio-win を配置する | [docs/OCI.md](docs/OCI.md#iso-の置き場所) |
@@ -28,15 +28,16 @@ OCI の Ubuntu を一時的なビルド機にし、ブートボリュームの�
 | [付録A](#付録a-github-actions-で回す) | GitHub Actions で回す | [docs/GITHUB.md](docs/GITHUB.md) |
 | [付録B](#付録b-ローカルで-qcow2-を作る) | ローカルで qcow2 を作る | [docs/BUILD.md](docs/BUILD.md) |
 
-`scripts/` の入口は次の 5 つです。内部部品は `internal/` にあり、直接は叩きません。
+`scripts/` の入口は次の 4 つです。`live-seed.sh` は cloud-init seed だけを書く
+内部スクリプト、`prepare.sh` / `prepare-live.sh` は互換スクリプトなので直接は
+叩きません。内部部品は `internal/` にあります。
 
 | スクリプト | 用途 | 使うステージ |
 |---|---|---|
 | `scripts/setup.sh` | ホストの準備と検査（全パッケージ。冪等） | 2-A |
 | `scripts/setup-live.sh` | RAM ビルド用の最小準備（冪等） | 2-B（live 内） |
+| `scripts/boot-live.sh` | 起動元を自動判定して live ISO を `toram` 起動する | 2-B |
 | `scripts/build.sh` | ディスクを作る唯一の入口 | 4 |
-| `scripts/prepare.sh` | live ISO を GRUB に登録し、自動起動を設定する | 2-B（素の Ubuntu） |
-| `scripts/prepare-live.sh` | 復旧 Ubuntu から live を起動する（ESP の GRUB を直接書く） | 2-B（復旧 Ubuntu） |
 
 ## ステージ1 準備
 
@@ -57,40 +58,6 @@ OCI の無料枠とボリューム容量は
 パッケージの導入とホスト検査は、ステージ2でビルド機にログインしてから
 `setup.sh`（2-A）または `setup-live.sh`（2-B の live セッション）で行います。
 
-### Ubuntu live ISO を入手する
-
-ステージ2-A では不要です。ステージ2-B では、Ubuntu Server の live ISO を
-1 枚だけブートボリュームに置きます。
-
-```bash
-sudo mkdir -p /srv/iso
-cd /srv/iso
-
-# arm64 を選ぶ。live もビルド環境もこの 1 枚で足りる。
-# ARM64 のイメージは releases.ubuntu.com ではなく cdimage.ubuntu.com に
-# ある（releases.ubuntu.com/26.04/ は amd64 のみ）。
-BASE=https://cdimage.ubuntu.com/releases/26.04/release
-
-# SHA256SUMS から最新の live-server arm64 を選ぶ（26.04.1 など）
-curl -fsSLO "$BASE/SHA256SUMS"
-ISO=$(awk '/live-server-arm64\.iso$/ {print $2}' SHA256SUMS |
-  sed 's/^\*//' | sort -V | tail -1)
-echo "$ISO"
-curl -fsSLO "$BASE/$ISO"
-
-grep -F " *$ISO" SHA256SUMS | sha256sum -c -
-```
-
-`+largemem` 付きの ISO は大きなメモリ向けなので、通常は選ばれません。
-ファイル名を固定したい場合は、上の `echo "$ISO"` で表示された名前を
-そのまま使ってください（この記事の例では
-`ubuntu-26.04.1-live-server-arm64.iso`）。
-
-`--fresh-ubuntu` の 4 GiB Ubuntu は、ビルドに使う live ISO 内の minimal
-rootfs から作ります。ISO が見つからない場合だけ `debootstrap` で
-ネットワークから取得します。別途 minimal イメージをダウンロードする
-必要はありません（[docs/DUALBOOT.md](docs/DUALBOOT.md)）。
-
 ## ステージ2 ビルド環境を作る
 
 次のどちらか一方を選びます。作られるディスクは同じです。
@@ -101,10 +68,12 @@ rootfs から作ります。ISO が見つからない場合だけ `debootstrap` 
 
 ### ビルド機のパッケージ
 
-どちらの方法でも、ビルド機にログインしたら最初に `setup.sh` を実行します
-（冪等）。パッケージの導入とホスト検査をまとめて行います。
+ビルド機にログインしたら、最初に役割に応じたスクリプトを実行します（冪等）。
+2-A は全機能版の `setup.sh`、2-B の live セッションは最小構成の
+`setup-live.sh` です。どちらもパッケージの導入とホスト検査をまとめて行います。
 
 ```bash
+# 2-A: 全機能版（CI / イメージ配布用のパッケージも入る）
 sudo ./scripts/setup.sh          # 入れてから検査（直接書き込みが既定）
 ./scripts/setup.sh --check       # 検査だけ（何も変更しない）
 
@@ -132,6 +101,7 @@ live (`toram`) では `setup.sh` / `setup-live.sh` が `/dev/shm` を RAM の 10
 入ります。
 
 ```bash
+# 2-B: live セッション内でのみ実行（ホストの素の Ubuntu には不要）
 sudo ./scripts/setup-live.sh          # 最小構成を入れて preflight
 ./scripts/setup-live.sh --check       # 検査だけ
 ```
@@ -178,65 +148,98 @@ OCI CLI での付け替え、容量の考え方、無料枠は
 
 ### ステージ2-B live を toram で起動する
 
-1 インスタンスで完結します。live ISO を GRUB に登録し、`toram` で RAM に
-載せてから `/dev/sda` を上書きします。**起動元の Ubuntu がどちらかで手順が
-異なります。**
+1 インスタンスで完結します。live ISO を `toram` で RAM に載せてから
+`/dev/sda` を上書きします。起動元が OCI の標準 Ubuntu でも、このプロジェクトが
+作った復旧 Ubuntu でも、次の `boot-live.sh` が自動判定して GRUB を設定します
+（手順を分ける必要はありません）。
 
-#### A. OCI の標準 Ubuntu イメージ（素の GRUB）から起動する
+#### Ubuntu live ISO を入手する
 
-`update-grub` と `grub-reboot` がある場合は、従来どおり `prepare.sh` だけで
-登録できます。
+Ubuntu Server の live ISO を 1 枚だけブートボリュームに置きます。
+再起動後に GRUB が読むので、tmpfs や FUSE マウントではなく実ファイル
+システム上の `/srv/iso` に置いてください（ステージ2-A では不要です）。
 
 ```bash
-# 既存の Ubuntu にログイン
+sudo mkdir -p /srv/iso
+sudo chmod 777 /srv/iso          # ログインユーザーが curl で書き込めるようにする
+cd /srv/iso
+
+# arm64 を選ぶ。live もビルド環境もこの 1 枚で足りる。
+# ARM64 のイメージは releases.ubuntu.com ではなく cdimage.ubuntu.com に
+# ある（releases.ubuntu.com/26.04/ は amd64 のみ）。
+BASE=https://cdimage.ubuntu.com/releases/26.04/release
+
+# SHA256SUMS から最新の live-server arm64 を選ぶ（26.04.1 など）
+curl -fsSLO "$BASE/SHA256SUMS"
+ISO=$(awk '/live-server-arm64\.iso$/ {print $2}' SHA256SUMS |
+  sed 's/^\*//' | sort -V | tail -1)
+echo "$ISO"
+curl -fsSLO "$BASE/$ISO"
+
+grep -F " *$ISO" SHA256SUMS | sha256sum -c -
+```
+
+`+largemem` 付きの ISO は大きなメモリ向けなので、通常は選ばれません。
+ファイル名を固定したい場合は、上の `echo "$ISO"` で表示された名前を
+そのまま使ってください（この記事の例では
+`ubuntu-26.04.1-live-server-arm64.iso`）。
+
+`--fresh-ubuntu` の 4 GiB Ubuntu は、ビルドに使う live ISO 内の minimal
+rootfs から作ります。ISO が見つからない場合だけ `debootstrap` で
+ネットワークから取得します。別途 minimal イメージをダウンロードする
+必要はありません（[docs/DUALBOOT.md](docs/DUALBOOT.md)）。
+
+#### live を起動する
+
+```bash
+# 起動元の Ubuntu にログイン
 git clone https://github.com/<OWNER>/win11-arm64-oci.git
 cd win11-arm64-oci
 
-# live ISO を GRUB に登録する
-# --ssh   は ESP を CIDATA にして、live 起動時から SSH できるようにする
-# --once  は次の 1 回だけ live を自動起動する（--default なら毎回）
-sudo ./scripts/prepare.sh \
-  /srv/iso/ubuntu-26.04.1-live-server-arm64.iso --write --ssh --once
-
+sudo ./scripts/boot-live.sh
 sudo reboot
 ```
 
-#### B. このプロジェクトが作った復旧 Ubuntu から起動する
+ISO を省略すると `find /srv/iso -maxdepth 1 -type f -name
+'*live-server-arm64*.iso'` で検索し、1 つだけ見つかったらそれを使います。
+見つからない場合や 2 つ以上マッチした場合は
+エラーになるので、その場合は `sudo ./scripts/boot-live.sh /path/to/image.iso`
+とパスを渡してください（`+largemem` もマッチするので注意）。
 
-この環境の GRUB は `\EFI\ubuntu\grub.cfg` を直接読み、
-`update-grub` / `grub-reboot` / `grub-common` は入っていません。
-**A の `prepare.sh --write --once` だけでは live は起動しません。**
-`prepare-live.sh` が cloud-init の seed と CIDATA ラベルを用意し、
-メニューは `write_grub_menu.py` で ESP の grub.cfg に直接書き込みます。
+`boot-live.sh` は root での実行が必須です（スクリプト内では `sudo` を使いません）。
+`update-grub` と `grub-reboot` が使えるかで起動元を判定し、
+次のように live エントリを登録します。
 
-```bash
-# 事前に dosfstools が必要: sudo ./scripts/setup-live.sh
-sudo ./scripts/prepare-live.sh /srv/iso/ubuntu-26.04.1-live-server-arm64.iso
-sudo reboot
-```
+| 起動元 | 判定 | 登録先 | 次回の起動 |
+|---|---|---|---|
+| OCI の標準 Ubuntu（素の GRUB） | `update-grub` / `grub-reboot` あり | `/etc/grub.d/40_custom` → `update-grub` | `grub-reboot` で id `win11-live-toram` を 1 回だけ |
+| このプロジェクトの復旧 Ubuntu | 上記が無い | ESP の `\EFI\ubuntu\grub.cfg`（`write_grub_menu.py`） | `next_entry` で 1 回だけ |
 
-ルートデバイスは `findmnt -no SOURCE /` から自動検出します。ISO は
-`/srv/iso` などの実ファイルシステムに置いてください（tmpfs は不可）。
-`--timeout 秒数` でメニュー時間、`--no-first-boot` で「次回だけ」を
-外せます。`next_entry=Ubuntu live (toram)` は 1 回だけ消費され、
-その後は Windows 11 が既定に戻ります。
+どちらもメニューの番号ではなくエントリ名/id で指定するので、`update-grub` で
+並び順が変わっても壊れません。1 回だけなので、live の起動に失敗しても
+電源を入れ直せば元の Ubuntu に戻ります。毎回 live で起動したい場合は
+標準 Ubuntu では `--default` を付けてください（`--default` は標準モード専用）。
+復旧 Ubuntu では `--timeout 秒数` でメニュー時間を変えられます（既定 5 秒）。
+判定を明示したいときは `--mode standard` / `--mode recovery` を付けます。
 
-A の場合、`--once` / `--default` はメニューの番号ではなく、エントリの id
-（`win11-live-toram`）で live を指定するので、`update-grub` でメニューの
-順番が変わっても壊れません。`--once` は次の 1 回だけなので、live の起動に
-失敗しても電源を入れ直せば Ubuntu に戻ります。最初は `--once` で確認し、
-毎回 live で起動したいなら `--default` にしてください。
+ESP に cloud-init の seed を書き、ラベルを `CIDATA` に変えて、live 起動時から
+`authorized_keys` で SSH できるようにします。公開鍵は
+`/home/*/.ssh/authorized_keys` か `/root/.ssh/authorized_keys` から読みます。
+SSH が要らないときは `--no-ssh` を付けてください（この場合カーネル引数の
+`ds=nocloud` も外れます）。seed の書き込みには `fatlabel`（dosfstools）が
+必要ですが、素の Ubuntu に追加で要るパッケージはこれだけです。GRUB の
+ツールは標準イメージに入っています。seed が `/dev/shm` に設定する上限は
+RAM の 100% 固定で、`--shm-size` はありません。
 
-A で `--once` / `--default` を付けない場合は、GRUB のメニューで
-`Ubuntu live (toram)` を選びます（`GRUB_TIMEOUT=0` だとメニューが出ないので、
-その場合はどちらかを付けてください）。B では常に 30 秒のメニューが出ます。
-
-`--ssh` を使うには ESP が `/boot/efi` にマウントされている必要があります。
-`findmnt /boot/efi` で確認し、無ければ `lsblk -f` で vfat の ESP を探して
+ESP は `/boot/efi` にマウントされている必要があります。`findmnt /boot/efi`
+で確認し、無ければ `lsblk -f` で vfat の ESP を探して
 `sudo mount /dev/sda15 /boot/efi` のようにマウントしてから実行してください。
 
-A の場合、`--default` の戻し方は `prepare.sh` が表示します。変更前の
-`/etc/default/grub` は `/etc/default/grub.win11-arm64-oci.bak` にあります。
+`--once` / `--default` を付けない場合（標準 Ubuntu）は GRUB のメニューで
+`Ubuntu live (toram)` を選びます（`GRUB_TIMEOUT=0` だとメニューが出ないので、
+どちらかを付けてください）。`--default` の変更前の `/etc/default/grub` は
+`/etc/default/grub.win11-arm64-oci.bak` に保存され、戻し方はスクリプトが
+表示します。ESP の元のラベルは `win11-arm64-oci-esp-label` に保存されます。
 
 live の root は RAM 上なので、リポジトリをもう一度 clone してから
 `setup-live.sh` を実行します（全パッケージ版の `setup.sh` でも動きますが、
@@ -249,10 +252,10 @@ sudo ./scripts/setup-live.sh
 ```
 
 `setup-live.sh` は live (`toram`) を検出すると `/dev/shm` を RAM の 100% に
-再マウントし、`/dev/shm/iso` と `/dev/shm/build` を作ります。`--ssh` で
-起動した場合は cloud-init も起動時に同じ設定を行います。
+再マウントし、`/dev/shm/iso` と `/dev/shm/build` を作ります。cloud-init seed
+を使った場合は起動時に同じ設定が行われるので、SSH 直後から使えます。
 
-RAM の内訳、`--ssh` の仕組み、`toram` の注意点は
+RAM の内訳、cloud-init seed の仕組み、`toram` の注意点は
 [docs/OCI.md](docs/OCI.md#ステージ2-b-live-を-toram-で起動する) を参照してください。
 
 ## ステージ3 Windows ISO と virtio-win
@@ -463,8 +466,8 @@ sudo env WIN_USERNAME="$WIN_USERNAME" WIN_PASSWORD="$WIN_PASSWORD" \
 
 - **ステージ2-A**: ビルダー B を停止します。B のブートボリュームを残すと
   その分だけ課金対象になります。
-- **ステージ2-B**: `prepare.sh --ssh` / `prepare-live.sh` が ESP のラベルを
-  `CIDATA` に変えています。表示された `fatlabel` コマンドで元に戻します
+- **ステージ2-B**: `boot-live.sh` が ESP のラベルを `CIDATA` に変えています。
+  表示された `fatlabel` コマンドで元に戻します
   （例: `sudo fatlabel /dev/sda1 SYSTEM`）。
 - ビルド前のバックアップ、失敗時の復旧、コストの内訳は
   [docs/OCI.md](docs/OCI.md#ステージ6-後片付け) を参照してください。
@@ -505,7 +508,7 @@ sudo ./scripts/build.sh --image build/win11-arm64.qcow2 \
 ```text
 autounattend/   無人インストール XML テンプレート
 oem/            初回起動時の PowerShell / CMD
-scripts/        入口 5 つ: setup.sh / setup-live.sh / build.sh / prepare.sh / prepare-live.sh
+scripts/        入口 4 つ: setup.sh / setup-live.sh / boot-live.sh / build.sh（live-seed.sh は seed 専用、prepare*.sh は互換用）
 internal/       内部部品: build-image, live, apt, render, preflight ...
 pipeline/       ディスク構築の部品: wimlib apply, WinPE, QEMU, 検査
 docs/           OCI / GITHUB / BUILD / DUALBOOT / SCRATCH / WORKLOG

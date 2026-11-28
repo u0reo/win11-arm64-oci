@@ -110,8 +110,9 @@ ESP で、マウント中の ext4 は縮小できないため、インストー�
 virtio-win（0.7 GB、RPM なら 0.3 GB）を `/dev/shm/iso`（RAM）に置いても、
 24 GB に収まります。
 
-`setup.sh` は live (`toram`) を検出すると、`/dev/shm` の上限を既定で
-**RAM の 100%** に再マウントします（`SHM_SIZE` / `--shm-size` で変更可）。
+`setup.sh` / `setup-live.sh` は live (`toram`) を検出すると、`/dev/shm` の
+上限を既定で **RAM の 100%** に再マウントします（`SHM_SIZE` / `--shm-size`
+で変更可）。
 これは容量の予約ではなく上限です。実際に使うのは次の合計です。
 
 | 用途 | 目安 |
@@ -164,35 +165,36 @@ sudo ./scripts/setup-live.sh --shm-size 16G
 `E: The repository 'file:/cdrom ... Release' does not have a Release file.`
 が出るためです（`cdrom.sources` → `cdrom.sources.disabled` にリネーム）。
 
-### 復旧 Ubuntu から live を起動する（`prepare-live.sh`）
+### live を起動する（`boot-live.sh`）
 
-復旧 Ubuntu には `update-grub` / `grub-reboot` が無く、実際に読まれる
-GRUB 設定も `/etc/grub.d/40_custom` → `/boot/grub/grub.cfg` ではなく
-ESP の `\EFI\ubuntu\grub.cfg` です。したがって `prepare.sh --write --once`
-はそのままでは使えません（WORKLOG 22.53）。専用スクリプトを使います。
+起動元は `scripts/boot-live.sh` が自動判定します（WORKLOG 22.53）。
+
+| 起動元 | 判定 | 登録先 |
+|---|---|---|
+| OCI の標準 Ubuntu（素の GRUB） | `update-grub` / `grub-reboot` あり | `/etc/grub.d/40_custom` → `update-grub` → `grub-reboot` |
+| このプロジェクトの復旧 Ubuntu | 上記が無い | ESP の `\EFI\ubuntu\grub.cfg`（`write_grub_menu.py`）→ `next_entry` |
 
 ```bash
 # ISO は /srv/iso などの実ファイルシステムに置く（tmpfs は不可）
-sudo ./scripts/prepare-live.sh /srv/iso/ubuntu-26.04.1-live-server-arm64.iso
+sudo ./scripts/boot-live.sh
 sudo reboot
 ```
 
-これは `prepare.sh --ssh --seed-only` で cloud-init seed と ESP の
-`CIDATA` ラベルを用意し、`write_grub_menu.py --live-iso ... --live-seed
+ISO 省略時は `/srv/iso/*live-server-arm64*.iso` を検索し、一致が 1 つだけなら
+それを使います。0 個または 2 個以上ならエラーなので、その場合は引数で
+パスを渡します。判定を固定したいときは `--mode standard` / `--mode recovery`
+を付けます。どちらのモードも `scripts/live-seed.sh` で cloud-init seed と
+ESP の `CIDATA` ラベルを用意し、`write_grub_menu.py --live-iso ... --live-seed
 --first-boot-live` で ESP のメニューに live エントリを書き、`next_entry`
-で次回 1 回だけ live を起動します。`fatlabel`（dosfstools）が必要なので、
-先に `setup-live.sh` を実行してください。
+で次回 1 回だけ live を起動します。`fatlabel`（dosfstools）が必要です。
 
-### `prepare.sh --ssh` の仕組み
+### cloud-init seed の仕組み
 
-`--write` は `/etc/grub.d/40_custom` に追記して `update-grub` まで
-実行します（何度実行してもエントリは 1 つに保たれます）。
-
-`--ssh` は ESP に cloud-init の seed を書き、ESP のラベルを `CIDATA` に
-して、live 起動時から `authorized_keys` で SSH できるようにします。
-seed も起動時に `/dev/shm` を `SHM_SIZE`（既定 100%）へ再マウントし、
-`/dev/shm/iso` と `/dev/shm/build` を作ります（`--ssh` を使わない場合は
-起動後の `setup.sh` が同じことをします）。
+`boot-live.sh` は ESP に cloud-init の seed を書き、ESP のラベルを
+`CIDATA` にして、live 起動時から `authorized_keys` で SSH できるようにします
+（`--no-ssh` で省略可能）。seed も起動時に `/dev/shm` を RAM の 100% へ
+再マウントし、`/dev/shm/iso` と `/dev/shm/build` を作ります
+（seed を使わない場合は起動後の `setup-live.sh` が同じことをします）。
 ESP は事前に `/boot/efi` にマウントしておきます（`ESP_MNT` で変更可）。
 元のラベルは ESP の `win11-arm64-oci-esp-label` に保存され、復元コマンドも
 表示されます。
@@ -202,10 +204,10 @@ Ubuntu Server live には cloud-init と openssh-server が入っており、
 は念のためで、無くても 22 番は開きます）。sshd が上がらないときは
 `sudo cloud-init status --long` を見てください。live のホスト鍵は毎回
 変わるので、`known_hosts` の警告が出たら `ssh-keygen -R <ip>` で消して
-ください。ESP のラベルはビルド後に戻せます（`prepare.sh` が表示する
+ください。ESP のラベルはビルド後に戻せます（`boot-live.sh` が表示する
 `fatlabel` コマンド）。
 
-`prepare.sh --ssh` の seed は、Ubuntu 24.04.5 live-server arm64 ISO を
+`boot-live.sh` の seed は、Ubuntu 24.04.5 live-server arm64 ISO を
 QEMU（AAVMF + TCG）で起動して確認済みです。cloud-init が `CIDATA` を
 自動検出し、`ubuntu` ユーザー作成・`authorized_keys` でのログイン・
 パスワードなし sudo・22 番の listen まで通りました。TCG では systemd の
@@ -220,15 +222,19 @@ QEMU（AAVMF + TCG）で起動して確認済みです。cloud-init が `CIDATA`
 生成するメニューの並び順で決まり、カーネルの追加やサブメニューの有無で
 ずれます（サブメニューは `1>2` のように書く必要があります）。
 
-`prepare.sh` は live のエントリに `--id win11-live-toram` を付け、その id で
-既定エントリを指定します。id はメニューの並び順に依存しません。
+標準モードの `boot-live.sh` は live のエントリに `--id win11-live-toram` を
+付け、その id で起動を指定します。id はメニューの並び順に依存しません。
+復旧モードでは
+ESP の `grubenv` の `next_entry` にエントリ名を書きます。
 
 | フラグ | やること | 使う場面 |
 |---|---|---|
-| `--once` | `grub-reboot win11-live-toram`。次の 1 回だけ live を起動 | 最初の確認。失敗しても次の電源投入で Ubuntu に戻る |
-| `--default` | `/etc/default/grub` の `GRUB_DEFAULT` を `win11-live-toram` に | 毎回 live で起動したいとき |
+| `--once` | 標準: `grub-reboot win11-live-toram` / 復旧: `next_entry`。次の 1 回だけ live | 最初の確認。失敗しても次の電源投入で元の Ubuntu に戻る |
+| `--default` | 標準のみ: `/etc/default/grub` の `GRUB_DEFAULT` を `win11-live-toram` に | 毎回 live で起動したいとき |
+| `--no-ssh` | seed と `ds=nocloud` を省く | live に SSH 不要のとき |
 
-どちらも `--write` が必要です。`--default` は変更前の
+`--once` が既定です（後から `--once` を付けると `--default` は打ち消されます）。
+`--default` は標準モード専用で、変更前の
 `/etc/default/grub` を `/etc/default/grub.win11-arm64-oci.bak` に保存し、
 戻し方を表示します。手動で戻す場合:
 
@@ -241,8 +247,7 @@ sudo update-grub
 起動します。メニューを出したいときは `GRUB_TIMEOUT=10` と
 `GRUB_TIMEOUT_STYLE=menu` にします。
 
-id を変えたいときは `--id` を使います（英数字・`_`・`-`、先頭は数字以外）。
-`--id` を変えたら `--default` / `--once` も付け直してください。
+復旧モードのメニュー時間は `--timeout 秒数` で変えられます（既定 5 秒）。
 
 ### 注意点
 
@@ -251,14 +256,14 @@ id を変えたいときは `--id` を使います（英数字・`_`・`-`、先
   復旧するしかありません
 - OCI には CD-ROM デバイスが無いので、grub の `loopback` +
   `iso-scan/filename=` で起動する必要があります
-  （`scripts/prepare.sh` がエントリを作ります）
+  （`scripts/boot-live.sh` がエントリを作ります）
 - `toram` でも対象ディスクのパーティションがマウントされたままの場合があります。
   `scripts/build.sh` は `--yes` の後で自動的に解除します。解除できない場合は
   `fuser -vm <mountpoint>` で使用中プロセスを確認してください
 
 ## ISO の置き場所
 
-live (`toram`) の既定は **`/dev/shm/iso`（RAM）** です。`setup.sh` が
+live (`toram`) の既定は **`/dev/shm/iso`（RAM）** です。`setup-live.sh` が
 `/dev/shm` を RAM の 100% に再マウントするので、ISO を置いても
 `/dev/sda` の書き換えの影響を受けません。
 
@@ -345,8 +350,8 @@ sudo mount -t davfs https://webdav.pcloud.com /mnt/iso
 
 注意点:
 
-- **GRUB は FUSE マウントを読めません。** `prepare.sh` に渡す Ubuntu live ISO は
-  実ブロックデバイス上のファイルシステム（`/srv/iso` など）に置きます。
+- **GRUB は FUSE マウントを読めません。** `boot-live.sh` に渡す Ubuntu live ISO
+  は実ブロックデバイス上のファイルシステム（`/srv/iso` など）に置きます。
   クラウドは live 起動後の Windows ISO / virtio-win 用です。
 - QEMU は ISO をシークしながら読むため、WAN 越しの直接マウントは遅いです。
   `/dev/shm/iso`（RAM）かデータボリュームにコピーしてからビルドします。

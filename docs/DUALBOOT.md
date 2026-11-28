@@ -39,7 +39,7 @@ p3 の後ろなので、GRUB が読む p1/p2 の配置には影響しません�
   非空ファイル）
 
 live (`toram`) でビルドする場合、これは live 環境の設定です。
-`prepare.sh --ssh` で起動した live なら、
+`boot-live.sh` の cloud-init seed で起動した live なら、
 `/home/ubuntu/.ssh/authorized_keys` には元の Ubuntu から seed された鍵が
 入っています。
 
