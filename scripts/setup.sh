@@ -1,24 +1,23 @@
 #!/usr/bin/env bash
-# Prepare an Ubuntu 24.04/26.04 ARM64 host (for example an OCI Ampere A1
-# instance) and check that it can build the Windows 11 ARM64 disk.
+# Prepare the build host and check that build.sh can run.
 #
-#   sudo ./scripts/setup.sh                  # install packages, then check
-#   ./scripts/setup.sh --check               # check only, changes nothing
+#   sudo ./scripts/setup.sh                 # install packages, then check
+#   sudo ./scripts/setup.sh --live          # same, for a live (toram) build
+#   ./scripts/setup.sh --check              # check only, changes nothing
 #   ./scripts/setup.sh --check --disk /dev/sdb
 #   ./scripts/setup.sh --check --image build/win11-arm64.qcow2
+#   sudo ./scripts/setup.sh --shm-size 16G
 #
-# It is idempotent: running it twice only re-checks the packages.
+# One script for stage 2-A and 2-B.  --live only changes the target/media
+# assumptions; a live (toram) session is detected automatically.
 #
-# The default is a direct write (build.sh --disk): only the staging files
-# (boot.wim, bootfat.img, OEMDRV) go in the build directory, so 8 GiB is
-# enough.  A qcow2 build (--image) keeps the whole disk in a file and needs
-# 80 GiB.  --build-dir moves the staging directory; --min-free-gb overrides
-# the requirement.
+# Only the 16 packages that build.sh and preflight.sh actually use are
+# installed.  CI/packaging tools (rclone, age, jq, shellcheck,
+# libxml2-utils, debootstrap, ...) are not needed to build an image; the
+# workflows install their own.  rpm2cpio/cpio are optional (RPM virtio-win
+# only) -- install them by hand if needed.
 #
-# On the live ISO booted with `toram`, /dev/shm is remounted at SHM_SIZE
-# (default 100% of RAM), staging defaults to /dev/shm/build and /dev/shm/iso
-# is created for the Windows ISO and virtio-win.  --check never remounts.
-# --shm-size SIZE or SHM_SIZE=SIZE accepts 100%, 16G, 1024, ...
+# Idempotent.  --check never installs packages or remounts /dev/shm.
 set -euo pipefail
 
 HERE=$(cd "$(dirname "$0")" && pwd)
@@ -43,6 +42,7 @@ usage() {
 while [ $# -gt 0 ]; do
     case "$1" in
         --check) CHECK=1; shift ;;
+        --live) LIVE=1; MODE=raw; shift ;;
         --disk) MODE=raw; TARGET=${2:?--disk needs a device}; shift 2 ;;
         --image) MODE=qcow2; TARGET=${2:?--image needs a path}; shift 2 ;;
         --build-dir) BUILD_DIR=${2:?--build-dir needs a path}; shift 2 ;;
@@ -73,9 +73,9 @@ else
     fi
 fi
 
-echo "== system =="
 # shellcheck disable=SC1091
 . /etc/os-release
+echo "== system =="
 echo "  $PRETTY_NAME ($(uname -m))"
 if [ "$(uname -m)" != "aarch64" ]; then
     echo "  note: this is not aarch64; the guest still runs under TCG"
@@ -87,39 +87,72 @@ if [ "$LIVE" = 1 ]; then
         echo "  /dev/shm: $(df -h /dev/shm | awk 'NR == 2 { print $2 }')" \
             "(target $SHM_SIZE; check only, not remounted)"
         shm_meets || echo "  run without --check to remount at $SHM_SIZE"
-        echo "  staging would be $BUILD_DIR; media in /dev/shm/iso"
+        echo "  media:   /dev/shm/iso"
+        echo "  staging: ${BUILD_DIR:-/dev/shm/build}"
     else
-        if live_shm_max; then
-            echo "  /dev/shm: $(df -h /dev/shm | awk 'NR == 2 { print $2 }')" \
-                "(target $SHM_SIZE)"
-            $SUDO install -d -m 1777 /dev/shm/iso /dev/shm/build
-            echo "  media:   /dev/shm/iso"
-            echo "  staging: $BUILD_DIR"
-        else
-            echo "  warn: could not remount /dev/shm at $SHM_SIZE" >&2
-            echo "  run: sudo mount -o remount,size=$SHM_SIZE /dev/shm" >&2
-        fi
+        live_shm_max "$SHM_SIZE"
+        $SUDO install -d -m 1777 /dev/shm/iso /dev/shm/build
+        echo "  /dev/shm: $(df -h /dev/shm | awk 'NR == 2 { print $2 }')"
+        echo "  media:   /dev/shm/iso"
+        echo "  staging: ${BUILD_DIR:-/dev/shm/build}"
     fi
 else
     echo "  not live (toram); /dev/shm is left unchanged"
 fi
 
-if [ "$CHECK" = 0 ]; then
+# Only the tools referenced by build.sh / pipeline/*.sh / preflight.sh.
+PKGS=(
+    qemu-system-arm qemu-utils qemu-efi-aarch64
+    wimtools xorriso gdisk dosfstools ntfs-3g mtools parted zstd
+    python3-hivex python3-pefile python3-winrm python3-requests-ntlm
+    curl
+)
+
+check_packages() {
     echo "== packages =="
-    PKGS=(
-        qemu-system-arm qemu-utils qemu-efi-aarch64
-        wimtools libhivex-bin python3-hivex python3-pefile
-        python3-winrm python3-requests-ntlm
-        mtools dosfstools ntfs-3g xorriso gdisk zstd
-        debootstrap parted e2fsprogs
-        curl rclone age jq
-        libxml2-utils shellcheck
-        cpio rpm2cpio
-    )
+    MISSING=0
+    for spec in "${PKGS[@]}"; do
+        case "$spec" in
+            qemu-system-arm) bins=(qemu-system-aarch64) ;;
+            qemu-utils) bins=(qemu-img qemu-nbd) ;;
+            wimtools) bins=(wimlib-imagex) ;;
+            gdisk) bins=(sgdisk) ;;
+            dosfstools) bins=(mkfs.vfat fatlabel) ;;
+            ntfs-3g) bins=(mkntfs ntfsfix) ;;
+            mtools) bins=(mcopy) ;;
+            parted) bins=(partprobe) ;;
+            python3-requests-ntlm) bins=(requests_ntlm) ;;
+            python3-hivex|python3-pefile|python3-winrm|curl) bins=("$spec") ;;
+            *) bins=("$spec") ;;
+        esac
+        for b in "${bins[@]}"; do
+            found=0
+            command -v "$b" >/dev/null 2>&1 && found=1
+            python3 -c "import ${b#python3-}" 2>/dev/null && found=1
+            # qemu-efi-aarch64 is data, not a binary: check the firmware file.
+            [ "$b" = qemu-efi-aarch64 ] &&
+                [ -f /usr/share/AAVMF/AAVMF_CODE.no-secboot.fd ] && found=1
+            if [ "$found" = 1 ]; then
+                printf '  ok    %s\n' "$b"
+            else
+                printf '  no    %s (%s)\n' "$b" "$spec"
+                MISSING=$(( MISSING + 1 ))
+            fi
+        done
+    done
+    [ "$MISSING" -eq 0 ] ||
+        echo "  $MISSING item(s) missing; run: sudo $0"
+}
+
+if [ "$CHECK" = 1 ]; then
+    check_packages
+else
+    echo "== install =="
     $SUDO bash "$HERE/../internal/apt.sh" disable_cdrom_source
     $SUDO apt-get update -qq
     $SUDO env DEBIAN_FRONTEND=noninteractive apt-get install -y -qq "${PKGS[@]}"
-    echo "  installed ${#PKGS[@]} package(s)"
+    echo "  installed/verified ${#PKGS[@]} package(s)"
+    check_packages
 fi
 
 echo "== virtualisation =="
@@ -145,45 +178,5 @@ env "${PREFLIGHT_ENV[@]}" "$HERE/../internal/preflight.sh" || {
     exit 1
 }
 
-if [ "$LIVE" = 1 ]; then
-    MEDIA_DIR=/dev/shm/iso
-else
-    MEDIA_DIR=/path/to
-fi
-
-cat <<EOF
-
-setup: OK
-next: put the Windows ISO in $MEDIA_DIR, then
-EOF
-if [ "$MODE" = qcow2 ]; then
-    cat <<EOF
-
-  sudo ./scripts/build.sh --image ${TARGET:-build/win11-arm64.qcow2} \\
-    --iso $MEDIA_DIR/Win11_ARM64_26H2.iso \\
-    --virtio $MEDIA_DIR/virtio-win.iso --yes
-EOF
-else
-    cat <<EOF
-
-  sudo ./scripts/build.sh --disk ${TARGET:-/dev/sdb} \\
-    --iso $MEDIA_DIR/Win11_ARM64_26H2.iso \\
-    --virtio $MEDIA_DIR/virtio-win.iso --yes
-EOF
-fi
-if [ "$LIVE" = 1 ]; then
-    cat <<EOF
-
-live (toram): /dev/shm is the recommended place for the media.
-  media:   $MEDIA_DIR
-  staging: ${BUILD_DIR:-/dev/shm/build}
-EOF
-fi
-cat <<EOF
-
---virtio accepts virtio-win.iso or virtio-win-*.noarch.rpm.
-
-Need the Ubuntu or virtio-win ISO?  See stage 1 in README.md.
-
-Building method B (live ISO in RAM)?  See docs/OCI.md.
-EOF
+echo
+echo "setup: OK"

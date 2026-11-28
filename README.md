@@ -28,13 +28,12 @@ OCI の Ubuntu を一時的なビルド機にし、ブートボリュームの�
 | [付録A](#付録a-github-actions-で回す) | GitHub Actions で回す | [docs/GITHUB.md](docs/GITHUB.md) |
 | [付録B](#付録b-ローカルで-qcow2-を作る) | ローカルで qcow2 を作る | [docs/BUILD.md](docs/BUILD.md) |
 
-`scripts/` の入口は次の 4 つです。`live-seed.sh` は cloud-init seed だけを書く
+`scripts/` の入口は次の 3 つです。`live-seed.sh` は cloud-init seed だけを書く
 内部スクリプトで、直接は叩きません。内部部品は `internal/` にあります。
 
 | スクリプト | 用途 | 使うステージ |
 |---|---|---|
-| `scripts/setup.sh` | ホストの準備と検査（全パッケージ。冪等） | 2-A |
-| `scripts/setup-live.sh` | RAM ビルド用の最小準備（冪等） | 2-B（live 内） |
+| `scripts/setup.sh` | ホストの準備と検査（最小構成、冪等。`--live` で live 向け） | 2-A / 2-B |
 | `scripts/boot-live.sh` | 起動元を自動判定して live ISO を `toram` 起動する | 2-B |
 | `scripts/build.sh` | ディスクを作る唯一の入口 | 4 |
 
@@ -55,7 +54,7 @@ OCI の無料枠とボリューム容量は
 [docs/OCI.md](docs/OCI.md#コスト) を参照してください。
 
 パッケージの導入とホスト検査は、ステージ2でビルド機にログインしてから
-`setup.sh`（2-A）または `setup-live.sh`（2-B の live セッション）で行います。
+`setup.sh` で行います（live セッションでは `--live` を付けます）。
 
 ## ステージ2 ビルド環境を作る
 
@@ -67,21 +66,25 @@ OCI の無料枠とボリューム容量は
 
 ### ビルド機のパッケージ
 
-ビルド機にログインしたら、最初に役割に応じたスクリプトを実行します（冪等）。
-2-A は全機能版の `setup.sh`、2-B の live セッションは最小構成の
-`setup-live.sh` です。どちらもパッケージの導入とホスト検査をまとめて行います。
+ビルド機にログインしたら、最初に `setup.sh` を実行します（冪等）。
+パッケージの導入とホスト検査をまとめて行います。
 
 ```bash
-# 2-A: 全機能版（CI / イメージ配布用のパッケージも入る）
-sudo ./scripts/setup.sh          # 入れてから検査（直接書き込みが既定）
-./scripts/setup.sh --check       # 検査だけ（何も変更しない）
+sudo ./scripts/setup.sh            # 入れてから検査
+./scripts/setup.sh --check         # 検査だけ（何も変更しない）
+
+# live (toram) セッションでは
+sudo ./scripts/setup.sh --live
 
 # 書き込み先まで確認する（サイズ・ルートデバイスかどうか）
 ./scripts/setup.sh --check --disk /dev/sdb
-
-# qcow2 を作る場合は 80GB 必要なので、モードを指定する
 ./scripts/setup.sh --check --image build/win11-arm64.qcow2
 ```
+
+`--check` でも各パッケージとバイナリを 1 つずつ確認し、KVM の有無も毎回
+表示します。CI / イメージ配布用のツール（`rclone` / `age` / `jq` /
+`shellcheck` / `libxml2-utils` / `debootstrap` など）はビルドには不要なので
+入れません（GitHub Actions のほうで必要なものを入れます）。
 
 既定は `build.sh --disk` の直接書き込みです。この場合、`build/` に置くのは
 `boot.wim`・`bootfat.img`・OEMDRV などの一時ファイルだけなので、8GB で
@@ -89,23 +92,12 @@ sudo ./scripts/setup.sh          # 入れてから検査（直接書き込みが
 一時ファイルを別の場所に置くときは `--build-dir`、判定を変えたいときは
 `--min-free-gb` を使います。
 
-live (`toram`) では `setup.sh` / `setup-live.sh` が `/dev/shm` を RAM の 100%
+live (`toram`) を検出すると `/dev/shm` を RAM の 100%
 （`SHM_SIZE`、または `--shm-size` で変更）に再マウントします。staging は
 `/dev/shm/build` が既定で、Windows ISO と virtio-win は `/dev/shm/iso`
 に置きます。`--check` は何も変更しません。
 
-**RAM ビルドなら `setup-live.sh` だけで十分です。** `setup.sh` は CI や
-イメージ配布用の上位集合で、`rclone` / `age` / `jq` / `shellcheck` /
-`libxml2-utils` / `debootstrap` など `build.sh` が使わないパッケージも
-入ります。
-
-```bash
-# 2-B: live セッション内でのみ実行（ホストの素の Ubuntu には不要）
-sudo ./scripts/setup-live.sh          # 最小構成を入れて preflight
-./scripts/setup-live.sh --check       # 検査だけ
-```
-
-最小構成は `qemu-system-arm` / `qemu-utils` / `qemu-efi-aarch64` /
+入れるのは `qemu-system-arm` / `qemu-utils` / `qemu-efi-aarch64` /
 `wimtools` / `xorriso` / `gdisk` / `dosfstools` / `ntfs-3g` / `mtools` /
 `parted` / `zstd` / `python3-hivex` / `python3-pefile` /
 `python3-winrm` / `python3-requests-ntlm` / `curl` です。
@@ -113,7 +105,7 @@ WinRM は完了判定とシャットダウンに必須なので必ず入りま�
 `rpm2cpio` / `cpio`（RPM 版 virtio-win）は任意なので入りません。
 必要なら別途 `apt-get install` してください。
 
-どちらのスクリプトも、インストーラが残した `file:///cdrom` の apt ソースを
+このスクリプトは、インストーラが残した `file:///cdrom` の apt ソースを
 （`cdrom.sources` → `cdrom.sources.disabled` にリネームして）無効化してから
 `apt-get update` します。復旧 Ubuntu では `/cdrom` が無いため、これを
 しないと `E: The repository 'file:/cdrom ... Release' does not have a Release file.`
@@ -263,16 +255,15 @@ sudo fatlabel /dev/sda15 "$(cat /boot/efi/win11-arm64-oci-esp-label)"
 ```
 
 live の root は RAM 上なので、リポジトリをもう一度 clone してから
-`setup-live.sh` を実行します（全パッケージ版の `setup.sh` でも動きますが、
-RAM 上では不要なパッケージまで入ります）。
+`setup.sh --live` を実行します。
 
 ```bash
 git clone https://github.com/<OWNER>/win11-arm64-oci.git
 cd win11-arm64-oci
-sudo ./scripts/setup-live.sh
+sudo ./scripts/setup.sh --live
 ```
 
-`setup-live.sh` は live (`toram`) を検出すると `/dev/shm` を RAM の 100% に
+`setup.sh` は live (`toram`) を検出すると `/dev/shm` を RAM の 100% に
 再マウントし、`/dev/shm/iso` と `/dev/shm/build` を作ります。cloud-init seed
 を使った場合は起動時に同じ設定が行われるので、SSH 直後から使えます。
 
@@ -301,8 +292,8 @@ curl -LO https://fedorapeople.org/groups/virt/virtio-win/direct-downloads/archiv
 
 `--virtio` は拡張子で ISO と RPM を判定します。RPM を渡すと
 `internal/stage-drivers.sh` が `rpm2cpio` + `cpio` で
-`by-driver/*/w11/ARM64` だけを取り出します。この 2 つは最小構成の
-`setup-live.sh` には含まれないので、RPM を使う場合は
+`by-driver/*/w11/ARM64` だけを取り出します。この 2 つは `setup.sh` には
+含まれないので、RPM を使う場合は
 `sudo apt-get install -y rpm2cpio cpio` を追加してください（ISO なら不要）。
 loop mount しないので、`umount` の後始末も要りません。
 
@@ -533,7 +524,7 @@ sudo ./scripts/build.sh --image build/win11-arm64.qcow2 \
 ```text
 autounattend/   無人インストール XML テンプレート
 oem/            初回起動時の PowerShell / CMD
-scripts/        入口 4 つ: setup.sh / setup-live.sh / boot-live.sh / build.sh（live-seed.sh は seed 専用）
+scripts/        入口 3 つ: setup.sh / boot-live.sh / build.sh（live-seed.sh は seed 専用）
 internal/       内部部品: build-image, live, apt, render, preflight ...
 pipeline/       ディスク構築の部品: wimlib apply, WinPE, QEMU, 検査
 docs/           OCI / GITHUB / BUILD / DUALBOOT / SCRATCH / WORKLOG

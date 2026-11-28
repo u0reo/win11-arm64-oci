@@ -64,7 +64,10 @@ tar xzf runner.tar.gz
 ### 必要なパッケージ
 
 README の [ステージ2](../README.md#ステージ2-ビルド環境を作る) と同じです。runner でも
-`sudo ./scripts/setup.sh` を実行してください。
+`sudo ./scripts/setup.sh` を実行してください。CI 自体が使う `shellcheck` や
+`libxml2-utils` は ci.yml が GitHub ホストランナーに入れます。
+`internal/package-image.sh` で `age` による暗号化を使う場合は runner に
+`apt-get install age` を追加してください。
 
 ### sudo
 

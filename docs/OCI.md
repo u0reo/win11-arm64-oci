@@ -110,9 +110,8 @@ ESP で、マウント中の ext4 は縮小できないため、インストー�
 virtio-win（0.7 GB、RPM なら 0.3 GB）を `/dev/shm/iso`（RAM）に置いても、
 24 GB に収まります。
 
-`setup.sh` / `setup-live.sh` は live (`toram`) を検出すると、`/dev/shm` の
-上限を既定で **RAM の 100%** に再マウントします（`SHM_SIZE` / `--shm-size`
-で変更可）。
+`setup.sh` は live (`toram`) を検出すると、`/dev/shm` の上限を既定で
+**RAM の 100%** に再マウントします（`SHM_SIZE` / `--shm-size` で変更可）。
 これは容量の予約ではなく上限です。実際に使うのは次の合計です。
 
 | 用途 | 目安 |
@@ -139,28 +138,28 @@ staging（`boot.wim` や OEMDRV など）は `BUILD_DIR` を省略すると
 `/dev/shm/build` になります。ISO を `$HOME` や overlay の `/` に置くと
 `/cow` を圧迫するので、`/dev/shm/iso` を使ってください。
 
-### 最小セットアップ（`setup-live.sh`）
+### セットアップ（`setup.sh`）
 
-`setup.sh` は CI・パッケージング・任意機能まで含めた上位集合です。
-`rclone` / `age` / `jq` / `shellcheck` / `libxml2-utils` / `debootstrap`
-は `build.sh` から呼ばれません。RAM (`toram`) ビルドだけなら最小構成で
-十分です。
+`setup.sh` は 2-A / 2-B 共通です。`build.sh` が使う最小構成のパッケージだけを
+入れ、`--check` でも各バイナリを 1 つずつ確認します。KVM の有無も毎回表示します。
+CI / パッケージング用の `rclone` / `age` / `jq` / `shellcheck` /
+`libxml2-utils` / `debootstrap` は入れません（GitHub Actions 側で入れます）。
 
 ```bash
-sudo ./scripts/setup-live.sh          # 必要なパッケージだけ入れて preflight
-./scripts/setup-live.sh --check       # 変更せずに確認
-sudo ./scripts/setup-live.sh --shm-size 16G
+sudo ./scripts/setup.sh               # 入れてから preflight
+./scripts/setup.sh --check            # 変更せずに確認
+sudo ./scripts/setup.sh --live        # live (toram) セッションでは --live
+sudo ./scripts/setup.sh --shm-size 16G
 ```
 
 入れるのは `qemu-system-arm` / `qemu-utils` / `qemu-efi-aarch64` /
 `wimtools` / `xorriso` / `gdisk` / `dosfstools` / `ntfs-3g` / `mtools` /
 `parted` / `zstd` / `python3-hivex` / `python3-pefile` /
 `python3-winrm` / `python3-requests-ntlm` / `curl` です。
-`rpm2cpio`/`cpio` は RPM 版 virtio-win を使うときだけ要ります。
-`debootstrap` は live ISO が無いときだけ要ります。
+`rpm2cpio`/`cpio` は RPM 版 virtio-win を使うときだけ別途入れてください。
 
-`setup.sh` / `setup-live.sh` はともに、インストーラが残した
-`file:///cdrom` の apt ソースを無効化してから `apt-get update` します
+`setup.sh` はインストーラが残した `file:///cdrom` の apt ソースを無効化してから
+`apt-get update` します
 （`internal/apt.sh`）。これは `/cdrom` が存在しない復旧 Ubuntu で
 `E: The repository 'file:/cdrom ... Release' does not have a Release file.`
 が出るためです（`cdrom.sources` → `cdrom.sources.disabled` にリネーム）。
@@ -194,7 +193,7 @@ ESP の `CIDATA` ラベルを用意し、`write_grub_menu.py --live-iso ... --li
 `CIDATA` にして、live 起動時から `authorized_keys` で SSH できるようにします
 （`--no-ssh` で省略可能）。seed も起動時に `/dev/shm` を RAM の 100% へ
 再マウントし、`/dev/shm/iso` と `/dev/shm/build` を作ります
-（seed を使わない場合は起動後の `setup-live.sh` が同じことをします）。
+（seed を使わない場合は起動後の `setup.sh --live` が同じことをします）。
 ESP は事前に `/boot/efi` にマウントしておきます（`ESP_MNT` で変更可）。
 元のラベルは ESP の `win11-arm64-oci-esp-label` に保存され、復元コマンドも
 表示されます。
@@ -247,7 +246,7 @@ ESP の `grubenv` の `next_entry` にエントリ名を書きます。どちら
 
 ## ISO の置き場所
 
-live (`toram`) の既定は **`/dev/shm/iso`（RAM）** です。`setup-live.sh` が
+live (`toram`) の既定は **`/dev/shm/iso`（RAM）** です。`setup.sh` が
 `/dev/shm` を RAM の 100% に再マウントするので、ISO を置いても
 `/dev/sda` の書き換えの影響を受けません。
 

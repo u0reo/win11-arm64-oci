@@ -65,7 +65,7 @@ for m in required:
         __import__(m)
         print(f"  ok    {m}")
     except Exception:
-        print(f"  FAIL  {m} is required; install with scripts/setup-live.sh")
+        print(f"  FAIL  {m} is required; install with scripts/setup.sh")
         missing.append(m)
 if missing:
     sys.exit(1)
