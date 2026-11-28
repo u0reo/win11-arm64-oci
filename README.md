@@ -215,6 +215,13 @@ ISO を省略すると `find /srv/iso -maxdepth 1 -type f -name
 | OCI の標準 Ubuntu（素の GRUB） | `update-grub` / `grub-reboot` あり | `/etc/grub.d/40_custom` → `update-grub` | `grub-reboot` で id `win11-live-toram` を 1 回だけ |
 | このプロジェクトの復旧 Ubuntu | 上記が無い | ESP の `\EFI\ubuntu\grub.cfg`（`write_grub_menu.py`） | `next_entry` で 1 回だけ |
 
+標準モードでは `/etc/default/grub.d/99-win11-arm64-oci-console.cfg` を書いて
+`GRUB_TERMINAL_INPUT` / `GRUB_TERMINAL_OUTPUT` を `console` に固定します。OCI の
+ファームウェアは EFI コンソールをシリアルへミラーするので、これで GRUB メニューを
+シリアルから表示・操作できます。`gfxterm`（GOP）や x86 用の `serial` ドライバに
+なるとシリアルが真っ黒になります。不要ならこのファイルを消して `update-grub`
+してください。
+
 どちらもメニューの番号ではなくエントリ名/id で指定するので、`update-grub` で
 並び順が変わっても壊れません。1 回だけなので、live の起動に失敗しても
 電源を入れ直せば元の Ubuntu に戻ります。毎回 live で起動したい場合は
