@@ -23,7 +23,7 @@ chainloads that copy.
 
 --live-iso adds a menuentry that boots an Ubuntu live ISO with `toram`.
 --live-seed adds ds=nocloud to its command line (use with the CIDATA ESP
-written by `scripts/prepare.sh --ssh`).  --first-boot-live selects the live
+written by `scripts/live-seed.sh`).  --first-boot-live selects the live
 entry once via next_entry.
 
 --first-boot-ubuntu writes next_entry="Ubuntu (recovery)" to
@@ -339,7 +339,7 @@ def main() -> int:
                         help="title of the live menuentry")
     parser.add_argument("--live-seed", action="store_true",
                         help="add ds=nocloud to the live kernel command line "
-                             "(use with a CIDATA ESP from prepare.sh --ssh)")
+                             "(use with a CIDATA ESP from live-seed.sh)")
     parser.add_argument("--first-boot-live", action="store_true",
                         help="run the live ISO on the next boot only")
     args = parser.parse_args()

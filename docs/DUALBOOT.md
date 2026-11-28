@@ -436,7 +436,7 @@ bootapp を削除します。`finish_disk.sh` は `bootmgfw.efi` が stock の�
 `--fresh-ubuntu` で作り直してください。
 
 p2 に 4 GiB 程度の Ubuntu を**自分で入れて起動してある**なら、
-`--reuse-ubuntu` で p2 を残したまま Windows を足せます。`prepare.sh` は
+`--reuse-ubuntu` で p2 を残したまま Windows を足せます。`boot-live.sh` は
 live 起動しか登録しないので、この Ubuntu は別のインストーラや
 [ステージ2-A](../README.md#ステージ2-a-ボリュームを付け替える) で
 用意しておく必要があります。通常は `--fresh-ubuntu` を使ってください。

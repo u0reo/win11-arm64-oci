@@ -359,7 +359,7 @@ sudo mount -t davfs https://webdav.pcloud.com /mnt/iso
 
 `--reuse-ubuntu` は、すでに p2 に 4 GiB 程度の Ubuntu を入れて起動して
 ある場合だけ使えます（`p1=ESP, p2=Ubuntu` のレイアウト専用）。
-`prepare.sh` は live 起動しか登録しないので、その Ubuntu は別途
+`boot-live.sh` は live 起動しか登録しないので、その Ubuntu は別途
 インストーラ等で入れておく必要があります。詳細は
 [DUALBOOT.md](DUALBOOT.md)。
 

@@ -58,7 +58,7 @@
 #   sudo env FROM_STEP=7 REBUILD_OEMDRV=1 ./scripts/build.sh ... --yes
 #
 # The target must not be the running root (except with --reuse-ubuntu).  Boot
-# the Ubuntu live ISO with `toram` first (scripts/prepare.sh).  Media that
+# the Ubuntu live ISO with `toram` first (scripts/boot-live.sh).  Media that
 # still lives on the target disk is copied into RAM before anything is
 # written, so the ISO may sit on the disk that is about to be wiped.
 #
@@ -135,7 +135,7 @@ while [ $# -gt 0 ]; do
         --boot-menu) BOOT_MENU=$2; shift 2 ;;
         --to-ram)
             echo "build: --to-ram is gone; it is detected automatically." >&2
-            echo "  boot the live ISO with 'toram' (scripts/prepare.sh) and" >&2
+            echo "  boot the live ISO with 'toram' (scripts/boot-live.sh) and" >&2
             echo "  run build.sh without --to-ram" >&2
             exit 1 ;;
         --yes) YES=1; shift ;;
@@ -290,7 +290,7 @@ on_target() {
 if [ "$ROOT_ON_DISK" = 1 ] && [ "$REUSE_UBUNTU" != 1 ]; then
     cat >&2 <<EOF
 build: $DISK is the running root device.
-  Reboot into the Ubuntu live entry with 'toram' (scripts/prepare.sh) and
+  Reboot into the Ubuntu live entry with 'toram' (scripts/boot-live.sh) and
   run this again, or use --reuse-ubuntu when p2 is a small Ubuntu that must
   survive.  Nothing has been written.
 EOF
@@ -304,7 +304,7 @@ if [ "$REUSE_UBUNTU" != 1 ] && [ "$FILE_TARGET" = 0 ]; then
         [ -e "$f" ] || continue
         if on_target "$f"; then
             echo "build: the live system still reads $f from $DISK" >&2
-            echo "  boot the live ISO with 'toram' (scripts/prepare.sh) first" >&2
+            echo "  boot the live ISO with 'toram' (scripts/boot-live.sh) first" >&2
             exit 1
         fi
     done
