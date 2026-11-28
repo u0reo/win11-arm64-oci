@@ -104,11 +104,14 @@ printf 'instance-id: win11-arm64-oci-live\nlocal-hostname: win11-live\n' |
 # cloud-init's NoCloud datasource auto-detects a vfat filesystem labelled
 # CIDATA.  A block device path is not a valid seedfrom URI, so relabel the
 # ESP instead of passing ds=nocloud;s=...
-OLD_LABEL=$(fatlabel "$ESP_DEV" 2>/dev/null) ||
-    die "fatlabel failed for $ESP_DEV (install dosfstools)"
+# fatlabel prints its "boot sector and its backup" warning on stdout, so
+# reading the label with it would capture that noise.  blkid reads the label
+# without running the check that emits the warning.
+OLD_LABEL=$(blkid -s LABEL -o value "$ESP_DEV" 2>/dev/null || true)
 if [ "$OLD_LABEL" != CIDATA ]; then
     printf '%s\n' "${OLD_LABEL:-}" | tee "$ESPDIR/win11-arm64-oci-esp-label" >/dev/null
-    fatlabel "$ESP_DEV" CIDATA
+    fatlabel "$ESP_DEV" CIDATA >/dev/null ||
+        die "fatlabel failed for $ESP_DEV (install dosfstools)"
     echo "live-seed: labelled the ESP CIDATA (was '${OLD_LABEL:-none}')"
     echo "  restore later with: fatlabel $ESP_DEV '${OLD_LABEL:-}'"
 fi

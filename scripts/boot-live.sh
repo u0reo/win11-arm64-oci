@@ -259,6 +259,7 @@ if [ "$ONCE" = 1 ]; then
     echo "  the live entry is selected once; the old default returns afterwards."
 fi
 if [ "$SSH" = 1 ]; then
+    ESP_DEV=$(findmnt -no SOURCE --target "$ESP" 2>/dev/null || printf '%s\n' "$ESP")
     echo "  ESP is labelled CIDATA.  Restore it later with:"
-    echo "    fatlabel $ESP \"\$(cat $ESP/win11-arm64-oci-esp-label)\""
+    echo "    fatlabel $ESP_DEV \"\$(cat $ESP/win11-arm64-oci-esp-label)\""
 fi
