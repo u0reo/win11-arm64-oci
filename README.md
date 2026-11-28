@@ -223,11 +223,12 @@ ISO を省略すると `find /srv/iso -maxdepth 1 -type f -name
 してください。
 
 どちらもメニューの番号ではなくエントリ名/id で指定するので、`update-grub` で
-並び順が変わっても壊れません。1 回だけなので、live の起動に失敗しても
-電源を入れ直せば元の Ubuntu に戻ります。毎回 live で起動したい場合は
-標準 Ubuntu では `--default` を付けてください（`--default` は標準モード専用）。
-復旧 Ubuntu では `--timeout 秒数` でメニュー時間を変えられます（既定 5 秒）。
-判定を明示したいときは `--mode standard` / `--mode recovery` を付けます。
+並び順が変わっても壊れません。**次の 1 回だけ live を起動**します（`--once` /
+`--default` オプションはありません）。live の起動に失敗しても電源を入れ直せば
+元の Ubuntu / Windows に戻ります。もう一度 live を使うときは `boot-live.sh` を
+再実行してください。復旧 Ubuntu では `--timeout 秒数` でメニュー時間を変えられます
+（既定 5 秒）。判定を明示したいときは `--mode standard` / `--mode recovery` を
+付けます。
 
 ESP に cloud-init の seed を書き、ラベルを `CIDATA` に変えて、live 起動時から
 `authorized_keys` で SSH できるようにします。公開鍵は
@@ -242,11 +243,25 @@ ESP は `/boot/efi` にマウントされている必要があります。`findm
 で確認し、無ければ `lsblk -f` で vfat の ESP を探して
 `sudo mount /dev/sda15 /boot/efi` のようにマウントしてから実行してください。
 
-`--once` / `--default` を付けない場合（標準 Ubuntu）は GRUB のメニューで
-`Ubuntu live (toram)` を選びます（`GRUB_TIMEOUT=0` だとメニューが出ないので、
-どちらかを付けてください）。`--default` の変更前の `/etc/default/grub` は
-`/etc/default/grub.win11-arm64-oci.bak` に保存され、戻し方はスクリプトが
-表示します。ESP の元のラベルは `win11-arm64-oci-esp-label` に保存されます。
+ESP の元のラベルは `win11-arm64-oci-esp-label` に保存されます。
+
+標準モードの `boot-live.sh` は `/etc/fstab` の `/boot/efi` 行を
+`PARTUUID=...` に書き換え、`nofail,x-systemd.device-timeout=10s` を付けます。
+元のファイルは `/etc/fstab.win11-arm64-oci.bak` に保存されます。OCI の標準
+Ubuntu はこの行を `LABEL=UEFI` で書いているため、ラベルを `CIDATA` にした
+まま再起動すると systemd が `dev-disk-by-label-UEFI.device` を 90 秒待って
+起動に失敗していましたが、これで回避できます。
+
+cloud-init が起動ごとに seed を拾わないよう、seed の `runcmd` が ESP ラベルを
+元へ戻します（live ISO に `fatlabel` が無い場合はスキップされるので、そのときは
+手動で戻してください）。
+
+```bash
+sudo mkdir -p /boot/efi
+sudo mount /dev/sda15 /boot/efi
+sudo fatlabel /dev/sda15 "$(cat /boot/efi/win11-arm64-oci-esp-label)"
+# 保存ファイルが汚れている場合は明示的に: sudo fatlabel /dev/sda15 UEFI
+```
 
 live の root は RAM 上なので、リポジトリをもう一度 clone してから
 `setup-live.sh` を実行します（全パッケージ版の `setup.sh` でも動きますが、
@@ -397,7 +412,9 @@ sudo ./scripts/build.sh --fresh-ubuntu --winre-partition --disk /dev/sdb \
 
 - **ステージ2-A**: B を停止し、ボリュームを A のブートボリュームとして
   再接続して A を起動します。
-- **ステージ2-B**: live から `sudo reboot` します。
+- **ステージ2-B**: live から `sudo reboot -f` します。通常の `reboot` は
+  シャットダウン中のコンソール入力待ちで停止することがあります。`-f` は
+  サービスの停止を待たずに即座に再起動します。
 
 起動後:
 

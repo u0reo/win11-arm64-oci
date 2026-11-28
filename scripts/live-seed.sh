@@ -81,6 +81,17 @@ KEYS=$(printf '%s' "$KEYS" | awk 'NF && !seen[$0]++')
 # /dev/shm must be enlarged before the build starts: the live system has to
 # keep the ISO, staging files and QEMU guest in RAM at the same time.
 KEYS_YAML=$(printf '%s\n' "$KEYS" | sed 's/^/      - /')
+
+# cloud-init reads the seed from the CIDATA-labelled ESP, then runcmd restores
+# the original label so later boots do not re-apply this seed.  fatlabel is
+# not necessarily present in the live image, so make it best-effort.
+OLD_LABEL=$(blkid -s LABEL -o value "$ESP_DEV" 2>/dev/null || true)
+LABEL_RESTORE=""
+if [ -n "$OLD_LABEL" ] && [ "$OLD_LABEL" != CIDATA ]; then
+    LABEL_RESTORE=$(printf "  - sh -c 'command -v fatlabel >/dev/null 2>&1 && { umount %s 2>/dev/null || true; fatlabel %s %q || true; } || true'\n" \
+        "$ESP_DEV" "$ESP_DEV" "$OLD_LABEL")
+fi
+
 cat > "$ESPDIR/user-data" <<EOF
 #cloud-config
 ssh_pwauth: false
@@ -97,6 +108,7 @@ runcmd:
   - systemctl enable --now ssh
   - sh -c 'mkdir -p /dev/shm/iso /dev/shm/build && chmod 1777 /dev/shm/iso /dev/shm/build'
   - sh -c 'mount -o remount,size=100% /dev/shm || true'
+$LABEL_RESTORE
 EOF
 printf 'instance-id: win11-arm64-oci-live\nlocal-hostname: win11-live\n' |
     tee "$ESPDIR/meta-data" >/dev/null
@@ -104,10 +116,6 @@ printf 'instance-id: win11-arm64-oci-live\nlocal-hostname: win11-live\n' |
 # cloud-init's NoCloud datasource auto-detects a vfat filesystem labelled
 # CIDATA.  A block device path is not a valid seedfrom URI, so relabel the
 # ESP instead of passing ds=nocloud;s=...
-# fatlabel prints its "boot sector and its backup" warning on stdout, so
-# reading the label with it would capture that noise.  blkid reads the label
-# without running the check that emits the warning.
-OLD_LABEL=$(blkid -s LABEL -o value "$ESP_DEV" 2>/dev/null || true)
 if [ "$OLD_LABEL" != CIDATA ]; then
     printf '%s\n' "${OLD_LABEL:-}" | tee "$ESPDIR/win11-arm64-oci-esp-label" >/dev/null
     fatlabel "$ESP_DEV" CIDATA >/dev/null ||

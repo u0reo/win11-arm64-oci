@@ -216,38 +216,22 @@ QEMU（AAVMF + TCG）で起動して確認済みです。cloud-init が `CIDATA`
 `local-hostname` は live では効かず、ホスト名は `ubuntu-server` のままに
 なります（動作に影響はありません）。
 
-### 自動起動（`--default` / `--once`）
-
-`GRUB_DEFAULT` に番号を書く方法はおすすめしません。番号は `update-grub` が
-生成するメニューの並び順で決まり、カーネルの追加やサブメニューの有無で
-ずれます（サブメニューは `1>2` のように書く必要があります）。
+### 1 回だけ live を起動する
 
 標準モードの `boot-live.sh` は live のエントリに `--id win11-live-toram` を
-付け、その id で起動を指定します。id はメニューの並び順に依存しません。
-復旧モードでは
-ESP の `grubenv` の `next_entry` にエントリ名を書きます。
+付け、`grub-reboot` で次の 1 回だけその id を起動します。復旧モードでは
+ESP の `grubenv` の `next_entry` にエントリ名を書きます。どちらもメニューの
+番号には依存しません。
 
-| フラグ | やること | 使う場面 |
-|---|---|---|
-| `--once` | 標準: `grub-reboot win11-live-toram` / 復旧: `next_entry`。次の 1 回だけ live | 最初の確認。失敗しても次の電源投入で元の Ubuntu に戻る |
-| `--default` | 標準のみ: `/etc/default/grub` の `GRUB_DEFAULT` を `win11-live-toram` に | 毎回 live で起動したいとき |
-| `--no-ssh` | seed と `ds=nocloud` を省く | live に SSH 不要のとき |
+`GRUB_DEFAULT` は書き換えないので、元の既定へ戻す操作は不要です。再び live を
+使うときは `boot-live.sh` を再実行してください。
 
-`--once` が既定です（後から `--once` を付けると `--default` は打ち消されます）。
-`--default` は標準モード専用で、変更前の
-`/etc/default/grub` を `/etc/default/grub.win11-arm64-oci.bak` に保存し、
-戻し方を表示します。手動で戻す場合:
-
-```bash
-sudo cp -p /etc/default/grub.win11-arm64-oci.bak /etc/default/grub
-sudo update-grub
-```
-
-`GRUB_TIMEOUT=0`（OCI の既定）ならメニューは出ず、そのまま既定エントリが
-起動します。メニューを出したいときは `GRUB_TIMEOUT=10` と
-`GRUB_TIMEOUT_STYLE=menu` にします。
-
-復旧モードのメニュー時間は `--timeout 秒数` で変えられます（既定 5 秒）。
+| オプション | やること |
+|---|---|
+| （なし） | 常に次の 1 回だけ live。失敗しても次の電源投入で元の OS に戻る |
+| `--no-ssh` | seed と `ds=nocloud` を省く |
+| `--timeout SEC` | 復旧モードのメニュー時間（既定 5 秒） |
+| `--mode auto|standard|recovery` | 起動元の判定を固定する |
 
 ### 注意点
 
