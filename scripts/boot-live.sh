@@ -43,6 +43,98 @@ die() {
     exit 1
 }
 
+# cloud-init seed for the live session.  Writes user-data/meta-data to the
+# ESP, relabels it CIDATA and saves the old label.  The seed creates the
+# user `ubuntu` with this machine's authorized_keys, passwordless sudo and
+# sshd, makes /dev/shm/iso and /dev/shm/build, and remounts /dev/shm at 100%
+# of RAM.  runcmd restores the ESP label after cloud-init has read the seed
+# (best-effort: the live image may not have fatlabel).
+SEED_KEYS=""
+seed_add_keys() {
+    [ -f "$1" ] || return 0
+    # Keep only "type base64 [comment]".  authorized_keys lines may carry
+    # options, and cloud images guard the root key with a command= option;
+    # passing that to ssh_authorized_keys would not start a shell.
+    SEED_KEYS+=$(awk '
+        NF && $1 !~ /^#/ {
+            for (i = 1; i < NF; i++) {
+                if ($i ~ /^(ssh-(rsa|dss|ed25519)|ecdsa-sha2-[^,]+|sk-[^,]+)$/ &&
+                    length($(i + 1)) > 40) {
+                    line = $i
+                    for (j = i + 1; j <= NF; j++) line = line " " $j
+                    print line
+                    break
+                }
+            }
+        }' "$1")$'\n'
+}
+
+write_live_seed() {
+    local esp=$1 esp_dev espdir esp_want keys_yaml old_label label_restore
+
+    esp_dev=$(findmnt -no SOURCE --target "$esp" 2>/dev/null || true)
+    espdir=$(findmnt -no TARGET --target "$esp" 2>/dev/null || true)
+    espdir=$(realpath -e "$espdir" 2>/dev/null || true)
+    esp_want=$(realpath -e "$esp" 2>/dev/null || true)
+    [ -n "$esp_dev" ] && [ -n "$espdir" ] && [ "$espdir" = "$esp_want" ] ||
+        die "$esp is not mounted; mount the ESP first"
+
+    SEED_KEYS=""
+    if [ -n "${SUDO_USER:-}" ] && [ "$SUDO_USER" != root ]; then
+        seed_add_keys "/home/$SUDO_USER/.ssh/authorized_keys"
+    fi
+    seed_add_keys /root/.ssh/authorized_keys
+    local f
+    for f in /home/*/.ssh/authorized_keys; do
+        [ -e "$f" ] && seed_add_keys "$f"
+    done
+    SEED_KEYS=$(printf '%s' "$SEED_KEYS" | awk 'NF && !seen[$0]++')
+    [ -n "$SEED_KEYS" ] ||
+        die "no authorized_keys found in /home/*/.ssh or /root/.ssh"
+
+    keys_yaml=$(printf '%s\n' "$SEED_KEYS" | sed 's/^/      - /')
+    # blkid reads the label without fatlabel's "boot sector and its backup"
+    # warning on stdout.
+    old_label=$(blkid -s LABEL -o value "$esp_dev" 2>/dev/null || true)
+    label_restore=""
+    if [ -n "$old_label" ] && [ "$old_label" != CIDATA ]; then
+        label_restore=$(printf "  - sh -c 'command -v fatlabel >/dev/null 2>&1 && { umount %s 2>/dev/null || true; fatlabel %s %q || true; } || true'\n" \
+            "$esp_dev" "$esp_dev" "$old_label")
+    fi
+
+    cat > "$espdir/user-data" <<EOF
+#cloud-config
+ssh_pwauth: false
+users:
+  - default
+  - name: ubuntu
+    gecos: Ubuntu
+    groups: [adm, sudo]
+    shell: /bin/bash
+    sudo: "ALL=(ALL) NOPASSWD:ALL"
+    ssh_authorized_keys:
+$keys_yaml
+runcmd:
+  - systemctl enable --now ssh
+  - sh -c 'mkdir -p /dev/shm/iso /dev/shm/build && chmod 1777 /dev/shm/iso /dev/shm/build'
+  - sh -c 'mount -o remount,size=100% /dev/shm || true'
+$label_restore
+EOF
+    printf 'instance-id: win11-arm64-oci-live\nlocal-hostname: win11-live\n' |
+        tee "$espdir/meta-data" >/dev/null
+
+    # NoCloud finds a vfat filesystem labelled CIDATA.  A block device path
+    # is not a valid seedfrom URI, so relabel the ESP.
+    if [ "$old_label" != CIDATA ]; then
+        printf '%s\n' "${old_label:-}" | tee "$espdir/win11-arm64-oci-esp-label" >/dev/null
+        fatlabel "$esp_dev" CIDATA >/dev/null ||
+            die "fatlabel failed for $esp_dev (install dosfstools)"
+        echo "boot-live: labelled the ESP CIDATA (was '${old_label:-none}')"
+        echo "  restore later with: fatlabel $esp_dev '${old_label:-}'"
+    fi
+    echo "boot-live: wrote $espdir/user-data and meta-data (ssh keys: $(printf '%s\n' "$SEED_KEYS" | wc -l))"
+}
+
 [ "$(id -u)" -eq 0 ] || die "run as root: sudo $0 $*"
 
 ISO=
@@ -123,7 +215,7 @@ echo "  fs:  $MNT (UUID $UUID), path $REL"
 # --- cloud-init seed for SSH in the live session ---------------------------
 if [ "$SSH" = 1 ]; then
     echo "== cloud-init seed (ESP -> CIDATA) =="
-    "$HERE/live-seed.sh" --esp "$ESP"
+    write_live_seed "$ESP"
 else
     echo "== no cloud-init seed (--no-ssh) =="
 fi
@@ -194,7 +286,7 @@ GRUB_TIMEOUT=5
 GRUB_TIMEOUT_STYLE=menu
 EOF
 
-    # OCI's Ubuntu mounts the ESP with LABEL=UEFI in /etc/fstab.  live-seed.sh
+    # OCI's Ubuntu mounts the ESP with LABEL=UEFI in /etc/fstab.  The seed
     # relabels the ESP to CIDATA, so a later boot would wait 90s for a device
     # that no longer exists.  Pin /boot/efi to the partition's PARTUUID and
     # add nofail so the label change cannot break the host's next boot.

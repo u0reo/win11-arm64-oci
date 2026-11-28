@@ -182,7 +182,7 @@ sudo reboot
 ISO 省略時は `/srv/iso/*live-server-arm64*.iso` を検索し、一致が 1 つだけなら
 それを使います。0 個または 2 個以上ならエラーなので、その場合は引数で
 パスを渡します。判定を固定したいときは `--mode standard` / `--mode recovery`
-を付けます。どちらのモードも `scripts/live-seed.sh` で cloud-init seed と
+を付けます。どちらのモードも `boot-live.sh` が cloud-init seed と
 ESP の `CIDATA` ラベルを用意し、`write_grub_menu.py --live-iso ... --live-seed
 --first-boot-live` で ESP のメニューに live エントリを書き、`next_entry`
 で次回 1 回だけ live を起動します。`fatlabel`（dosfstools）が必要です。

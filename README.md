@@ -28,8 +28,7 @@ OCI の Ubuntu を一時的なビルド機にし、ブートボリュームの�
 | [付録A](#付録a-github-actions-で回す) | GitHub Actions で回す | [docs/GITHUB.md](docs/GITHUB.md) |
 | [付録B](#付録b-ローカルで-qcow2-を作る) | ローカルで qcow2 を作る | [docs/BUILD.md](docs/BUILD.md) |
 
-`scripts/` の入口は次の 3 つです。`live-seed.sh` は cloud-init seed だけを書く
-内部スクリプトで、直接は叩きません。内部部品は `internal/` にあります。
+`scripts/` の入口は次の 3 つです。内部部品は `internal/` にあります。
 
 | スクリプト | 用途 | 使うステージ |
 |---|---|---|
@@ -524,7 +523,7 @@ sudo ./scripts/build.sh --image build/win11-arm64.qcow2 \
 ```text
 autounattend/   無人インストール XML テンプレート
 oem/            初回起動時の PowerShell / CMD
-scripts/        入口 3 つ: setup.sh / boot-live.sh / build.sh（live-seed.sh は seed 専用）
+scripts/        入口 3 つ: setup.sh / boot-live.sh / build.sh
 internal/       内部部品: build-image, live, apt, render, preflight ...
 pipeline/       ディスク構築の部品: wimlib apply, WinPE, QEMU, 検査
 docs/           OCI / GITHUB / BUILD / DUALBOOT / SCRATCH / WORKLOG
